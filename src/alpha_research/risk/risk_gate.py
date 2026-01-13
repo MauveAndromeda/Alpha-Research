@@ -79,6 +79,11 @@ class RiskGate:
         monthly_config = config.get('monthly_loss', {})
         self.monthly_loss_threshold = monthly_config.get('threshold', -0.10)
 
+        # Cost stress test (Constitutional Principle #5: 2x cost survival)
+        cost_config = config.get('cost_stress_test', {})
+        self.cost_multiplier = cost_config.get('slippage_multiplier_for_stress', 2.0)
+        self.min_profit_margin_after_costs = cost_config.get('min_profit_margin_after_costs', 0.0)
+
         # Tracking state
         self._high_water_mark = 0.0
         self._current_drawdown = 0.0
@@ -341,3 +346,95 @@ class RiskGate:
         var = np.percentile(portfolio_returns, (1 - confidence) * 100)
 
         return abs(var)
+
+    def validate_cost_stress_test(
+        self,
+        gross_return: float,
+        base_cost: float,
+        turnover: float,
+    ) -> Tuple[bool, float, str]:
+        """
+        Validate Constitutional Principle #5: Strategy must survive 2x costs.
+
+        Args:
+            gross_return: Expected gross return (annualized)
+            base_cost: Base transaction cost (slippage + commission)
+            turnover: Expected annual turnover (e.g., 4.0 = 400%)
+
+        Returns:
+            Tuple of (passes_test, net_return_under_stress, message)
+        """
+        # Calculate costs under stress (2x multiplier)
+        stressed_cost = base_cost * self.cost_multiplier
+        total_cost = stressed_cost * turnover
+
+        # Net return under stress
+        net_return = gross_return - total_cost
+
+        passes = net_return > self.min_profit_margin_after_costs
+
+        if passes:
+            message = (
+                f"Cost stress test PASSED: gross={gross_return:.2%}, "
+                f"stressed_costs={total_cost:.2%}, net={net_return:.2%}"
+            )
+        else:
+            message = (
+                f"Cost stress test FAILED: gross={gross_return:.2%}, "
+                f"stressed_costs={total_cost:.2%}, net={net_return:.2%} "
+                f"< min_margin={self.min_profit_margin_after_costs:.2%}"
+            )
+
+        return passes, net_return, message
+
+    def estimate_strategy_viability(
+        self,
+        historical_returns: pd.Series,
+        turnover_per_period: float,
+        periods_per_year: int = 252,
+        base_cost_per_trade: float = 0.001,  # 10 bps
+    ) -> Dict[str, Any]:
+        """
+        Estimate strategy viability based on historical performance.
+
+        Args:
+            historical_returns: Series of period returns
+            turnover_per_period: Average turnover per period
+            periods_per_year: Trading periods per year
+            base_cost_per_trade: Base cost per round-trip trade
+
+        Returns:
+            Dictionary with viability metrics
+        """
+        if len(historical_returns) < 20:
+            return {'viable': False, 'reason': 'Insufficient history'}
+
+        # Annualized gross return
+        mean_return = historical_returns.mean()
+        annual_gross = mean_return * periods_per_year
+
+        # Annual turnover
+        annual_turnover = turnover_per_period * periods_per_year
+
+        # Validate against 2x cost scenario
+        passes, net_return, message = self.validate_cost_stress_test(
+            gross_return=annual_gross,
+            base_cost=base_cost_per_trade,
+            turnover=annual_turnover,
+        )
+
+        # Risk metrics
+        vol = historical_returns.std() * np.sqrt(periods_per_year)
+        sharpe_gross = annual_gross / vol if vol > 0 else 0
+        sharpe_net = net_return / vol if vol > 0 else 0
+
+        return {
+            'viable': passes,
+            'gross_return': annual_gross,
+            'net_return_stressed': net_return,
+            'annual_turnover': annual_turnover,
+            'volatility': vol,
+            'sharpe_gross': sharpe_gross,
+            'sharpe_net_stressed': sharpe_net,
+            'message': message,
+        }

@@ -10,6 +10,7 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
+import numpy as np
 
 from alpha_research.data.snapshot import SnapshotManager, RunResultManager
 from alpha_research.data.ledger import EvidenceLedger
@@ -115,6 +116,7 @@ class TradingOrchestrator:
         self._current_run_id: Optional[str] = None
         self._current_snapshot: Optional[Snapshot] = None
         self._is_running = False
+        self._initial_capital = 100000.0  # Default, should be set from config/account
 
     def run_daily(
         self,
@@ -415,12 +417,25 @@ class TradingOrchestrator:
         }
 
     def _check_risk_gate(self) -> RiskDecision:
-        """Check risk gate."""
-        # Get current NAV (simplified)
-        nav = 100000  # Would come from actual portfolio value
+        """Check risk gate with full VAR and correlation analysis."""
+        # Get current NAV from position tracker
+        positions = self.position_tracker.get_positions()
+        nav = self._calculate_portfolio_nav(positions)
+
+        # Calculate portfolio VAR if we have positions
+        portfolio_var = None
+        if positions and hasattr(self, '_market_data') and len(self._market_data) > 0:
+            portfolio_var = self._calculate_portfolio_var(positions)
+
+        # Calculate correlation of new positions with existing portfolio
+        new_positions_corr = None
+        if hasattr(self, '_constructed') and len(self._constructed) > 0:
+            new_positions_corr = self._calculate_new_position_correlations(positions)
 
         decision = self.risk_gate.evaluate(
             current_nav=nav,
+            portfolio_var=portfolio_var,
+            new_positions_corr=new_positions_corr,
         )
 
         if decision.is_killed:
@@ -432,6 +447,111 @@ class TradingOrchestrator:
             )
 
         return decision
+
+    def _calculate_portfolio_nav(self, positions: Dict[str, int]) -> float:
+        """Calculate current portfolio NAV."""
+        if not positions:
+            return self._initial_capital
+
+        nav = 0.0
+        for symbol, shares in positions.items():
+            if hasattr(self, '_market_data'):
+                symbol_data = self._market_data[self._market_data['symbol'] == symbol]
+                if len(symbol_data) > 0:
+                    price = symbol_data.iloc[-1]['close']
+                    nav += shares * price
+
+        # Add cash (simplified - would track actual cash)
+        return nav if nav > 0 else self._initial_capital
+
+    def _calculate_portfolio_var(self, positions: Dict[str, int]) -> float:
+        """Calculate 95% VAR for current portfolio."""
+        if not positions or not hasattr(self, '_market_data'):
+            return 0.0
+
+        # Calculate weights
+        total_value = 0.0
+        position_values = {}
+
+        for symbol, shares in positions.items():
+            symbol_data = self._market_data[self._market_data['symbol'] == symbol]
+            if len(symbol_data) > 0:
+                price = symbol_data.iloc[-1]['close']
+                value = shares * price
+                position_values[symbol] = value
+                total_value += value
+
+        if total_value == 0:
+            return 0.0
+
+        weights = pd.Series({s: v / total_value for s, v in position_values.items()})
+
+        # Calculate returns matrix
+        returns_data = {}
+        for symbol in positions.keys():
+            symbol_data = self._market_data[self._market_data['symbol'] == symbol].sort_values('trade_date' if 'trade_date' in self._market_data.columns else 'date')
+            if len(symbol_data) > 1:
+                prices = symbol_data['close'].values
+                returns_data[symbol] = np.diff(prices) / prices[:-1]
+
+        if not returns_data:
+            return 0.0
+
+        # Align returns to same length
+        min_len = min(len(r) for r in returns_data.values())
+        returns_df = pd.DataFrame({s: r[-min_len:] for s, r in returns_data.items()})
+
+        return self.risk_gate.calculate_portfolio_var(weights, returns_df, confidence=0.95)
+
+    def _calculate_new_position_correlations(self, current_positions: Dict[str, int]) -> Dict[str, float]:
+        """Calculate correlation of proposed new positions with existing portfolio."""
+        if not hasattr(self, '_constructed') or not hasattr(self, '_market_data'):
+            return {}
+
+        # Get symbols in proposed portfolio but not in current
+        proposed_symbols = set(self._constructed['symbol'].tolist())
+        current_symbols = set(current_positions.keys())
+        new_symbols = proposed_symbols - current_symbols
+
+        if not new_symbols or not current_symbols:
+            return {}
+
+        # Calculate returns for all symbols
+        returns_data = {}
+        all_symbols = new_symbols | current_symbols
+
+        for symbol in all_symbols:
+            symbol_data = self._market_data[self._market_data['symbol'] == symbol].sort_values('trade_date' if 'trade_date' in self._market_data.columns else 'date')
+            if len(symbol_data) > 1:
+                prices = symbol_data['close'].values
+                returns_data[symbol] = np.diff(prices) / prices[:-1]
+
+        if len(returns_data) < 2:
+            return {}
+
+        # Align returns
+        min_len = min(len(r) for r in returns_data.values())
+        if min_len < 20:  # Need minimum history
+            return {}
+
+        returns_df = pd.DataFrame({s: r[-min_len:] for s, r in returns_data.items()})
+
+        # Calculate portfolio returns (equal weight for simplicity)
+        current_in_data = [s for s in current_symbols if s in returns_df.columns]
+        if not current_in_data:
+            return {}
+
+        portfolio_returns = returns_df[current_in_data].mean(axis=1)
+
+        # Calculate correlation of each new symbol with portfolio
+        correlations = {}
+        for symbol in new_symbols:
+            if symbol in returns_df.columns:
+                corr = returns_df[symbol].corr(portfolio_returns)
+                if not np.isnan(corr):
+                    correlations[symbol] = corr
+
+        return correlations
 
     def _check_portfolio_gate(
         self,

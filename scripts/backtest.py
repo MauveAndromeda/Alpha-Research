@@ -4,125 +4,207 @@ Backtest Runner for Alpha Research Trading System.
 
 Usage:
     python scripts/backtest.py --start 2023-01-01 --end 2023-12-31
+    python scripts/backtest.py --start 2020-01-01 --end 2024-01-01 --capital 1000000
 """
 
 import argparse
 import sys
 from pathlib import Path
 from datetime import datetime, date, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 import pandas as pd
 import numpy as np
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from alpha_research.orchestrator import TradingOrchestrator
+from alpha_research.backtest.engine import BacktestEngine, SlippageModel
+from alpha_research.data.providers import YahooDataProvider
+from alpha_research.risk.risk_gate import RiskGate
 from alpha_research.utils.time_utils import get_trading_calendar
+
+
+def fetch_backtest_data(
+    symbols: List[str],
+    start_date: date,
+    end_date: date,
+    verbose: bool = True,
+) -> tuple:
+    """
+    Fetch historical data for backtesting.
+
+    Args:
+        symbols: List of symbols to fetch
+        start_date: Start date
+        end_date: End date
+        verbose: Print progress
+
+    Returns:
+        Tuple of (market_data, fundamental_data)
+    """
+    if verbose:
+        print(f"Fetching data for {len(symbols)} symbols...")
+
+    provider = YahooDataProvider()
+
+    # Fetch with buffer for lookback
+    fetch_start = start_date - timedelta(days=400)
+
+    market_data = provider.get_market_data(
+        symbols=symbols,
+        start_date=fetch_start,
+        end_date=end_date,
+        asof_time=datetime.combine(end_date, datetime.min.time()),
+    )
+
+    # Generate synthetic fundamental data (in production, use real data)
+    fundamental_data = generate_synthetic_fundamentals(market_data, symbols)
+
+    if verbose:
+        print(f"Fetched {len(market_data)} market data rows")
+        print(f"Generated {len(fundamental_data)} fundamental data rows")
+
+    return market_data, fundamental_data
+
+
+def generate_synthetic_fundamentals(market_data: pd.DataFrame, symbols: List[str]) -> pd.DataFrame:
+    """
+    Generate synthetic fundamental data for backtesting.
+
+    In production, this would be replaced with real fundamental data
+    from a data provider like Bloomberg, Refinitiv, or Compustat.
+    """
+    np.random.seed(42)  # For reproducibility
+
+    fundamentals = []
+    for symbol in symbols:
+        # Generate plausible random fundamentals
+        record = {
+            'symbol': symbol,
+            'return_on_equity': np.random.uniform(0.05, 0.35),
+            'gross_profit_margin': np.random.uniform(0.20, 0.60),
+            'operating_profit_margin': np.random.uniform(0.10, 0.40),
+            'debt_to_assets': np.random.uniform(0.10, 0.50),
+            'debt_to_equity': np.random.uniform(0.15, 0.80),
+            'cfo_to_assets': np.random.uniform(0.05, 0.20),
+            'fcf_to_assets': np.random.uniform(0.03, 0.15),
+            'net_income': np.random.uniform(1e9, 100e9),
+            'cfo': np.random.uniform(1e9, 120e9),
+            'total_assets': np.random.uniform(10e9, 500e9),
+            'ebitda': np.random.uniform(5e9, 80e9),
+            'enterprise_value': np.random.uniform(50e9, 1000e9),
+            'ebitda_to_ev': np.random.uniform(0.05, 0.15),
+            'book_value': np.random.uniform(10e9, 200e9),
+            'book_to_price': np.random.uniform(0.02, 0.10),
+            'earnings_to_price': np.random.uniform(0.03, 0.08),
+            'fcf_to_price': np.random.uniform(0.02, 0.06),
+            'asof_time': datetime.now(),
+        }
+        fundamentals.append(record)
+
+    return pd.DataFrame(fundamentals)
+
+
+def get_sp500_sample() -> List[str]:
+    """Get a sample of S&P 500 symbols for backtesting."""
+    # Representative sample across sectors
+    return [
+        # Technology
+        'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NVDA', 'AVGO', 'CSCO', 'ADBE', 'CRM',
+        # Healthcare
+        'UNH', 'JNJ', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'BMY', 'LLY',
+        # Financials
+        'JPM', 'BAC', 'WFC', 'GS', 'MS', 'BLK', 'SCHW', 'AXP', 'C', 'USB',
+        # Consumer
+        'PG', 'KO', 'PEP', 'COST', 'WMT', 'HD', 'MCD', 'NKE', 'SBUX', 'TGT',
+        # Industrials
+        'CAT', 'HON', 'UNP', 'UPS', 'RTX', 'BA', 'GE', 'MMM', 'LMT', 'DE',
+        # Energy
+        'XOM', 'CVX', 'COP', 'SLB', 'EOG',
+        # Other
+        'BRK-B', 'V', 'MA', 'DIS', 'NFLX',
+    ]
 
 
 def run_backtest(
     start_date: date,
     end_date: date,
     initial_capital: float = 100000,
-    slippage_bps: float = 8,
+    slippage_bps: float = 5,
+    commission_per_share: float = 0.005,
+    rebalance_frequency: str = "monthly",
+    symbols: Optional[List[str]] = None,
     verbose: bool = True,
 ) -> Dict:
     """
-    Run backtest over a date range.
+    Run backtest with the full factor model.
 
     Args:
         start_date: Start date
         end_date: End date
         initial_capital: Starting capital
-        slippage_bps: Slippage assumption in basis points
+        slippage_bps: Base slippage in basis points
+        commission_per_share: Commission per share
+        rebalance_frequency: 'daily', 'weekly', or 'monthly'
+        symbols: List of symbols (default: S&P 500 sample)
         verbose: Print progress
 
     Returns:
         Dictionary with backtest results
     """
-    trading_days = get_trading_calendar(start_date, end_date)
+    if symbols is None:
+        symbols = get_sp500_sample()
+
+    # Fetch data
+    market_data, fundamental_data = fetch_backtest_data(
+        symbols=symbols,
+        start_date=start_date,
+        end_date=end_date,
+        verbose=verbose,
+    )
+
+    if len(market_data) == 0:
+        raise ValueError("No market data available for backtest")
+
+    # Initialize engine
+    engine = BacktestEngine(
+        initial_capital=initial_capital,
+        commission_per_share=commission_per_share,
+        base_slippage_bps=slippage_bps,
+        slippage_model=SlippageModel.SQRT_VOLUME,
+        rebalance_frequency=rebalance_frequency,
+        max_position_weight=0.05,
+        target_holdings=25,
+    )
+
     if verbose:
-        print(f"Running backtest from {start_date} to {end_date}")
-        print(f"Trading days: {len(trading_days)}")
+        print(f"\nRunning backtest...")
+        print(f"  Period: {start_date} to {end_date}")
+        print(f"  Capital: ${initial_capital:,.0f}")
+        print(f"  Rebalance: {rebalance_frequency}")
 
-    # Initialize orchestrator in mock mode
-    orchestrator = TradingOrchestrator(mode="mock")
+    # Run backtest
+    result = engine.run(
+        market_data=market_data,
+        fundamental_data=fundamental_data,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
-    # Track results
-    nav_history = []
-    trade_history = []
-
-    current_nav = initial_capital
-    nav_history.append({'date': start_date, 'nav': current_nav})
-
-    for i, trading_date in enumerate(trading_days):
-        if verbose and i % 5 == 0:
-            print(f"Processing {trading_date} ({i+1}/{len(trading_days)})")
-
-        try:
-            # Create as-of time
-            asof_time = datetime.combine(trading_date, datetime.min.time().replace(hour=16, minute=10))
-
-            # Run with dry_run to get target weights without executing
-            result = orchestrator.run_daily(
-                asof_time=asof_time,
-                dry_run=True,  # Don't actually execute
-            )
-
-            if result.get('status') == 'completed':
-                # Simulate returns (simplified)
-                # In reality, would calculate based on actual positions and price changes
-                daily_return = np.random.normal(0.0004, 0.01)  # Mock return
-                daily_return -= slippage_bps / 10000  # Subtract slippage
-
-                current_nav *= (1 + daily_return)
-                nav_history.append({'date': trading_date, 'nav': current_nav})
-
-        except Exception as e:
-            if verbose:
-                print(f"Error on {trading_date}: {e}")
-
-    # Calculate performance metrics
-    nav_df = pd.DataFrame(nav_history)
-    nav_df['date'] = pd.to_datetime(nav_df['date'])
-    nav_df = nav_df.set_index('date')
-    nav_df['return'] = nav_df['nav'].pct_change()
-
-    returns = nav_df['return'].dropna()
-
-    metrics = {
-        'start_date': str(start_date),
-        'end_date': str(end_date),
-        'trading_days': len(trading_days),
-        'initial_capital': initial_capital,
-        'final_nav': current_nav,
-        'total_return': (current_nav - initial_capital) / initial_capital,
-        'cagr': ((current_nav / initial_capital) ** (252 / len(returns)) - 1) if len(returns) > 0 else 0,
-        'volatility': returns.std() * np.sqrt(252) if len(returns) > 0 else 0,
-        'sharpe_ratio': (returns.mean() * 252) / (returns.std() * np.sqrt(252)) if returns.std() > 0 else 0,
-        'max_drawdown': calculate_max_drawdown(nav_df['nav']),
-        'calmar_ratio': 0,  # Would calculate properly
-    }
-
-    if metrics['max_drawdown'] > 0:
-        metrics['calmar_ratio'] = metrics['cagr'] / metrics['max_drawdown']
-
-    return {
-        'metrics': metrics,
-        'nav_history': nav_df,
-    }
-
-
-def calculate_max_drawdown(nav_series: pd.Series) -> float:
-    """Calculate maximum drawdown from NAV series."""
-    running_max = nav_series.expanding().max()
-    drawdown = (running_max - nav_series) / running_max
-    return drawdown.max()
+    return result
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run Alpha Research backtest")
+    parser = argparse.ArgumentParser(
+        description="Run Alpha Research backtest",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    python scripts/backtest.py --start 2023-01-01 --end 2023-12-31
+    python scripts/backtest.py --start 2020-01-01 --end 2024-01-01 --capital 1000000
+    python scripts/backtest.py --start 2022-01-01 --end 2023-12-31 --rebalance weekly
+        """
+    )
     parser.add_argument(
         "--start",
         type=str,
@@ -144,74 +226,98 @@ def main():
     parser.add_argument(
         "--slippage",
         type=float,
-        default=8,
-        help="Slippage in bps (default: 8)",
+        default=5,
+        help="Base slippage in bps (default: 5)",
+    )
+    parser.add_argument(
+        "--rebalance",
+        type=str,
+        default="monthly",
+        choices=["daily", "weekly", "monthly"],
+        help="Rebalance frequency (default: monthly)",
     )
     parser.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress progress output",
     )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output file for results (CSV)",
+    )
     args = parser.parse_args()
 
     start_date = datetime.strptime(args.start, "%Y-%m-%d").date()
     end_date = datetime.strptime(args.end, "%Y-%m-%d").date()
 
-    print(f"=" * 60)
-    print(f"Alpha Research Trading System - Backtest")
-    print(f"Period: {start_date} to {end_date}")
-    print(f"Initial Capital: ${args.capital:,.0f}")
-    print(f"Slippage: {args.slippage} bps")
-    print(f"=" * 60)
+    print("=" * 70)
+    print("Alpha Research Trading System - Backtest")
+    print("=" * 70)
 
-    results = run_backtest(
-        start_date=start_date,
-        end_date=end_date,
-        initial_capital=args.capital,
-        slippage_bps=args.slippage,
-        verbose=not args.quiet,
-    )
+    try:
+        result = run_backtest(
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=args.capital,
+            slippage_bps=args.slippage,
+            rebalance_frequency=args.rebalance,
+            verbose=not args.quiet,
+        )
 
-    # Print results
-    print(f"\n{'=' * 60}")
-    print("BACKTEST RESULTS")
-    print(f"{'=' * 60}")
+        # Print results
+        print(result.summary())
 
-    metrics = results['metrics']
-    print(f"  Period: {metrics['start_date']} to {metrics['end_date']}")
-    print(f"  Trading Days: {metrics['trading_days']}")
-    print(f"  Initial Capital: ${metrics['initial_capital']:,.0f}")
-    print(f"  Final NAV: ${metrics['final_nav']:,.0f}")
-    print(f"  Total Return: {metrics['total_return']:.2%}")
-    print(f"  CAGR: {metrics['cagr']:.2%}")
-    print(f"  Volatility: {metrics['volatility']:.2%}")
-    print(f"  Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
-    print(f"  Max Drawdown: {metrics['max_drawdown']:.2%}")
-    print(f"  Calmar Ratio: {metrics['calmar_ratio']:.2f}")
+        # Run stress test (2x costs)
+        print("=" * 70)
+        print("STRESS TEST (2x Transaction Costs)")
+        print("=" * 70)
 
-    # Stress test
-    print(f"\n{'=' * 60}")
-    print("STRESS TEST (2x Slippage)")
-    print(f"{'=' * 60}")
+        risk_gate = RiskGate()
+        viable, net_return, msg = risk_gate.validate_cost_stress_test(
+            gross_return=result.annualized_return,
+            base_cost=args.slippage / 10000,
+            turnover=result.total_turnover / max(1, (end_date - start_date).days / 365),
+        )
 
-    stress_results = run_backtest(
-        start_date=start_date,
-        end_date=end_date,
-        initial_capital=args.capital,
-        slippage_bps=args.slippage * 2,
-        verbose=False,
-    )
+        print(f"  {msg}")
+        if viable:
+            print("\n  STATUS: PASS - Strategy survives 2x cost scenario")
+        else:
+            print("\n  STATUS: FAIL - Strategy does not survive 2x costs")
 
-    stress_metrics = stress_results['metrics']
-    print(f"  Total Return: {stress_metrics['total_return']:.2%}")
-    print(f"  Sharpe Ratio: {stress_metrics['sharpe_ratio']:.2f}")
+        # Target alpha assessment
+        print("\n" + "=" * 70)
+        print("ALPHA TARGET ASSESSMENT")
+        print("=" * 70)
 
-    if stress_metrics['total_return'] > 0:
-        print("\n  PASS: Strategy remains profitable with 2x slippage")
-    else:
-        print("\n  WARNING: Strategy unprofitable with 2x slippage")
+        target_alpha = 0.10  # 10% alpha target
+        if result.annualized_return >= target_alpha:
+            print(f"  Annualized Return: {result.annualized_return:.2%} >= {target_alpha:.0%} target")
+            print("  STATUS: MEETS TARGET")
+        else:
+            gap = target_alpha - result.annualized_return
+            print(f"  Annualized Return: {result.annualized_return:.2%} < {target_alpha:.0%} target")
+            print(f"  Gap to target: {gap:.2%}")
+            print("  STATUS: BELOW TARGET")
 
-    return 0
+        # Save results if output specified
+        if args.output:
+            nav_df = pd.DataFrame([
+                {'date': s.date, 'nav': s.nav, 'return': s.daily_return, 'drawdown': s.drawdown}
+                for s in result.daily_snapshots
+            ])
+            nav_df.to_csv(args.output, index=False)
+            print(f"\nResults saved to {args.output}")
+
+        return 0
+
+    except Exception as e:
+        print(f"\nError: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 if __name__ == "__main__":
