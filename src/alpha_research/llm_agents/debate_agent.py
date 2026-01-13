@@ -5,10 +5,9 @@ Reviews evidence consistency and raises uncertainty when evidence conflicts.
 Does NOT output directional scores - only uncertainty/delay/cap adjustments.
 """
 
-import json
 from typing import Any, Dict, List, Optional
 
-from alpha_research.llm_agents.base import BaseLLMAgent
+from alpha_research.llm_agents.base import BaseLLMAgent, JSONParser
 from alpha_research.data.models import Evidence, Proposal
 from alpha_research.utils.enums import ActionType
 
@@ -130,18 +129,12 @@ Respond with ONLY valid JSON in this format:
     ) -> List[Proposal]:
         """Parse LLM response into proposals."""
 
-        try:
-            json_start = raw_response.find('{')
-            json_end = raw_response.rfind('}') + 1
-            if json_start >= 0 and json_end > json_start:
-                json_str = raw_response[json_start:json_end]
-                data = json.loads(json_str)
-            else:
-                raise ValueError("No JSON found in response")
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON: {e}")
+        # Extract JSON from response using robust parser
+        data = JSONParser.extract_json(raw_response)
+        if data is None:
+            raise ValueError("No valid JSON found in response")
 
-        # Validate required fields
+        # Validate required fields (score intentionally omitted - forced to 0)
         required = ['action_type', 'confidence', 'uncertainty_score', 'evidence_ids_used']
         for field in required:
             if field not in data:
@@ -171,6 +164,22 @@ Respond with ONLY valid JSON in this format:
         if uncertainty >= self.uncertainty_thresholds['high'] and position_cap is None:
             position_cap = 0.03
 
+        # Determine uncertainty level flag for traceability
+        flags = []
+        if uncertainty >= self.uncertainty_thresholds['very_high']:
+            flags.append("UNCERTAINTY_VERY_HIGH")
+        elif uncertainty >= self.uncertainty_thresholds['high']:
+            flags.append("UNCERTAINTY_HIGH")
+        elif uncertainty >= self.uncertainty_thresholds['medium']:
+            flags.append("UNCERTAINTY_MEDIUM")
+        else:
+            flags.append("UNCERTAINTY_LOW")
+
+        # Add conflict flag if conflicts identified
+        conflicts = data.get('conflicts_identified', [])
+        if conflicts:
+            flags.append("EVIDENCE_CONFLICT")
+
         # Create proposal
         proposal = self.create_proposal(
             symbol=symbol,
@@ -179,6 +188,7 @@ Respond with ONLY valid JSON in this format:
             score=score,
             confidence=data['confidence'],
             evidence_ids=data['evidence_ids_used'],
+            flags=flags,
             position_cap=position_cap,
             delay_cycles=1 if action_type == ActionType.DELAY_TRADE else None,
             uncertainty=uncertainty,

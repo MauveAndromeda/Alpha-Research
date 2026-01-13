@@ -5,10 +5,9 @@ Analyzes SEC filings (10-K, 10-Q, 8-K) to detect risk signals.
 Focuses on risk detection - only outputs penalties/caps/delays.
 """
 
-import json
 from typing import Any, Dict, List, Optional
 
-from alpha_research.llm_agents.base import BaseLLMAgent
+from alpha_research.llm_agents.base import BaseLLMAgent, JSONParser
 from alpha_research.data.models import Evidence, Proposal
 from alpha_research.utils.enums import ActionType, FilingFlag
 
@@ -110,16 +109,10 @@ Respond with ONLY valid JSON in this format:
     ) -> List[Proposal]:
         """Parse LLM response into proposals."""
 
-        try:
-            json_start = raw_response.find('{')
-            json_end = raw_response.rfind('}') + 1
-            if json_start >= 0 and json_end > json_start:
-                json_str = raw_response[json_start:json_end]
-                data = json.loads(json_str)
-            else:
-                raise ValueError("No JSON found in response")
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON: {e}")
+        # Extract JSON from response using robust parser
+        data = JSONParser.extract_json(raw_response)
+        if data is None:
+            raise ValueError("No valid JSON found in response")
 
         # Validate required fields
         required = ['action_type', 'score', 'confidence', 'evidence_ids_used']

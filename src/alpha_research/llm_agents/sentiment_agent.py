@@ -5,12 +5,11 @@ Analyzes news and price data to assess market sentiment.
 Can provide small bonuses or penalties based on sentiment.
 """
 
-import json
 from typing import Any, Dict, List, Optional
 
-from alpha_research.llm_agents.base import BaseLLMAgent
+from alpha_research.llm_agents.base import BaseLLMAgent, JSONParser
 from alpha_research.data.models import Evidence, Proposal
-from alpha_research.utils.enums import ActionType, NewsFlag
+from alpha_research.utils.enums import ActionType
 
 
 class SentimentScorer(BaseLLMAgent):
@@ -96,17 +95,10 @@ Respond with ONLY valid JSON in this format:
     ) -> List[Proposal]:
         """Parse LLM response into proposals."""
 
-        # Extract JSON from response
-        try:
-            json_start = raw_response.find('{')
-            json_end = raw_response.rfind('}') + 1
-            if json_start >= 0 and json_end > json_start:
-                json_str = raw_response[json_start:json_end]
-                data = json.loads(json_str)
-            else:
-                raise ValueError("No JSON found in response")
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON: {e}")
+        # Extract JSON from response using robust parser
+        data = JSONParser.extract_json(raw_response)
+        if data is None:
+            raise ValueError("No valid JSON found in response")
 
         # Validate required fields
         required = ['action_type', 'score', 'confidence', 'evidence_ids_used']
@@ -136,6 +128,9 @@ Respond with ONLY valid JSON in this format:
             min_score, max_score = sentiment_ranges[sentiment]
             score = max(min_score, min(max_score, score))
 
+        # Use sentiment as flag for traceability
+        flags = [f"SENTIMENT_{sentiment.upper()}"] if sentiment else []
+
         # Create proposal
         proposal = self.create_proposal(
             symbol=symbol,
@@ -144,6 +139,7 @@ Respond with ONLY valid JSON in this format:
             score=score,
             confidence=data['confidence'],
             evidence_ids=data['evidence_ids_used'],
+            flags=flags,
             reasoning=data.get('reasoning'),
         )
 
