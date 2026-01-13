@@ -1,0 +1,68 @@
+# Alpha Research Trading System - Execution Policy
+# Schema Version: 1.0.0
+
+meta:
+  schema_version: "1.0.0"
+
+broker:
+  name: "IBKR"
+  mode: "PAPER"  # PAPER or LIVE
+  account_id: ""  # Set via environment variable
+  host: "127.0.0.1"
+  port: 7497  # 7497 for paper, 7496 for live
+  client_id: 1
+
+order_types:
+  default: "LIMIT"
+  fallback: "MOC"  # Market on Close
+  aggressive: "MARKET"
+
+order_parameters:
+  limit_offset_pct: 0.001  # 10 bps from mid
+  time_in_force: "DAY"
+  outside_rth: false
+
+execution_window:
+  start_time_et: "09:35"
+  end_time_et: "15:55"
+  avoid_first_minutes: 5
+  avoid_last_minutes: 5
+
+timeouts:
+  order_fill_timeout_seconds: 300
+  partial_fill_action: "CANCEL_REMAINING"
+  cancel_timeout_seconds: 30
+
+retry:
+  max_retries: 3
+  retry_delay_seconds: 10
+  on_rejection: "LOG_AND_SKIP"
+
+idempotency:
+  key_format: "{run_id}_{symbol}_{side}_{quantity}"
+  check_duplicate: true
+  duplicate_action: "SKIP"
+
+slippage:
+  expected_bps: 8
+  max_acceptable_bps: 50
+  stress_test_multiplier: 2.0
+
+position_sizing:
+  round_to_shares: true
+  min_shares: 1
+  min_notional: 300
+
+reconciliation:
+  enabled: true
+  time_et: "16:20"
+  tolerance:
+    shares: 0
+    value_pct: 0.01
+  on_mismatch: "FREEZE_TRADING"
+
+logging:
+  log_all_orders: true
+  log_all_fills: true
+  log_all_cancels: true
+  retention_days: 365

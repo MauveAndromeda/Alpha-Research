@@ -1,0 +1,82 @@
+# Alpha Research Trading System - Factor Definitions
+# Schema Version: 1.0.0
+
+meta:
+  schema_version: "1.0.0"
+
+preprocessing:
+  winsorize:
+    lower_percentile: 0.01
+    upper_percentile: 0.99
+  zscore:
+    demean: true
+    scale: true
+  missing_handling:
+    max_missing_rate: 0.20
+    impute_with: "neutral"  # neutral = 0 after zscore
+
+# Quality Factor (Q)
+quality:
+  weight_in_core: 0.35
+  sub_factors:
+    roe:
+      field: "return_on_equity"
+      direction: "higher_is_better"
+      weight: 0.25
+    profitability:
+      field: "gross_profit_margin"
+      fallback_field: "operating_profit_margin"
+      direction: "higher_is_better"
+      weight: 0.25
+    leverage:
+      field: "debt_to_assets"
+      fallback_field: "debt_to_equity"
+      direction: "lower_is_better"
+      weight: 0.20
+    cash_flow:
+      field: "cfo_to_assets"
+      fallback_field: "fcf_to_assets"
+      direction: "higher_is_better"
+      weight: 0.20
+    accruals:
+      formula: "(net_income - cfo) / total_assets"
+      direction: "lower_is_better"
+      weight: 0.10
+
+# Momentum Factor (M)
+momentum:
+  weight_in_core: 0.40
+  sub_factors:
+    return_12_1:
+      description: "12-month return excluding most recent month"
+      lookback_months: 12
+      skip_recent_months: 1
+      direction: "higher_is_better"
+      weight: 0.60
+    high_52w_proximity:
+      formula: "price / 52_week_high"
+      direction: "higher_is_better"
+      weight: 0.25
+    trend_slope:
+      formula: "(sma_50_today / sma_50_21d_ago) - 1"
+      direction: "higher_is_better"
+      weight: 0.15
+
+# Value Factor (V)
+value:
+  weight_in_core: 0.25
+  sub_factors:
+    ebitda_ev:
+      field: "ebitda_to_ev"
+      direction: "higher_is_better"
+      weight: 0.70
+    book_price:
+      field: "book_to_price"
+      fallback_field: "earnings_to_price"
+      direction: "higher_is_better"
+      weight: 0.30
+
+# Core Score Aggregation
+core_aggregation:
+  formula: "0.35*Q + 0.40*M + 0.25*V"
+  normalize_final: true

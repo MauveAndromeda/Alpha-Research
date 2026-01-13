@@ -1,0 +1,61 @@
+# Alpha Research Trading System - Risk Limits
+# Schema Version: 1.0.0
+
+meta:
+  schema_version: "1.0.0"
+
+drawdown:
+  level_1:
+    mdd_threshold: 0.08
+    action: "SCALE_RISK"
+    scale_multiplier: 0.50
+    description: "Reduce target risk by 50%"
+  level_2:
+    mdd_threshold: 0.12
+    action: "SCALE_RISK_AND_NO_NEW"
+    scale_multiplier: 0.25
+    no_new_positions: true
+    description: "Reduce to 25% risk, no new positions"
+  kill_switch:
+    mdd_threshold: 0.15
+    action: "KILL_SWITCH"
+    cooldown_days: 10
+    description: "Liquidate to cash, 10 day cooldown"
+
+monthly_loss:
+  threshold: -0.10
+  action: "FREEZE_NEW_RISK"
+  description: "No new risk for remainder of month"
+
+var:
+  var95_max: 0.05
+  consecutive_days_to_trigger: 3
+  action: "REDUCE_EXPOSURE"
+  reduce_multiplier: 0.50
+
+correlation:
+  max_new_position_corr_with_portfolio: 0.70
+  action: "REDUCE_WEIGHT_OR_REJECT"
+
+liquidity:
+  min_adv_dollar: 50000000
+  min_adv_multiple: 30
+  action: "REJECT_OR_REDUCE"
+
+position_limits:
+  max_single_position: 0.05
+  max_sector_exposure: 0.25
+  max_correlated_group: 0.30
+
+turnover:
+  monthly_cap: 0.40
+  weekly_cap: 0.15
+  action_on_breach: "HOLD_CURRENT"
+
+cost_stress:
+  slippage_multiplier_for_stress: 2.0
+  must_remain_profitable: true
+
+ops_freeze:
+  freeze_on_reconcile_mismatch: true
+  freeze_on_execution_error_rate_gt: 0.05

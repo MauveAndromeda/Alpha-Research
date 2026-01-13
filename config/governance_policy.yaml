@@ -1,0 +1,251 @@
+# Alpha Research Trading System - Governance Policy
+# Schema Version: 1.0.0
+# This is the "constitution" - LLM permissions, budgets, thresholds, degradation rules
+
+meta:
+  schema_version: "1.0.0"
+  policy_version: "2026-01-12"
+  timezone: "America/New_York"
+  asof_time_et: "16:10"
+
+budgets:
+  llm:
+    max_total_weight_l1_delta: 0.10
+    max_per_symbol_weight_delta_abs: 0.010
+    degraded_budget_multiplier: 0.50
+
+data_point_in_time:
+  enforce_available_at: true
+  enforce_published_at: true
+  violations_are_fatal: true
+
+llm_global:
+  enabled: true
+  temperature: 0.10
+  max_tokens: 1200
+  timeout_seconds: 30
+  retries:
+    max_attempts: 2
+    backoff_seconds: 1.5
+  output:
+    json_only: true
+    strict_schema: true
+    require_evidence_ids: true
+    require_flags_from_enum: true
+    require_action_from_whitelist: true
+  failure_policy:
+    on_timeout: "REJECT_PROPOSAL"
+    on_schema_invalid: "REJECT_PROPOSAL"
+    on_uncited_output: "REJECT_PROPOSAL"
+
+actions_whitelist:
+  - "NO_OP"
+  - "SCORE_PENALTY"
+  - "SCORE_BONUS_SMALL"
+  - "DELAY_TRADE"
+  - "REDUCE_POSITION_CAP"
+  - "RAISE_UNCERTAINTY"
+  - "DISABLE_MODULE"
+  - "SET_MODULE_WEIGHT"
+
+modules:
+  news_event_extractor:
+    enabled: true
+    module_type: "LLM"
+    allowed_actions:
+      - "RAISE_UNCERTAINTY"
+      - "DELAY_TRADE"
+      - "SCORE_PENALTY"
+    score_caps:
+      max_abs: 0.15
+      max_bonus: 0.05
+      max_penalty: 0.15
+    required_evidence_types: ["NEWS_ARTICLE"]
+    allowed_flags_group: "news_flags"
+    validation:
+      min_confidence: 0.20
+
+  sentiment_scorer:
+    enabled: true
+    module_type: "LLM"
+    allowed_actions:
+      - "SCORE_BONUS_SMALL"
+      - "SCORE_PENALTY"
+    score_caps:
+      max_abs: 0.10
+      max_bonus: 0.10
+      max_penalty: 0.10
+    required_evidence_types: ["NEWS_ARTICLE", "PRICE_SUMMARY"]
+    allowed_flags_group: "news_flags"
+    validation:
+      min_confidence: 0.25
+
+  filing_risk_radar:
+    enabled: true
+    module_type: "LLM"
+    allowed_actions:
+      - "REDUCE_POSITION_CAP"
+      - "DELAY_TRADE"
+      - "SCORE_PENALTY"
+      - "RAISE_UNCERTAINTY"
+    score_caps:
+      max_abs: 0.20
+      max_bonus: 0.00
+      max_penalty: 0.20
+    required_evidence_types: ["SEC_FILING_CHUNK", "EARNINGS_CALL_CHUNK"]
+    allowed_flags_group: "filing_flags"
+    validation:
+      min_confidence: 0.30
+
+  insider_pattern:
+    enabled: true
+    module_type: "LLM"
+    allowed_actions:
+      - "SCORE_BONUS_SMALL"
+      - "SCORE_PENALTY"
+      - "RAISE_UNCERTAINTY"
+    score_caps:
+      max_abs: 0.10
+      max_bonus: 0.10
+      max_penalty: 0.10
+    required_evidence_types: ["INSIDER_FORM4_RECORD"]
+    allowed_flags_group: "insider_flags"
+    validation:
+      min_confidence: 0.25
+
+  debate_evidence_judge:
+    enabled: true
+    module_type: "LLM"
+    allowed_actions:
+      - "RAISE_UNCERTAINTY"
+      - "DELAY_TRADE"
+      - "REDUCE_POSITION_CAP"
+    outputs:
+      allow_directional_score: false
+    required_evidence_types: ["NEWS_ARTICLE", "SEC_FILING_CHUNK", "PRICE_SUMMARY"]
+    allowed_flags_group: "news_flags"
+    validation:
+      min_confidence: 0.30
+
+  drift_guard:
+    enabled: true
+    module_type: "RULE"
+    allowed_actions:
+      - "DISABLE_MODULE"
+      - "SET_MODULE_WEIGHT"
+    thresholds:
+      reliability_disable_all_below: 0.50
+      reliability_degrade_below: 0.65
+    cooldown:
+      disable_all_days: 10
+      degrade_days: 10
+    behavior:
+      on_disable_all:
+        set_all_llm_modules_weight: 0.0
+      on_degrade:
+        multiply_llm_budgets_by: 0.50
+
+aggregation:
+  score_formula:
+    score_core: "0.35*Q + 0.40*M + 0.25*V"
+    penalty: "clamp(0.0, 0.40, P_event + P_filing + P_debate)"
+    bonus: "clamp(-0.10, 0.10, B_sentiment + B_insider)"
+    score_final: "Score_core*(1 - Penalty) + Bonus"
+
+  penalty_mapping:
+    debate_uncertainty:
+      delay_trade_if_gt: 0.70
+      penalty_if_between:
+        low: 0.50
+        high: 0.70
+        penalty_value: 0.10
+      penalty_if_le:
+        threshold: 0.50
+        penalty_value: 0.00
+
+    event_severity:
+      sev_3:
+        penalty: 0.25
+        position_cap: 0.02
+        delay_trade_cycles: 1
+      sev_2:
+        penalty: 0.15
+      sev_1:
+        penalty: 0.05
+      sev_0:
+        penalty: 0.00
+
+  severe_flag_overrides:
+    - match_any_flags: ["GOING_CONCERN", "SEC_PROBE", "GUIDANCE_WITHDRAWN"]
+      enforce:
+        position_cap: 0.02
+        delay_trade_cycles: 1
+        extra_penalty: 0.20
+    - match_any_flags: ["LIQUIDITY_RISK", "DEBT_COVENANT_RISK", "CREDIT_RATING_DOWN"]
+      enforce:
+        position_cap: 0.03
+        extra_penalty: 0.10
+
+portfolio_gate:
+  holdings:
+    target: 25
+    min: 20
+    max: 30
+  caps:
+    base_position_cap: 0.05
+    sector_cap: 0.25
+  turnover:
+    monthly_turnover_cap: 0.40
+  liquidity:
+    min_price: 5.0
+    min_adv_dollar_60d: 50000000
+    min_adv_multiple: 30
+  trade_filter:
+    min_trade_notional: 300
+
+risk_gate:
+  drawdown:
+    level_1:
+      mdd_gt: 0.08
+      action: "SCALE_RISK"
+      scale_multiplier: 0.50
+    level_2:
+      mdd_gt: 0.12
+      action: "SCALE_RISK_AND_NO_NEW"
+      scale_multiplier: 0.25
+    kill:
+      mdd_gt: 0.15
+      action: "KILL_SWITCH"
+      cooldown_days: 10
+  var:
+    var95_max: 0.05
+    consecutive_days_to_trigger: 3
+    action: "REDUCE_EXPOSURE"
+    reduce_multiplier: 0.50
+  correlation:
+    max_new_position_corr: 0.70
+  ops_freeze:
+    freeze_on_reconcile_mismatch: true
+
+alerts:
+  enabled: true
+  severities:
+    critical:
+      - "E_RECONCILE_MISMATCH"
+      - "E_RISK_KILL_SWITCH_TRIGGERED"
+      - "E_DATA_SNAPSHOT_INCOMPLETE"
+      - "E_POINT_IN_TIME_VIOLATION"
+    error:
+      - "E_ORDER_REJECTED"
+      - "E_LLM_DRIFT_DETECTED"
+      - "E_LEDGER_HASH_MISMATCH"
+    warn:
+      - "E_LLM_BUDGET_EXCEEDED"
+      - "E_DATA_SOURCE_TIMEOUT"
+  thresholds:
+    llm_schema_failure_rate_gt: 0.01
+    llm_uncited_outputs_gt: 0
+  auto_actions:
+    if_llm_schema_failure_high: "DISABLE_LLM_FOR_DAY"
+    if_uncited_output_detected: "REJECT_AND_ALERT"
+    if_reconcile_mismatch: "FREEZE_TRADING"

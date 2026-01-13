@@ -1,0 +1,175 @@
+# Alpha Research Trading System - Monitoring Configuration
+# Schema Version: 1.0.0
+
+meta:
+  schema_version: "1.0.0"
+
+dashboards:
+  daily:
+    - "pnl_total"
+    - "pnl_daily"
+    - "pnl_weekly"
+    - "pnl_monthly"
+    - "drawdown_current"
+    - "drawdown_max"
+    - "volatility_realized"
+    - "position_count"
+    - "sector_exposures"
+    - "turnover_daily"
+    - "turnover_monthly"
+    - "cost_estimated"
+    - "cost_realized"
+    - "order_status_summary"
+    - "data_quality_score"
+    - "llm_health_score"
+
+metrics:
+  performance:
+    - name: "total_return"
+      type: "cumulative"
+    - name: "daily_return"
+      type: "daily"
+    - name: "sharpe_ratio"
+      type: "rolling"
+      window_days: 252
+    - name: "sortino_ratio"
+      type: "rolling"
+      window_days: 252
+    - name: "max_drawdown"
+      type: "rolling"
+      window_days: 252
+    - name: "calmar_ratio"
+      type: "rolling"
+      window_days: 252
+
+  risk:
+    - name: "portfolio_volatility"
+      type: "rolling"
+      window_days: 20
+    - name: "var_95"
+      type: "rolling"
+      window_days: 20
+    - name: "beta_to_spy"
+      type: "rolling"
+      window_days: 60
+
+  execution:
+    - name: "fill_rate"
+      type: "daily"
+    - name: "slippage_bps"
+      type: "per_trade"
+    - name: "rejection_rate"
+      type: "daily"
+    - name: "partial_fill_rate"
+      type: "daily"
+
+  data:
+    - name: "snapshot_completeness"
+      type: "daily"
+    - name: "missing_fundamentals_rate"
+      type: "daily"
+    - name: "data_latency_seconds"
+      type: "daily"
+    - name: "hash_consistency"
+      type: "daily"
+
+  llm:
+    - name: "schema_failure_rate"
+      type: "daily"
+    - name: "uncited_output_rate"
+      type: "daily"
+    - name: "token_usage"
+      type: "daily"
+    - name: "latency_p95"
+      type: "daily"
+    - name: "drift_score"
+      type: "daily"
+
+alerts:
+  channels:
+    - type: "log"
+      enabled: true
+    - type: "email"
+      enabled: false
+      recipients: []
+    - type: "slack"
+      enabled: false
+      webhook_url: ""
+
+  rules:
+    # Critical - immediate action required
+    - name: "reconcile_mismatch"
+      condition: "reconcile_diff > 0"
+      severity: "CRITICAL"
+      action: "FREEZE_TRADING"
+
+    - name: "kill_switch_triggered"
+      condition: "mdd > 0.15"
+      severity: "CRITICAL"
+      action: "LIQUIDATE"
+
+    - name: "snapshot_incomplete"
+      condition: "snapshot_completeness < 0.98"
+      severity: "CRITICAL"
+      action: "ABORT_RUN"
+
+    - name: "point_in_time_violation"
+      condition: "pit_violations > 0"
+      severity: "CRITICAL"
+      action: "ABORT_RUN"
+
+    # Error - requires attention
+    - name: "order_rejected"
+      condition: "rejection_count > 0"
+      severity: "ERROR"
+      action: "LOG_AND_ALERT"
+
+    - name: "llm_drift_detected"
+      condition: "drift_score < 0.50"
+      severity: "ERROR"
+      action: "DISABLE_LLM"
+
+    - name: "ledger_hash_mismatch"
+      condition: "hash_mismatch_count > 0"
+      severity: "ERROR"
+      action: "LOG_AND_ALERT"
+
+    # Warning - monitor closely
+    - name: "llm_budget_exceeded"
+      condition: "llm_weight_delta > 0.10"
+      severity: "WARN"
+      action: "CLAMP_AND_LOG"
+
+    - name: "data_source_timeout"
+      condition: "data_timeout_count > 0"
+      severity: "WARN"
+      action: "USE_FALLBACK"
+
+    - name: "high_turnover"
+      condition: "monthly_turnover > 0.35"
+      severity: "WARN"
+      action: "LOG"
+
+    - name: "slippage_elevated"
+      condition: "avg_slippage_bps > 16"
+      severity: "WARN"
+      action: "LOG"
+
+thresholds:
+  snapshot_completeness_min: 0.98
+  fundamentals_missing_max: 0.25
+  llm_schema_failure_max: 0.01
+  llm_uncited_max: 0
+  slippage_expected_bps: 8
+  slippage_warn_bps: 16
+  turnover_monthly_warn: 0.35
+  turnover_monthly_max: 0.40
+
+health_check:
+  interval_minutes: 5
+  checks:
+    - "broker_connection"
+    - "data_feeds"
+    - "database"
+    - "disk_space"
+    - "memory_usage"

@@ -1,0 +1,76 @@
+# Alpha Research Trading System - Global Settings
+# Schema Version: 1.0.0
+
+meta:
+  schema_version: "1.0.0"
+  system_name: "Alpha Research"
+  timezone: "America/New_York"
+
+runtime:
+  asof_time_et: "16:10"
+  pre_close_health_check_et: "15:55"
+  market_close_confirm_et: "16:05"
+  execution_window_start_et: "09:35"
+  post_trade_reconcile_et: "16:20"
+
+rebalance:
+  frequency: "WEEKLY"
+  preferred_weekday: "MON"
+  allow_shift_if_data_late: true
+
+universe:
+  exchanges:
+    - "NYSE"
+    - "NASDAQ"
+    - "AMEX"
+  security_types:
+    - "COMMON_STOCK"
+  exclude_types:
+    - "ADR"
+    - "ETF"
+    - "CLOSED_END_FUND"
+    - "SPAC"
+  min_price: 5.0
+  min_adv_dollar_60d: 50000000
+  min_coverage_pct: 95
+
+portfolio:
+  target_holdings: 25
+  min_holdings: 20
+  max_holdings: 30
+  max_position_cap: 0.05
+  max_sector_cap: 0.25
+  monthly_turnover_cap: 0.40
+  min_trade_notional: 300
+  min_adv_multiple: 30
+  vol_target_annual: 0.10
+
+data:
+  news:
+    max_age_hours: 72
+    top_k_per_symbol: 8
+  filing:
+    max_age_days: 180
+    top_k_chunks_per_symbol: 10
+  insider:
+    max_age_days: 30
+    top_k_records_per_symbol: 50
+
+determinism:
+  weight_precision_decimals: 6
+  score_precision_decimals: 6
+  replay_tolerance_pct: 1.0
+  stable_sort_tiebreakers:
+    - "score_final_desc"
+    - "score_core_desc"
+    - "adv_dollar_desc"
+    - "symbol_asc"
+
+paths:
+  artifacts_dir: "artifacts"
+  snapshots_dir: "artifacts/snapshots"
+  proposals_dir: "artifacts/proposals"
+  evidence_dir: "artifacts/evidence"
+  orders_dir: "artifacts/orders"
+  reconcile_dir: "artifacts/reconcile"
+  logs_dir: "logs"

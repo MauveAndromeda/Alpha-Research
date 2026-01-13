@@ -1,0 +1,86 @@
+# Alpha Research Trading System - Universe Rules
+# Schema Version: 1.0.0
+
+meta:
+  schema_version: "1.0.0"
+
+# Rule-based universe generation (not hard S&P500 membership)
+# Regenerated daily to avoid survivorship bias
+
+exchanges:
+  include:
+    - "NYSE"
+    - "NASDAQ"
+    - "AMEX"
+
+security_types:
+  include:
+    - "COMMON_STOCK"
+  exclude:
+    - "ADR"
+    - "ETF"
+    - "ETN"
+    - "CLOSED_END_FUND"
+    - "REIT"  # Optional: can include if desired
+    - "SPAC"
+    - "WARRANT"
+    - "PREFERRED"
+    - "UNIT"
+
+filters:
+  price:
+    min: 5.0
+    max: null  # No upper limit
+
+  liquidity:
+    # Average daily volume in dollars over 60 trading days
+    adv_dollar_60d:
+      min: 50000000
+      max: null
+
+  market_cap:
+    # Optional market cap filter
+    min: null  # No minimum
+    max: null  # No maximum
+
+  history:
+    # Minimum trading history required
+    min_trading_days: 252
+
+  data_quality:
+    # Maximum allowed missing rate for key fields
+    max_missing_fundamental_rate: 0.25
+    required_fields:
+      - "close"
+      - "volume"
+      - "market_cap"
+    preferred_fields:
+      - "total_assets"
+      - "total_debt"
+      - "net_income"
+      - "cfo"
+      - "ebitda"
+      - "book_value"
+
+# Output specification
+output:
+  filename_pattern: "universe_{date}.parquet"
+  include_fields:
+    - "symbol"
+    - "exchange"
+    - "security_type"
+    - "sector"
+    - "industry"
+    - "market_cap"
+    - "adv_dollar_60d"
+    - "close"
+    - "universe_id"
+    - "content_hash"
+    - "asof_time"
+    - "available_at"
+
+# Validation
+validation:
+  min_universe_size: 200
+  max_universe_size: 3000
+  min_coverage_pct: 95
