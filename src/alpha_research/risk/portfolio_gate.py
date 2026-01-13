@@ -262,7 +262,7 @@ class PortfolioGate:
 
             # Check ADV multiple
             position_value = row['target_weight'] * total_capital
-            if adv > 0:
+            if adv > 0 and position_value > 0:
                 adv_multiple = adv / position_value
                 if adv_multiple < self.min_adv_multiple:
                     rejected.append({

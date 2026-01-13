@@ -333,7 +333,8 @@ class TradingOrchestrator:
         """Run LLM analysis on candidates."""
         try:
             # Skip LLM if no evidence
-            if len(self.evidence_ledger._index) == 0:
+            stats = self.evidence_ledger.get_statistics()
+            if stats.get('total_evidence', 0) == 0:
                 print("No evidence available, skipping LLM analysis")
                 return {
                     'success': True,

@@ -340,7 +340,7 @@ class MetricsTracker:
             try:
                 with open(filepath, 'r') as f:
                     results.append(json.load(f))
-            except:
+            except (IOError, json.JSONDecodeError, OSError):
                 pass
 
         return results

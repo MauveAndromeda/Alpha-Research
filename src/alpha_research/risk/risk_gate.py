@@ -339,8 +339,16 @@ class RiskGate:
         aligned_weights = weights[common_symbols].values
         aligned_returns = returns[common_symbols].values
 
+        # Check for empty returns
+        if aligned_returns.size == 0 or len(aligned_returns) == 0:
+            return 0.0
+
         # Calculate portfolio returns
         portfolio_returns = np.dot(aligned_returns, aligned_weights)
+
+        # Check for empty portfolio returns
+        if len(portfolio_returns) == 0:
+            return 0.0
 
         # Calculate VAR
         var = np.percentile(portfolio_returns, (1 - confidence) * 100)

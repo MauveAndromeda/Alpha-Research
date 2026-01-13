@@ -108,7 +108,7 @@ class OrderExecutor:
             return False
         try:
             return self._ib.isConnected()
-        except:
+        except (AttributeError, ConnectionError, RuntimeError):
             return False
 
     def execute_orders(
@@ -414,6 +414,6 @@ class OrderExecutor:
         if self._ib and self._connected:
             try:
                 self._ib.disconnect()
-            except:
+            except (AttributeError, ConnectionError, RuntimeError, OSError):
                 pass
             self._connected = False

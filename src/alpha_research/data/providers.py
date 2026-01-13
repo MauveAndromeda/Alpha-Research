@@ -648,7 +648,7 @@ class YahooDataProvider(DataProvider):
                 value = df.loc[key].iloc[0]
                 if pd.notna(value):
                     return float(value)
-        except:
+        except (KeyError, IndexError, TypeError, ValueError):
             pass
 
         return None
@@ -663,7 +663,7 @@ class YahooDataProvider(DataProvider):
             if hasattr(latest_col, 'strftime'):
                 return latest_col.strftime("%YQ%q")
             return str(latest_col)
-        except:
+        except (IndexError, AttributeError, TypeError):
             return "Unknown"
 
 
