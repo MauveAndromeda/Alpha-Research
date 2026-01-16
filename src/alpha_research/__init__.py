@@ -67,6 +67,21 @@ from alpha_research.factors import (
     UniverseBuilder,
 )
 
+# Gate - Decision Authority System (new in 2.0)
+from alpha_research.gate import (
+    GateState,
+    GateStateMachine,
+    GateDecision,
+    OpportunityAgent,
+    OpportunityAssessment,
+    LLMCommittee,
+    CommitteeReport,
+    Snapshot,
+    SnapshotBuilder,
+    CostStressTester,
+    StressTestResult,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -102,4 +117,16 @@ __all__ = [
     "MomentumFactor",
     "ValueFactor",
     "UniverseBuilder",
+    # Gate - Decision Authority
+    "GateState",
+    "GateStateMachine",
+    "GateDecision",
+    "OpportunityAgent",
+    "OpportunityAssessment",
+    "LLMCommittee",
+    "CommitteeReport",
+    "Snapshot",
+    "SnapshotBuilder",
+    "CostStressTester",
+    "StressTestResult",
 ]

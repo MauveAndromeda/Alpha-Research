@@ -1,18 +1,15 @@
 """
 Core Score Calculator for Alpha Research Trading System.
 
-2026+ Architecture: Combines traditional factors with causal discovery.
+Production Configuration (Spec-Compliant):
+- Fundamental (Q/M/V combined): 55%
+- Technical: 20% (filter/discount only)
+- Event (filings/earnings): 20%
+- Sentiment: 5% (optional, can be 0)
+- Causal: 0-5% (conservative, slow increase regime)
 
-Score composition:
-- Traditional factors (Q/M/V): Declining importance (~30%)
-- Causal factors: Rising importance (~40%)
-- LLM understanding layer: Context/risk flags (~30% influence via adjustment)
-
-Key insight: Traditional Q/M/V factors are commoditized.
-Alpha now comes from:
-1. Causal structure (leader-follower dynamics)
-2. Regime detection (adaptive weighting)
-3. Information flow (sector rotation signals)
+Key Principle: Start conservative, prove value before increasing weight.
+Causal factors are experimental - must pass walk-forward before weight increase.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -26,7 +23,7 @@ from alpha_research.factors.value import ValueFactor
 from alpha_research.factors.base import BaseFactor
 from alpha_research.utils.config import load_config
 
-# Import causal components
+# Import causal components (optional, weight starts at 0)
 from alpha_research.causal import (
     CausalFactorEngine,
     CausalFactorConfig,
@@ -35,14 +32,38 @@ from alpha_research.causal import (
 )
 
 
+# =============================================================================
+# Scoring Thresholds
+# =============================================================================
+
+DEFAULT_THRESHOLDS = {
+    # Fundamental thresholds
+    'fund_score_min': 80,           # Minimum fundamental score to qualify
+
+    # Technical thresholds
+    'tech_score_min': 65,           # Minimum technical score
+    'tech_risk_flag_disqualify': True,  # Disqualify if risk flag
+
+    # Uncertainty threshold
+    'uncertainty_max': 0.6,         # Maximum uncertainty score
+
+    # Percentile for selection
+    'top_percentile': 0.05,         # Top 5% by combined score
+}
+
+
 class CoreScoreCalculator:
     """
-    Calculates the combined core score from traditional and causal factors.
+    Calculates combined core score from all factor sources.
 
-    2026+ Architecture:
-    - Traditional factors (Q/M/V) provide baseline
-    - Causal factors capture information flow dynamics
-    - Adaptive weighting based on market regime
+    Production Configuration (Conservative):
+    - Fundamental: 55% (proven, stable)
+    - Technical: 20% (timing/filter)
+    - Event: 20% (earnings/filings)
+    - Sentiment: 5% (optional)
+    - Causal: 0-5% (experimental, slow increase)
+
+    Philosophy: Prove value in walk-forward before increasing weight.
     """
 
     def __init__(self, config: Optional[Dict] = None):
@@ -58,23 +79,48 @@ class CoreScoreCalculator:
         self.config = config
         core_config = config.get('core_aggregation', {})
 
-        # Traditional factor weights (reduced from historical)
-        self.quality_weight = config.get('quality', {}).get('weight_in_core', 0.15)
-        self.momentum_weight = config.get('momentum', {}).get('weight_in_core', 0.10)
-        self.value_weight = config.get('value', {}).get('weight_in_core', 0.05)
+        # =================================================================
+        # CONSERVATIVE WEIGHTS (Spec-Compliant)
+        # =================================================================
 
-        # Causal factor weights (new)
+        # Fundamental factor weights (total 55%)
+        # Quality, Momentum, Value combined as "fundamental"
+        fund_config = config.get('fundamental', {})
+        self.quality_weight = fund_config.get('quality_weight', 0.20)      # 20% of 55%
+        self.momentum_weight = fund_config.get('momentum_weight', 0.20)    # 20% of 55%
+        self.value_weight = fund_config.get('value_weight', 0.15)          # 15% of 55%
+        # Total fundamental = 55%
+
+        # Technical weight: 20% (for filter/discount, not alpha)
+        self.technical_weight = config.get('technical', {}).get('weight', 0.20)
+
+        # Event weight: 20% (filings, earnings)
+        self.event_weight = config.get('event', {}).get('weight', 0.20)
+
+        # Sentiment weight: 5% (optional, can be 0)
+        self.sentiment_weight = config.get('sentiment', {}).get('weight', 0.05)
+
+        # Causal weight: 0-5% (EXPERIMENTAL - must prove value first)
         causal_config = config.get('causal', {})
-        self.causal_leader_weight = causal_config.get('leader_weight', 0.25)
-        self.causal_momentum_weight = causal_config.get('momentum_weight', 0.25)
-        self.causal_regime_weight = causal_config.get('regime_weight', 0.20)
+        self.causal_weight = causal_config.get('total_weight', 0.00)  # Start at 0!
+        self.causal_max_weight = causal_config.get('max_weight', 0.05)  # Cap at 5%
 
         # Initialize traditional factors
         self.quality_factor = QualityFactor(config)
         self.momentum_factor = MomentumFactor(config)
         self.value_factor = ValueFactor(config)
 
-        # Initialize causal factor engine
+        # Initialize causal engine (even if weight=0, for monitoring)
+        self._init_causal_engine(causal_config)
+
+        # Thresholds
+        self.thresholds = {**DEFAULT_THRESHOLDS, **core_config.get('thresholds', {})}
+
+        # Normalization
+        self.normalize_final = core_config.get('normalize_final', True)
+
+    def _init_causal_engine(self, causal_config: Dict) -> None:
+        """Initialize causal factor engine."""
         causal_factor_config = CausalFactorConfig(
             graph_config=CausalGraphConfig(
                 te_config=TransferEntropyConfig(
@@ -92,17 +138,13 @@ class CoreScoreCalculator:
         )
         self.causal_engine = CausalFactorEngine(causal_factor_config)
 
-        # Normalization settings
-        self.normalize_final = core_config.get('normalize_final', True)
-
-        # Track regime for adaptive weighting
-        self._current_regime: Optional[str] = None
-
     def calculate(
         self,
         market_data: pd.DataFrame,
         fundamental_data: pd.DataFrame,
         universe: pd.DataFrame,
+        event_scores: Optional[pd.DataFrame] = None,
+        sentiment_scores: Optional[pd.DataFrame] = None,
         asof_date: Optional[datetime] = None,
     ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
         """
@@ -112,15 +154,17 @@ class CoreScoreCalculator:
             market_data: Market data with OHLCV
             fundamental_data: Fundamental data
             universe: Universe of tradeable symbols
-            asof_date: As-of date for causal calculation
+            event_scores: Optional event scores (from RAG)
+            sentiment_scores: Optional sentiment scores
+            asof_date: As-of date for calculations
 
         Returns:
-            Tuple of (core_scores DataFrame, dict of individual factor DataFrames)
+            Tuple of (core_scores DataFrame, dict of individual factor results)
         """
         if asof_date is None:
             asof_date = datetime.now()
 
-        # Calculate traditional factors
+        # Calculate fundamental factors (Q/M/V)
         quality_results = self.quality_factor.calculate(
             market_data, fundamental_data, universe
         )
@@ -131,17 +175,7 @@ class CoreScoreCalculator:
             market_data, fundamental_data, universe
         )
 
-        # Calculate causal factors
-        returns = self._compute_returns(market_data)
-        symbols = universe['symbol'].tolist() if 'symbol' in universe else list(market_data.columns)
-
-        causal_factors = self.causal_engine.generate_factors(
-            returns,
-            date=asof_date,
-            symbols=symbols,
-        )
-
-        # Merge all results
+        # Merge fundamental results
         core_df = quality_results[['symbol', 'quality_score']].merge(
             momentum_results[['symbol', 'momentum_score']],
             on='symbol',
@@ -152,40 +186,92 @@ class CoreScoreCalculator:
             how='outer'
         )
 
-        # Add causal factors
-        core_df = core_df.merge(
-            causal_factors.reset_index().rename(columns={'index': 'symbol'}),
-            on='symbol',
-            how='left'
-        )
+        # Fill missing
+        for col in ['quality_score', 'momentum_score', 'value_score']:
+            core_df[col] = core_df[col].fillna(0)
 
-        # Fill missing with 0 (neutral)
-        fill_cols = [
-            'quality_score', 'momentum_score', 'value_score',
-            'causal_leader', 'causal_momentum', 'regime_signal', 'causal_alpha'
-        ]
-        for col in fill_cols:
-            if col in core_df:
-                core_df[col] = core_df[col].fillna(0)
-
-        # Calculate traditional component
-        traditional_score = (
+        # Calculate fundamental composite
+        core_df['fund_score'] = (
             self.quality_weight * core_df['quality_score'] +
             self.momentum_weight * core_df['momentum_score'] +
             self.value_weight * core_df['value_score']
         )
 
-        # Calculate causal component
-        causal_score = (
-            self.causal_leader_weight * core_df.get('causal_leader', 0) +
-            self.causal_momentum_weight * core_df.get('causal_momentum', 0) +
-            self.causal_regime_weight * core_df.get('regime_signal', 0)
+        # Technical score (from momentum results, used for filter/discount)
+        # Technical is embedded in momentum, extract risk flags
+        core_df['tech_score'] = core_df['momentum_score']  # Use momentum as proxy
+        core_df['tech_risk_flag'] = False  # Default no flag
+
+        # Event scores (if provided)
+        if event_scores is not None and len(event_scores) > 0:
+            core_df = core_df.merge(
+                event_scores[['symbol', 'event_score', 'uncertainty_score']],
+                on='symbol',
+                how='left'
+            )
+            core_df['event_score'] = core_df['event_score'].fillna(0)
+            core_df['uncertainty_score'] = core_df['uncertainty_score'].fillna(0.5)
+        else:
+            core_df['event_score'] = 0
+            core_df['uncertainty_score'] = 0.5
+
+        # Sentiment scores (if provided)
+        if sentiment_scores is not None and len(sentiment_scores) > 0:
+            core_df = core_df.merge(
+                sentiment_scores[['symbol', 'sentiment_score']],
+                on='symbol',
+                how='left'
+            )
+            core_df['sentiment_score'] = core_df['sentiment_score'].fillna(0)
+        else:
+            core_df['sentiment_score'] = 0
+
+        # Causal scores (if weight > 0)
+        if self.causal_weight > 0:
+            returns = self._compute_returns(market_data)
+            symbols = core_df['symbol'].tolist()
+            causal_factors = self.causal_engine.generate_factors(
+                returns, date=asof_date, symbols=symbols
+            )
+            core_df = core_df.merge(
+                causal_factors.reset_index().rename(columns={'index': 'symbol'}),
+                on='symbol',
+                how='left'
+            )
+            core_df['causal_score'] = core_df.get('causal_alpha', 0).fillna(0)
+        else:
+            core_df['causal_score'] = 0
+
+        # =================================================================
+        # COMBINED SCORE CALCULATION
+        # =================================================================
+
+        # Normalize weights to sum to 1
+        total_weight = (
+            (self.quality_weight + self.momentum_weight + self.value_weight) +  # Fund
+            self.technical_weight +
+            self.event_weight +
+            self.sentiment_weight +
+            self.causal_weight
         )
 
-        # Combine scores
-        core_df['score_traditional'] = traditional_score
-        core_df['score_causal'] = causal_score
-        core_df['score_core'] = traditional_score + causal_score
+        # Combined score (weighted average)
+        core_df['score_core'] = (
+            # Fundamental (55%)
+            (self.quality_weight + self.momentum_weight + self.value_weight) / total_weight * core_df['fund_score'] +
+            # Technical (20%)
+            self.technical_weight / total_weight * core_df['tech_score'] +
+            # Event (20%)
+            self.event_weight / total_weight * core_df['event_score'] +
+            # Sentiment (5%)
+            self.sentiment_weight / total_weight * core_df['sentiment_score'] +
+            # Causal (0-5%)
+            self.causal_weight / total_weight * core_df['causal_score']
+        )
+
+        # Apply technical risk flag discount
+        if self.thresholds.get('tech_risk_flag_disqualify', True):
+            core_df.loc[core_df['tech_risk_flag'], 'score_core'] *= 0.5
 
         # Normalize if configured
         if self.normalize_final:
@@ -202,24 +288,68 @@ class CoreScoreCalculator:
             'quality': quality_results,
             'momentum': momentum_results,
             'value': value_results,
-            'causal': causal_factors,
         }
 
         return core_df, factor_results
 
     def _compute_returns(self, market_data: pd.DataFrame) -> pd.DataFrame:
         """Compute returns from market data."""
-        # Handle different market_data formats
         if 'close' in market_data.columns:
-            # Long format with 'symbol' and 'close' columns
             if 'symbol' in market_data.columns:
                 pivoted = market_data.pivot(columns='symbol', values='close')
                 return pivoted.pct_change(fill_method=None).dropna()
             else:
                 return market_data['close'].pct_change(fill_method=None).dropna()
         else:
-            # Wide format with symbols as columns
             return market_data.pct_change(fill_method=None).dropna()
+
+    def apply_hard_thresholds(
+        self,
+        core_scores: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        Apply hard thresholds to filter candidates.
+
+        Filters:
+        - fund_score >= 80
+        - tech_score >= 65 AND no risk flag
+        - uncertainty_score <= 0.6
+        - Top 5% by score_core
+
+        Args:
+            core_scores: Core scores DataFrame
+
+        Returns:
+            Filtered DataFrame with qualified candidates
+        """
+        df = core_scores.copy()
+
+        # Fundamental threshold
+        fund_min = self.thresholds.get('fund_score_min', 80)
+        df['pass_fund'] = df['fund_score'] >= fund_min
+
+        # Technical threshold
+        tech_min = self.thresholds.get('tech_score_min', 65)
+        df['pass_tech'] = (df['tech_score'] >= tech_min) & (~df['tech_risk_flag'])
+
+        # Uncertainty threshold
+        unc_max = self.thresholds.get('uncertainty_max', 0.6)
+        df['pass_uncertainty'] = df['uncertainty_score'] <= unc_max
+
+        # Combined pass
+        df['qualified'] = df['pass_fund'] & df['pass_tech'] & df['pass_uncertainty']
+
+        # Top percentile filter
+        top_pct = self.thresholds.get('top_percentile', 0.05)
+        n_total = len(df)
+        n_top = max(int(n_total * top_pct), 1)
+        score_threshold = df['score_core'].nlargest(n_top).min()
+        df['in_top_percentile'] = df['score_core'] >= score_threshold
+
+        # Final candidates
+        df['is_candidate'] = df['qualified'] & df['in_top_percentile']
+
+        return df
 
     def select_candidates(
         self,
@@ -227,63 +357,55 @@ class CoreScoreCalculator:
         n_candidates: int = 60,
     ) -> pd.DataFrame:
         """
-        Select top candidates for LLM analysis.
-
-        2026+ Strategy: Prioritize causal leaders and regime-aware picks.
+        Select top candidates for portfolio construction.
 
         Args:
             core_scores: Core scores DataFrame
-            n_candidates: Number of candidates to select
+            n_candidates: Maximum number of candidates
 
         Returns:
             DataFrame with top candidates
         """
-        # Sort by combined score and take top N
-        candidates = core_scores.nlargest(n_candidates, 'score_core').copy()
-        candidates['is_candidate'] = True
+        # Apply hard thresholds first
+        filtered = self.apply_hard_thresholds(core_scores)
 
-        # Flag causal leaders for special attention
-        if 'causal_leader' in candidates:
-            candidates['is_causal_leader'] = candidates['causal_leader'] > 0.5
+        # Get candidates
+        candidates = filtered[filtered['is_candidate']].copy()
+
+        # Sort by score and limit
+        candidates = candidates.nlargest(n_candidates, 'score_core')
 
         return candidates
+
+    def get_weight_summary(self) -> Dict[str, float]:
+        """Get current weight configuration."""
+        fund_total = self.quality_weight + self.momentum_weight + self.value_weight
+        return {
+            'fundamental_total': fund_total,
+            'quality': self.quality_weight,
+            'momentum': self.momentum_weight,
+            'value': self.value_weight,
+            'technical': self.technical_weight,
+            'event': self.event_weight,
+            'sentiment': self.sentiment_weight,
+            'causal': self.causal_weight,
+            'causal_max': self.causal_max_weight,
+        }
 
     def get_factor_exposures(
         self,
         core_scores: pd.DataFrame,
     ) -> Dict[str, Dict[str, float]]:
-        """
-        Calculate factor exposure statistics.
-
-        Args:
-            core_scores: Core scores DataFrame
-
-        Returns:
-            Dictionary with factor exposure stats
-        """
+        """Calculate factor exposure statistics."""
         exposures = {}
 
-        # Traditional factors
-        for factor in ['quality', 'momentum', 'value']:
-            col = f'{factor}_score'
-            if col in core_scores:
-                exposures[factor] = {
-                    'mean': float(core_scores[col].mean()),
-                    'std': float(core_scores[col].std()),
-                    'min': float(core_scores[col].min()),
-                    'max': float(core_scores[col].max()),
-                    'skew': float(core_scores[col].skew()) if len(core_scores) > 2 else 0.0,
-                }
-
-        # Causal factors
-        for factor in ['causal_leader', 'causal_momentum', 'regime_signal']:
+        for factor in ['fund_score', 'tech_score', 'event_score', 'sentiment_score', 'causal_score']:
             if factor in core_scores:
                 exposures[factor] = {
                     'mean': float(core_scores[factor].mean()),
                     'std': float(core_scores[factor].std()),
                     'min': float(core_scores[factor].min()),
                     'max': float(core_scores[factor].max()),
-                    'skew': float(core_scores[factor].skew()) if len(core_scores) > 2 else 0.0,
                 }
 
         return exposures
@@ -309,143 +431,60 @@ class CoreScoreCalculator:
 
         row = row.iloc[0]
 
-        # Traditional contributions
-        quality_contrib = self.quality_weight * row.get('quality_score', 0)
-        momentum_contrib = self.momentum_weight * row.get('momentum_score', 0)
-        value_contrib = self.value_weight * row.get('value_score', 0)
-
-        # Causal contributions
-        causal_leader_contrib = self.causal_leader_weight * row.get('causal_leader', 0)
-        causal_momentum_contrib = self.causal_momentum_weight * row.get('causal_momentum', 0)
-        regime_contrib = self.causal_regime_weight * row.get('regime_signal', 0)
-
-        total_score = row.get('score_core', 1)
-        if total_score == 0:
-            total_score = 1  # Avoid division by zero
+        weights = self.get_weight_summary()
+        total = sum(v for k, v in weights.items() if k not in ['causal_max', 'fundamental_total'])
 
         return {
             'symbol': symbol,
             'score_core': float(row.get('score_core', 0)),
-            'score_traditional': float(row.get('score_traditional', 0)),
-            'score_causal': float(row.get('score_causal', 0)),
             'rank': int(row.get('score_core_rank', 0)),
+            'qualified': bool(row.get('is_candidate', False)),
             'contributions': {
-                'traditional': {
-                    'quality': {
-                        'score': float(row.get('quality_score', 0)),
-                        'weight': self.quality_weight,
-                        'contribution': float(quality_contrib),
-                    },
-                    'momentum': {
-                        'score': float(row.get('momentum_score', 0)),
-                        'weight': self.momentum_weight,
-                        'contribution': float(momentum_contrib),
-                    },
-                    'value': {
-                        'score': float(row.get('value_score', 0)),
-                        'weight': self.value_weight,
-                        'contribution': float(value_contrib),
+                'fundamental': {
+                    'weight': weights['fundamental_total'] / total,
+                    'score': float(row.get('fund_score', 0)),
+                    'components': {
+                        'quality': float(row.get('quality_score', 0)),
+                        'momentum': float(row.get('momentum_score', 0)),
+                        'value': float(row.get('value_score', 0)),
                     },
                 },
+                'technical': {
+                    'weight': weights['technical'] / total,
+                    'score': float(row.get('tech_score', 0)),
+                    'risk_flag': bool(row.get('tech_risk_flag', False)),
+                },
+                'event': {
+                    'weight': weights['event'] / total,
+                    'score': float(row.get('event_score', 0)),
+                    'uncertainty': float(row.get('uncertainty_score', 0)),
+                },
+                'sentiment': {
+                    'weight': weights['sentiment'] / total,
+                    'score': float(row.get('sentiment_score', 0)),
+                },
                 'causal': {
-                    'leader': {
-                        'score': float(row.get('causal_leader', 0)),
-                        'weight': self.causal_leader_weight,
-                        'contribution': float(causal_leader_contrib),
-                    },
-                    'momentum': {
-                        'score': float(row.get('causal_momentum', 0)),
-                        'weight': self.causal_momentum_weight,
-                        'contribution': float(causal_momentum_contrib),
-                    },
-                    'regime': {
-                        'score': float(row.get('regime_signal', 0)),
-                        'weight': self.causal_regime_weight,
-                        'contribution': float(regime_contrib),
-                    },
+                    'weight': weights['causal'] / total,
+                    'score': float(row.get('causal_score', 0)),
+                    'note': 'experimental - weight starts at 0',
                 },
             },
         }
 
-    def get_causal_insights(
-        self,
-        core_scores: pd.DataFrame,
-    ) -> Dict[str, Any]:
+    def increase_causal_weight(self, amount: float = 0.01) -> float:
         """
-        Get causal structure insights.
+        Increase causal weight (after proving value in walk-forward).
 
         Args:
-            core_scores: Core scores DataFrame
+            amount: Amount to increase (default 1%)
 
         Returns:
-            Dictionary with causal insights
+            New causal weight
         """
-        return {
-            'market_leaders': self.causal_engine.get_market_leaders(top_k=5),
-            'market_followers': self.causal_engine.get_market_followers(top_k=5),
-            'current_graph_edges': (
-                self.causal_engine.current_graph.n_edges
-                if self.causal_engine.current_graph else 0
-            ),
-            'graph_density': (
-                self.causal_engine.current_graph.density
-                if self.causal_engine.current_graph else 0.0
-            ),
-        }
+        new_weight = min(self.causal_weight + amount, self.causal_max_weight)
+        self.causal_weight = new_weight
+        return new_weight
 
-    def identify_factor_leaders(
-        self,
-        core_scores: pd.DataFrame,
-        n_top: int = 10,
-    ) -> Dict[str, List[str]]:
-        """
-        Identify top symbols for each factor.
-
-        Args:
-            core_scores: Core scores DataFrame
-            n_top: Number of top symbols per factor
-
-        Returns:
-            Dictionary mapping factor to top symbols
-        """
-        leaders = {}
-
-        # Traditional factors
-        for factor in ['quality', 'momentum', 'value']:
-            col = f'{factor}_score'
-            if col in core_scores:
-                top = core_scores.nlargest(n_top, col)['symbol'].tolist()
-                leaders[factor] = top
-
-        # Causal factors
-        for factor in ['causal_leader', 'causal_momentum']:
-            if factor in core_scores:
-                top = core_scores.nlargest(n_top, factor)['symbol'].tolist()
-                leaders[factor] = top
-
-        # Overall top
-        leaders['core'] = core_scores.nlargest(n_top, 'score_core')['symbol'].tolist()
-
-        return leaders
-
-    def calculate_factor_correlations(
-        self,
-        core_scores: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """
-        Calculate correlations between all factors.
-
-        Args:
-            core_scores: Core scores DataFrame
-
-        Returns:
-            Correlation matrix
-        """
-        factor_cols = [
-            'quality_score', 'momentum_score', 'value_score',
-            'causal_leader', 'causal_momentum', 'regime_signal',
-            'score_traditional', 'score_causal', 'score_core'
-        ]
-        available_cols = [c for c in factor_cols if c in core_scores.columns]
-
-        return core_scores[available_cols].corr()
+    def reset_causal_weight(self) -> None:
+        """Reset causal weight to 0 (after failure)."""
+        self.causal_weight = 0.0
