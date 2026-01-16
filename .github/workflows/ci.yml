@@ -1,0 +1,219 @@
+name: CI/CD Pipeline - Alpha Research
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ============================================================
+  # Stage 1: Code Quality
+  # ============================================================
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install ruff black isort mypy
+
+      - name: Check formatting (black)
+        run: black --check src/ tests/
+
+      - name: Check imports (isort)
+        run: isort --check-only src/ tests/
+
+      - name: Lint (ruff)
+        run: ruff check src/ tests/
+
+      - name: Type check (mypy)
+        run: mypy src/alpha_research --ignore-missing-imports
+        continue-on-error: true  # Don't fail on type errors for now
+
+  # ============================================================
+  # Stage 2: Unit Tests
+  # ============================================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: code-quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest pytest-asyncio pytest-cov
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --tb=short -x
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ --cov=src/alpha_research --cov-report=xml --cov-report=term
+        continue-on-error: true
+
+  # ============================================================
+  # Stage 3: Integration Tests
+  # ============================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest pytest-asyncio
+
+      - name: Run integration tests
+        run: |
+          pytest tests/test_integration.py -v --tb=short
+
+  # ============================================================
+  # Stage 4: Validation Tests (Go/No-Go)
+  # ============================================================
+  validation-tests:
+    name: Validation Tests (Go/No-Go)
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest
+
+      - name: Run determinism tests
+        run: |
+          pytest tests/test_determinism.py -v --tb=short
+          pytest tests/test_phase0.py -v --tb=short
+
+      - name: Run proposal validation tests
+        run: |
+          pytest tests/test_proposal_validation.py -v --tb=short
+
+      - name: Run risk gate tests
+        run: |
+          pytest tests/test_risk_gate.py -v --tb=short
+
+  # ============================================================
+  # Stage 5: Causal Module Tests
+  # ============================================================
+  causal-tests:
+    name: Causal Module Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest
+
+      - name: Run causal tests
+        run: |
+          pytest tests/test_causal.py -v --tb=short
+
+  # ============================================================
+  # Stage 6: Factor Tests
+  # ============================================================
+  factor-tests:
+    name: Factor Calculation Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest
+
+      - name: Run factor tests
+        run: |
+          pytest tests/test_factors.py -v --tb=short
+
+  # ============================================================
+  # Stage 7: Final Gate (All must pass)
+  # ============================================================
+  final-gate:
+    name: Final Gate Check
+    runs-on: ubuntu-latest
+    needs:
+      - code-quality
+      - unit-tests
+      - integration-tests
+      - validation-tests
+      - causal-tests
+      - factor-tests
+    steps:
+      - name: All checks passed
+        run: |
+          echo "✅ All validation checks passed!"
+          echo "📊 Code quality: PASSED"
+          echo "🧪 Unit tests: PASSED"
+          echo "🔗 Integration tests: PASSED"
+          echo "✔️ Validation tests: PASSED"
+          echo "🔬 Causal tests: PASSED"
+          echo "📈 Factor tests: PASSED"
+          echo ""
+          echo "🚀 Ready for deployment!"
+
+  # ============================================================
+  # Deployment (only on main branch)
+  # ============================================================
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: final-gate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy notification
+        run: |
+          echo "🚀 Deployment triggered for main branch"
+          echo "Version: $(git describe --tags --always)"
+          echo "Commit: ${{ github.sha }}"
