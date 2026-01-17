@@ -55,6 +55,11 @@ from alpha_research.gate.cost_stress import (
     StrategyCapacityEstimator,
 )
 
+from alpha_research.gate.enhanced_opportunity import (
+    EnhancedOpportunityScore,
+    EnhancedOpportunityGate,
+)
+
 __all__ = [
     # State Machine
     'GateState',
@@ -89,4 +94,7 @@ __all__ = [
     'StressTestResult',
     'CostStressTester',
     'StrategyCapacityEstimator',
+    # Enhanced Opportunity
+    'EnhancedOpportunityScore',
+    'EnhancedOpportunityGate',
 ]
