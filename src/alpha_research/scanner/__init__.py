@@ -22,6 +22,12 @@ from .alpha_factory import (
     AlphaSignal,
     SignalType,
 )
+from .niche_filter import (
+    NicheMarketFilter,
+    NicheOpportunity,
+    NicheType,
+    SmartMoneyTracker,
+)
 
 __all__ = [
     "MarketScanner",
@@ -30,4 +36,8 @@ __all__ = [
     "AlphaFactory",
     "AlphaSignal",
     "SignalType",
+    "NicheMarketFilter",
+    "NicheOpportunity",
+    "NicheType",
+    "SmartMoneyTracker",
 ]
