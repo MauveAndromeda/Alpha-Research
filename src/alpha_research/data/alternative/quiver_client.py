@@ -1,22 +1,22 @@
 """
 Quiver Quantitative Client
 
-Quiver提供的政治/另类数据 (独特Alpha来源):
-1. Congress Trading - 国会议员交易 (STOCK Act披露)
-2. Government Contracts - 政府合同数据
-3. Lobbying Data - 游说支出
-4. Corporate Flights - 企业飞机追踪
-5. Insider Trading - 内部人交易 (Form 4)
-6. Wikipedia Trends - 维基百科趋势 (散户关注)
-7. WSB Mentions - WallStreetBets提及 (散户情绪)
+Political/alternative data from Quiver (unique Alpha sources):
+1. Congress Trading - Congressional member trades (STOCK Act disclosure)
+2. Government Contracts - Government contract data
+3. Lobbying Data - Lobbying expenditures
+4. Corporate Flights - Corporate jet tracking
+5. Insider Trading - Insider trading (Form 4)
+6. Wikipedia Trends - Wikipedia trends (retail attention)
+7. WSB Mentions - WallStreetBets mentions (retail sentiment)
 
 API: https://www.quiverquant.com/
-这些数据难以获取且有信息不对称优势
+This data is hard to obtain and has information asymmetry advantage
 
-为什么有Alpha:
-1. 国会议员有信息优势 (虽然不应该)
-2. 政府合同是重大催化剂
-3. 散户情绪可作为反向指标
+Why it has Alpha:
+1. Congress members have information advantage (though they shouldn't)
+2. Government contracts are major catalysts
+3. Retail sentiment can be used as contrarian indicator
 """
 
 import os
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CongressTrade:
-    """国会议员交易"""
+    """Congressional member trade"""
     transaction_date: date
     disclosure_date: date
     representative: str
@@ -46,18 +46,18 @@ class CongressTrade:
 
     @property
     def is_recent(self) -> bool:
-        """是否近期交易 (30天内)"""
+        """Whether it's a recent trade (within 30 days)"""
         return (date.today() - self.disclosure_date).days <= 30
 
     @property
     def is_significant(self) -> bool:
-        """是否大额交易"""
+        """Whether it's a large trade"""
         return self.amount_low >= 50000
 
 
 @dataclass
 class GovernmentContract:
-    """政府合同"""
+    """Government contract"""
     ticker: str
     agency: str
     amount: float
@@ -66,13 +66,13 @@ class GovernmentContract:
 
     @property
     def is_major(self) -> bool:
-        """是否重大合同 (>$10M)"""
+        """Whether it's a major contract (>$10M)"""
         return self.amount >= 10_000_000
 
 
 @dataclass
 class LobbyingActivity:
-    """游说活动"""
+    """Lobbying activity"""
     ticker: str
     client: str
     amount: float
@@ -81,13 +81,13 @@ class LobbyingActivity:
 
     @property
     def is_significant(self) -> bool:
-        """是否显著游说 (>$1M)"""
+        """Whether it's significant lobbying (>$1M)"""
         return self.amount >= 1_000_000
 
 
 @dataclass
 class WSBMention:
-    """WallStreetBets提及"""
+    """WallStreetBets mention"""
     ticker: str
     date: date
     mentions: int
@@ -96,31 +96,31 @@ class WSBMention:
 
     @property
     def is_trending(self) -> bool:
-        """是否热门"""
+        """Whether it's trending"""
         return self.mentions >= 100 or self.rank <= 10
 
 
 @dataclass
 class WikipediaTrend:
-    """维基百科趋势"""
+    """Wikipedia trend"""
     ticker: str
     date: date
     page_views: int
-    change_7d: float  # 7天变化率
+    change_7d: float  # 7-day change rate
 
 
 class QuiverClient:
     """
     Quiver Quantitative API Client
 
-    提供政治和另类数据,具有独特的信息优势
+    Provides political and alternative data with unique information advantage
     """
 
     BASE_URL = "https://api.quiverquant.com/beta"
 
     def __init__(self, api_key: Optional[str] = None):
         """
-        初始化客户端
+        Initialize client
 
         Args:
             api_key: Quiver API key
@@ -134,7 +134,7 @@ class QuiverClient:
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """获取或创建session"""
+        """Get or create session"""
         if self._session is None or self._session.closed:
             headers = {"Authorization": f"Bearer {self.api_key}"}
             self._session = aiohttp.ClientSession(headers=headers)
@@ -145,7 +145,7 @@ class QuiverClient:
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """发送API请求"""
+        """Send API request"""
         session = await self._get_session()
 
         url = f"{self.BASE_URL}/{endpoint}"
@@ -162,11 +162,11 @@ class QuiverClient:
             return await response.json()
 
     async def close(self):
-        """关闭session"""
+        """Close session"""
         if self._session and not self._session.closed:
             await self._session.close()
 
-    # ========== 国会交易 (高Alpha潜力) ==========
+    # ========== Congress Trading (High Alpha Potential) ==========
 
     async def get_congress_trading(
         self,
@@ -174,12 +174,12 @@ class QuiverClient:
         days: int = 90,
     ) -> List[CongressTrade]:
         """
-        获取国会议员交易
+        Get congressional member trades
 
-        为什么有Alpha:
-        1. 议员有政策信息优势
-        2. STOCK Act要求披露但有45天延迟
-        3. 集群交易是强信号
+        Why it has Alpha:
+        1. Congress members have policy information advantage
+        2. STOCK Act requires disclosure but has 45-day delay
+        3. Cluster trading is a strong signal
         """
         endpoint = f"historical/congresstrading/{symbol}" if symbol else "live/congresstrading"
         data = await self._request(endpoint)
@@ -196,7 +196,7 @@ class QuiverClient:
                 if disclosure_date < cutoff_date:
                     continue
 
-                # 解析金额范围
+                # Parse amount range
                 amount_range = item.get("Range", "$1,001 - $15,000")
                 amount_low, amount_high = self._parse_amount_range(amount_range)
 
@@ -220,7 +220,7 @@ class QuiverClient:
         return trades
 
     def _parse_amount_range(self, range_str: str) -> tuple:
-        """解析金额范围"""
+        """Parse amount range"""
         # Examples: "$1,001 - $15,000", "$50,001 - $100,000"
         try:
             parts = range_str.replace("$", "").replace(",", "").split("-")
@@ -236,9 +236,9 @@ class QuiverClient:
         days: int = 90,
     ) -> Dict[str, Any]:
         """
-        获取国会交易汇总
+        Get congress trading summary
 
-        分析买卖净额和参与度
+        Analyze net buy/sell and participation
         """
         trades = await self.get_congress_trading(symbol, days)
 
@@ -267,7 +267,7 @@ class QuiverClient:
             "recent_significant": [t for t in trades if t.is_significant and t.is_recent],
         }
 
-    # ========== 政府合同 ==========
+    # ========== Government Contracts ==========
 
     async def get_government_contracts(
         self,
@@ -275,9 +275,9 @@ class QuiverClient:
         days: int = 365,
     ) -> List[GovernmentContract]:
         """
-        获取政府合同
+        Get government contracts
 
-        对国防/医疗/科技公司是重大催化剂
+        Major catalyst for defense/healthcare/tech companies
         """
         data = await self._request(f"historical/govcontractsall/{symbol}")
 
@@ -306,13 +306,13 @@ class QuiverClient:
         return contracts
 
     async def get_contracts_summary(self, symbol: str) -> Dict[str, Any]:
-        """获取合同汇总"""
+        """Get contracts summary"""
         contracts = await self.get_government_contracts(symbol)
 
         total_amount = sum(c.amount for c in contracts)
         major_contracts = [c for c in contracts if c.is_major]
 
-        # 按机构分组
+        # Group by agency
         by_agency = {}
         for c in contracts:
             if c.agency not in by_agency:
@@ -328,7 +328,7 @@ class QuiverClient:
             "recent_major": [c for c in major_contracts if (date.today() - c.award_date).days <= 30],
         }
 
-    # ========== 游说数据 ==========
+    # ========== Lobbying Data ==========
 
     async def get_lobbying(
         self,
@@ -336,17 +336,17 @@ class QuiverClient:
         quarters: int = 4,
     ) -> List[LobbyingActivity]:
         """
-        获取游说活动
+        Get lobbying activity
 
-        游说增加可能预示:
-        1. 监管变化
-        2. 政策风险/机会
-        3. 重大战略举措
+        Increased lobbying may indicate:
+        1. Regulatory changes
+        2. Policy risks/opportunities
+        3. Major strategic initiatives
         """
         data = await self._request(f"historical/lobbying/{symbol}")
 
         activities = []
-        for item in data[:quarters * 10]:  # 大约每季度多条记录
+        for item in data[:quarters * 10]:  # Approximately multiple records per quarter
             try:
                 activities.append(LobbyingActivity(
                     ticker=symbol,
@@ -360,7 +360,7 @@ class QuiverClient:
 
         return activities
 
-    # ========== 散户情绪 (可作反向指标) ==========
+    # ========== Retail Sentiment (Can be used as contrarian indicator) ==========
 
     async def get_wsb_mentions(
         self,
@@ -368,9 +368,9 @@ class QuiverClient:
         days: int = 30,
     ) -> List[WSBMention]:
         """
-        获取WallStreetBets提及
+        Get WallStreetBets mentions
 
-        可作为散户情绪/反向指标
+        Can be used as retail sentiment/contrarian indicator
         """
         endpoint = f"historical/wallstreetbets/{symbol}" if symbol else "live/wallstreetbets"
         data = await self._request(endpoint)
@@ -405,9 +405,9 @@ class QuiverClient:
         days: int = 30,
     ) -> List[WikipediaTrend]:
         """
-        获取维基百科浏览趋势
+        Get Wikipedia page view trends
 
-        散户关注度的领先指标
+        Leading indicator of retail attention
         """
         data = await self._request(f"historical/wikipedia/{symbol}")
 
@@ -434,13 +434,13 @@ class QuiverClient:
 
         return trends
 
-    # ========== 聚合方法 ==========
+    # ========== Aggregation Methods ==========
 
     async def get_alpha_data(self, symbol: str) -> Dict[str, Any]:
         """
-        获取所有可能产生Alpha的数据
+        Get all data that may generate Alpha
 
-        一次性获取所有关键另类数据
+        Fetch all key alternative data at once
         """
         tasks = [
             self.get_congress_trading_summary(symbol),
@@ -462,30 +462,30 @@ class QuiverClient:
 
     async def get_political_signal(self, symbol: str) -> Dict[str, Any]:
         """
-        生成政治信号
+        Generate political signal
 
-        综合国会交易和合同数据
+        Combine congress trading and contract data
         """
         congress = await self.get_congress_trading_summary(symbol, days=90)
         contracts = await self.get_contracts_summary(symbol)
 
-        # 计算信号
+        # Calculate signal
         signal_score = 0
         reasons = []
 
-        # 国会净买入信号
+        # Congress net buying signal
         if congress.get("buy_count", 0) > congress.get("sell_count", 0):
             net_ratio = congress["buy_count"] / max(1, congress["sell_count"])
             signal_score += min(0.3, net_ratio * 0.1)
             reasons.append(f"Congress net buying (ratio: {net_ratio:.1f})")
 
-        # 重大合同信号
+        # Major contract signal
         recent_major = contracts.get("recent_major", [])
         if recent_major:
             signal_score += min(0.3, len(recent_major) * 0.15)
             reasons.append(f"{len(recent_major)} major contracts in last 30 days")
 
-        # 多参与者信号
+        # Multiple participants signal
         unique_reps = congress.get("unique_representatives", 0)
         if unique_reps >= 3:
             signal_score += 0.2

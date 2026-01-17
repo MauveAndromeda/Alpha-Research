@@ -1,16 +1,16 @@
 """
 Multi-Expert Debate System
 
-核心模块: 组织多个LLM专家进行结构化讨论
+Core module: Organizes structured discussions among multiple LLM experts
 
-讨论流程:
-1. 主持人汇总各专家评估
-2. 看多专家陈述理由
-3. 看空专家反驳
-4. 风险专家补充风险点
-5. 裁判评估证据强度,形成结论
+Discussion flow:
+1. Moderator summarizes expert assessments
+2. Bull expert presents bullish arguments
+3. Bear expert presents rebuttals
+4. Risk expert supplements with risk points
+5. Judge evaluates evidence strength and forms conclusion
 
-2026前沿: LLM-as-Judge范式
+2026 frontier: LLM-as-Judge paradigm
 """
 
 from dataclasses import dataclass, field
@@ -23,23 +23,23 @@ from ..experts.base import StockAssessment, Evidence
 
 
 class DebateRole(Enum):
-    """讨论角色"""
-    MODERATOR = "moderator"      # 主持人 - 汇总信息
-    BULL = "bull"                # 看多专家 - 找机会
-    BEAR = "bear"                # 看空专家 - 找风险
-    RISK = "risk"                # 风险专家 - 评估不确定性
-    JUDGE = "judge"              # 裁判 - 最终裁决
+    """Debate roles"""
+    MODERATOR = "moderator"      # Moderator - summarizes information
+    BULL = "bull"                # Bull expert - finds opportunities
+    BEAR = "bear"                # Bear expert - finds risks
+    RISK = "risk"                # Risk expert - assesses uncertainty
+    JUDGE = "judge"              # Judge - final verdict
 
 
 @dataclass
 class DebateArgument:
-    """讨论中的一个论点"""
+    """An argument in the debate"""
     role: DebateRole
     position: str  # "bullish", "bearish", "neutral", "risk_warning"
-    argument: str  # 论点内容
-    evidence: List[Evidence]  # 支撑证据
-    confidence: float  # 对这个论点的置信度
-    rebuttal_to: Optional[str] = None  # 反驳的论点ID
+    argument: str  # argument content
+    evidence: List[Evidence]  # supporting evidence
+    confidence: float  # confidence in this argument
+    rebuttal_to: Optional[str] = None  # ID of argument being rebutted
     argument_id: str = ""
 
     def __post_init__(self):
@@ -51,7 +51,7 @@ class DebateArgument:
 
 @dataclass
 class DebateRound:
-    """一轮讨论"""
+    """A round of debate"""
     round_number: int
     arguments: List[DebateArgument]
     timestamp: datetime = field(default_factory=datetime.now)
@@ -63,9 +63,9 @@ class DebateRound:
 @dataclass
 class DebateConclusion:
     """
-    讨论结论
+    Debate conclusion
 
-    最终输出: 是否应该投资这只股票
+    Final output: Whether to invest in this stock
     """
     stock_symbol: str
     final_score: float  # -1 to 1
@@ -75,7 +75,7 @@ class DebateConclusion:
     key_bull_points: List[str]
     key_bear_points: List[str]
     key_risks: List[str]
-    position_size_suggestion: float  # 0 to 1 (建议仓位比例)
+    position_size_suggestion: float  # 0 to 1 (suggested position ratio)
     judge_reasoning: str
     debate_rounds: List[DebateRound]
     timestamp: datetime = field(default_factory=datetime.now)
@@ -98,16 +98,16 @@ class DebateConclusion:
 
 class ExpertDebate:
     """
-    专家讨论会
+    Expert Debate Session
 
-    组织多个专家就一只股票进行结构化讨论
+    Organizes structured discussion among multiple experts on a stock
     """
 
     def __init__(self, llm_client: Optional[Any] = None, max_rounds: int = 2):
         """
         Args:
-            llm_client: LLM客户端 (可选,用于生成讨论内容)
-            max_rounds: 最大讨论轮数
+            llm_client: LLM client (optional, for generating debate content)
+            max_rounds: Maximum number of debate rounds
         """
         self.llm_client = llm_client
         self.max_rounds = max_rounds
@@ -120,27 +120,27 @@ class ExpertDebate:
         causal_analysis: Optional[Dict] = None,
     ) -> DebateConclusion:
         """
-        组织专家讨论
+        Organize expert debate
 
         Args:
-            stock: 股票代码
-            assessments: {expert_name: StockAssessment} 各专家的评估
-            causal_analysis: 因果分析结果 (可选)
+            stock: Stock symbol
+            assessments: {expert_name: StockAssessment} each expert's assessment
+            causal_analysis: Causal analysis results (optional)
 
         Returns:
-            DebateConclusion 讨论结论
+            DebateConclusion debate conclusion
         """
         rounds = []
 
-        # Round 1: 初始陈述
+        # Round 1: Opening statements
         round1 = self._opening_statements(stock, assessments, causal_analysis)
         rounds.append(round1)
 
-        # Round 2: 反驳与补充
+        # Round 2: Rebuttals and supplements
         round2 = self._rebuttal_round(stock, round1, assessments)
         rounds.append(round2)
 
-        # 裁判评估
+        # Judge evaluation
         conclusion = self.judge.evaluate(stock, rounds, assessments)
 
         return conclusion
@@ -151,10 +151,10 @@ class ExpertDebate:
         assessments: Dict[str, StockAssessment],
         causal_analysis: Optional[Dict],
     ) -> DebateRound:
-        """第一轮: 各方陈述"""
+        """Round 1: Opening statements from all parties"""
         arguments = []
 
-        # 主持人汇总
+        # Moderator summary
         moderator_summary = self._generate_moderator_summary(stock, assessments, causal_analysis)
         arguments.append(
             DebateArgument(
@@ -166,15 +166,15 @@ class ExpertDebate:
             )
         )
 
-        # 看多专家陈述
+        # Bull expert statement
         bull_argument = self._generate_bull_case(stock, assessments, causal_analysis)
         arguments.append(bull_argument)
 
-        # 看空专家陈述
+        # Bear expert statement
         bear_argument = self._generate_bear_case(stock, assessments)
         arguments.append(bear_argument)
 
-        # 风险专家陈述
+        # Risk expert statement
         risk_argument = self._generate_risk_assessment(stock, assessments)
         arguments.append(risk_argument)
 
@@ -186,14 +186,14 @@ class ExpertDebate:
         previous_round: DebateRound,
         assessments: Dict[str, StockAssessment],
     ) -> DebateRound:
-        """第二轮: 反驳与补充"""
+        """Round 2: Rebuttals and supplements"""
         arguments = []
 
-        # 找出前一轮的主要论点
+        # Find main arguments from previous round
         bull_args = previous_round.get_arguments_by_role(DebateRole.BULL)
         bear_args = previous_round.get_arguments_by_role(DebateRole.BEAR)
 
-        # 看空专家反驳看多论点
+        # Bear expert rebuts bull arguments
         if bull_args:
             bear_rebuttal = self._generate_rebuttal(
                 stock,
@@ -203,7 +203,7 @@ class ExpertDebate:
             )
             arguments.append(bear_rebuttal)
 
-        # 看多专家反驳看空论点
+        # Bull expert rebuts bear arguments
         if bear_args:
             bull_rebuttal = self._generate_rebuttal(
                 stock,
@@ -213,7 +213,7 @@ class ExpertDebate:
             )
             arguments.append(bull_rebuttal)
 
-        # 风险专家补充
+        # Risk expert supplement
         risk_update = self._generate_risk_update(stock, previous_round, assessments)
         arguments.append(risk_update)
 
@@ -225,13 +225,13 @@ class ExpertDebate:
         assessments: Dict[str, StockAssessment],
         causal_analysis: Optional[Dict],
     ) -> str:
-        """生成主持人汇总"""
-        # 收集各专家评分
+        """Generate moderator summary"""
+        # Collect expert scores
         scores = {name: a.score for name, a in assessments.items()}
         avg_score = sum(scores.values()) / len(scores) if scores else 0
 
-        # 汇总关键信息
-        summary_parts = [f"股票 {stock} 多维度评估汇总:"]
+        # Summarize key information
+        summary_parts = [f"Stock {stock} multi-dimensional assessment summary:"]
 
         for name, assessment in assessments.items():
             score_str = f"{assessment.score:+.2f}"
@@ -239,14 +239,14 @@ class ExpertDebate:
                 f"- {name}: {assessment.assessment_type.value} ({score_str})"
             )
 
-        summary_parts.append(f"\n综合评分: {avg_score:+.2f}")
+        summary_parts.append(f"\nComposite score: {avg_score:+.2f}")
 
         if causal_analysis:
             if causal_analysis.get("is_leader"):
-                summary_parts.append("因果分析: 该股票是当前板块领先者")
+                summary_parts.append("Causal analysis: This stock is currently a sector leader")
             if causal_analysis.get("propagation_opportunity"):
                 summary_parts.append(
-                    f"传导机会: {causal_analysis.get('propagation_description', '')}"
+                    f"Propagation opportunity: {causal_analysis.get('propagation_description', '')}"
                 )
 
         return "\n".join(summary_parts)
@@ -257,32 +257,32 @@ class ExpertDebate:
         assessments: Dict[str, StockAssessment],
         causal_analysis: Optional[Dict],
     ) -> DebateArgument:
-        """生成看多论点"""
+        """Generate bullish argument"""
         bull_points = []
         evidence = []
 
-        # 收集正面证据
+        # Collect positive evidence
         for name, assessment in assessments.items():
             if assessment.score > 0.2:
                 bull_points.append(
                     f"{name}: {assessment.reasoning}"
                 )
-                evidence.extend(assessment.evidence[:2])  # 每个专家取前2条证据
+                evidence.extend(assessment.evidence[:2])  # Take top 2 evidence from each expert
 
-            # 收集催化剂
+            # Collect catalysts
             for catalyst in assessment.catalysts:
-                bull_points.append(f"催化剂: {catalyst}")
+                bull_points.append(f"Catalyst: {catalyst}")
 
-        # 因果支撑
+        # Causal support
         if causal_analysis:
             if causal_analysis.get("causal_support", 0) > 0.3:
-                bull_points.append("因果支撑: 信号有因果关系验证")
+                bull_points.append("Causal support: Signal has causal relationship validation")
             if causal_analysis.get("propagation_opportunity"):
-                bull_points.append("传导机会: 领先者已动,该股有跟涨可能")
+                bull_points.append("Propagation opportunity: Leader has moved, this stock may follow")
 
-        argument = "看多理由:\n" + "\n".join(f"• {p}" for p in bull_points)
+        argument = "Bullish reasons:\n" + "\n".join(f"• {p}" for p in bull_points)
 
-        # 计算看多置信度
+        # Calculate bullish confidence
         positive_assessments = [a for a in assessments.values() if a.score > 0]
         confidence = (
             sum(a.confidence for a in positive_assessments) / len(positive_assessments)
@@ -301,28 +301,28 @@ class ExpertDebate:
     def _generate_bear_case(
         self, stock: str, assessments: Dict[str, StockAssessment]
     ) -> DebateArgument:
-        """生成看空论点"""
+        """Generate bearish argument"""
         bear_points = []
         evidence = []
 
-        # 收集负面证据
+        # Collect negative evidence
         for name, assessment in assessments.items():
             if assessment.score < -0.2:
                 bear_points.append(f"{name}: {assessment.reasoning}")
                 evidence.extend(assessment.evidence[:2])
 
-            # 收集风险点
+            # Collect risk points
             for risk in assessment.risks:
-                bear_points.append(f"风险: {risk}")
+                bear_points.append(f"Risk: {risk}")
 
-        # 如果没有明显负面因素,指出潜在问题
+        # If no obvious negative factors, point out potential issues
         if not bear_points:
-            bear_points.append("需注意: 当前估值可能已反映正面预期")
-            bear_points.append("需注意: 缺乏明显催化剂可能导致横盘")
+            bear_points.append("Note: Current valuation may already reflect positive expectations")
+            bear_points.append("Note: Lack of clear catalysts may lead to sideways trading")
 
-        argument = "看空/谨慎理由:\n" + "\n".join(f"• {p}" for p in bear_points)
+        argument = "Bearish/Cautious reasons:\n" + "\n".join(f"• {p}" for p in bear_points)
 
-        # 计算看空置信度
+        # Calculate bearish confidence
         negative_assessments = [a for a in assessments.values() if a.score < 0]
         confidence = (
             sum(a.confidence for a in negative_assessments) / len(negative_assessments)
@@ -341,36 +341,36 @@ class ExpertDebate:
     def _generate_risk_assessment(
         self, stock: str, assessments: Dict[str, StockAssessment]
     ) -> DebateArgument:
-        """生成风险评估"""
+        """Generate risk assessment"""
         risks = []
         evidence = []
 
-        # 收集所有风险
+        # Collect all risks
         for assessment in assessments.values():
             risks.extend(assessment.risks)
-            # 收集风险相关证据
+            # Collect risk-related evidence
             for e in assessment.evidence:
                 if e.relevance < 0.5 or "risk" in e.content.lower():
                     evidence.append(e)
 
-        # 去重
+        # Remove duplicates
         risks = list(set(risks))[:10]
 
-        # 计算整体不确定性
+        # Calculate overall uncertainty
         confidences = [a.confidence for a in assessments.values()]
         avg_confidence = sum(confidences) / len(confidences) if confidences else 0.5
         uncertainty = 1 - avg_confidence
 
-        argument = f"风险评估 (不确定性: {uncertainty:.1%}):\n"
+        argument = f"Risk assessment (uncertainty: {uncertainty:.1%}):\n"
         argument += "\n".join(f"• {r}" for r in risks)
 
-        # 仓位建议
+        # Position sizing suggestion
         if uncertainty > 0.5:
-            argument += "\n\n建议: 高不确定性,建议降低仓位或观望"
+            argument += "\n\nSuggestion: High uncertainty, recommend reducing position or staying on sidelines"
         elif uncertainty > 0.3:
-            argument += "\n\n建议: 中等不确定性,建议分批建仓"
+            argument += "\n\nSuggestion: Moderate uncertainty, recommend scaling into position"
         else:
-            argument += "\n\n建议: 不确定性可控,可按计划建仓"
+            argument += "\n\nSuggestion: Uncertainty is manageable, can build position as planned"
 
         return DebateArgument(
             role=DebateRole.RISK,
@@ -387,28 +387,28 @@ class ExpertDebate:
         target_argument: DebateArgument,
         assessments: Dict[str, StockAssessment],
     ) -> DebateArgument:
-        """生成反驳"""
+        """Generate rebuttal"""
         if role == DebateRole.BEAR:
-            # 看空反驳看多
-            rebuttal = f"对看多论点的质疑:\n"
-            rebuttal += "• 正面因素可能已被市场充分定价\n"
-            rebuttal += "• 需警惕过度乐观导致的追高风险\n"
+            # Bear rebuts bull
+            rebuttal = f"Challenges to bullish arguments:\n"
+            rebuttal += "• Positive factors may already be fully priced in by the market\n"
+            rebuttal += "• Beware of chasing highs due to excessive optimism\n"
 
-            # 找出矛盾证据
+            # Find contradicting evidence
             for assessment in assessments.values():
                 if assessment.score < 0:
-                    rebuttal += f"• {assessment.expert_name}给出负面评估\n"
+                    rebuttal += f"• {assessment.expert_name} gave a negative assessment\n"
 
             position = "bearish"
         else:
-            # 看多反驳看空
-            rebuttal = f"对看空论点的回应:\n"
-            rebuttal += "• 短期风险不改变长期价值\n"
-            rebuttal += "• 市场恐慌可能创造买入机会\n"
+            # Bull rebuts bear
+            rebuttal = f"Response to bearish arguments:\n"
+            rebuttal += "• Short-term risks do not change long-term value\n"
+            rebuttal += "• Market panic may create buying opportunities\n"
 
             for assessment in assessments.values():
                 if assessment.score > 0.3:
-                    rebuttal += f"• {assessment.expert_name}确认正面趋势\n"
+                    rebuttal += f"• {assessment.expert_name} confirms positive trend\n"
 
             position = "bullish"
 
@@ -427,31 +427,31 @@ class ExpertDebate:
         previous_round: DebateRound,
         assessments: Dict[str, StockAssessment],
     ) -> DebateArgument:
-        """风险专家补充"""
-        # 根据讨论调整风险评估
+        """Risk expert supplement"""
+        # Adjust risk assessment based on discussion
         bull_args = previous_round.get_arguments_by_role(DebateRole.BULL)
         bear_args = previous_round.get_arguments_by_role(DebateRole.BEAR)
 
         bull_conf = bull_args[0].confidence if bull_args else 0.5
         bear_conf = bear_args[0].confidence if bear_args else 0.5
 
-        # 分歧度
+        # Disagreement level
         disagreement = abs(bull_conf - bear_conf)
 
-        argument = f"风险更新:\n"
-        argument += f"• 多空分歧度: {disagreement:.1%}\n"
+        argument = f"Risk update:\n"
+        argument += f"• Bull-bear disagreement: {disagreement:.1%}\n"
 
         if disagreement > 0.3:
-            argument += "• 高分歧表明市场看法不一,建议谨慎\n"
+            argument += "• High disagreement indicates divided market views, recommend caution\n"
             suggested_size = 0.3
         elif disagreement > 0.15:
-            argument += "• 中等分歧,建议适度参与\n"
+            argument += "• Moderate disagreement, recommend measured participation\n"
             suggested_size = 0.5
         else:
-            argument += "• 共识度较高,可按计划执行\n"
+            argument += "• High consensus, can execute as planned\n"
             suggested_size = 0.7
 
-        argument += f"• 建议仓位系数: {suggested_size:.0%}"
+        argument += f"• Suggested position coefficient: {suggested_size:.0%}"
 
         return DebateArgument(
             role=DebateRole.RISK,
@@ -464,9 +464,9 @@ class ExpertDebate:
 
 class DebateJudge:
     """
-    讨论裁判 - LLM-as-Judge
+    Debate Judge - LLM-as-Judge
 
-    评估讨论证据,形成最终结论
+    Evaluates debate evidence and forms final conclusion
     """
 
     def __init__(self, llm_client: Optional[Any] = None):
@@ -479,24 +479,24 @@ class DebateJudge:
         assessments: Dict[str, StockAssessment],
     ) -> DebateConclusion:
         """
-        评估讨论,形成结论
+        Evaluate debate and form conclusion
 
-        评估维度:
-        1. 证据强度 (有数据支撑 vs 纯观点)
-        2. 论点一致性 (内部是否矛盾)
-        3. 风险收益比 (潜在收益 vs 潜在风险)
+        Evaluation dimensions:
+        1. Evidence strength (data-backed vs pure opinion)
+        2. Argument consistency (internal contradictions)
+        3. Risk-reward ratio (potential gains vs potential risks)
         """
-        # 收集所有论点
+        # Collect all arguments
         all_arguments = []
         for round in rounds:
             all_arguments.extend(round.arguments)
 
-        # 提取关键点
+        # Extract key points
         bull_points = self._extract_key_points(all_arguments, DebateRole.BULL)
         bear_points = self._extract_key_points(all_arguments, DebateRole.BEAR)
         risk_points = self._extract_key_points(all_arguments, DebateRole.RISK)
 
-        # 评估证据强度
+        # Evaluate evidence strength
         bull_evidence_strength = self._evaluate_evidence_strength(
             [a for a in all_arguments if a.role == DebateRole.BULL]
         )
@@ -504,22 +504,22 @@ class DebateJudge:
             [a for a in all_arguments if a.role == DebateRole.BEAR]
         )
 
-        # 计算最终得分
-        # 考虑: 原始评分 + 证据强度 + 讨论质量
+        # Calculate final score
+        # Consider: base score + evidence strength + debate quality
         base_scores = [a.score for a in assessments.values()]
         base_avg = sum(base_scores) / len(base_scores) if base_scores else 0
 
-        # 证据调整
+        # Evidence adjustment
         evidence_adjustment = (bull_evidence_strength - bear_evidence_strength) * 0.2
 
         final_score = base_avg + evidence_adjustment
         final_score = max(-1, min(1, final_score))
 
-        # 计算置信度
+        # Calculate confidence
         confidences = [a.confidence for a in assessments.values()]
         base_confidence = sum(confidences) / len(confidences) if confidences else 0.5
 
-        # 共识度影响置信度
+        # Consensus affects confidence
         score_std = (
             (sum((s - base_avg) ** 2 for s in base_scores) / len(base_scores)) ** 0.5
             if base_scores
@@ -529,7 +529,7 @@ class DebateJudge:
 
         final_confidence = base_confidence * consensus_factor
 
-        # 判断共识类型
+        # Determine consensus type
         if score_std < 0.2:
             consensus_type = "strong_consensus"
         elif score_std < 0.4:
@@ -537,15 +537,15 @@ class DebateJudge:
         else:
             consensus_type = "disagreement"
 
-        # 生成建议
+        # Generate recommendation
         recommendation = self._generate_recommendation(final_score, final_confidence)
 
-        # 建议仓位
+        # Suggested position size
         position_size = self._calculate_position_size(
             final_score, final_confidence, consensus_type
         )
 
-        # 生成裁判推理
+        # Generate judge reasoning
         judge_reasoning = self._generate_reasoning(
             stock,
             final_score,
@@ -572,11 +572,11 @@ class DebateJudge:
     def _extract_key_points(
         self, arguments: List[DebateArgument], role: DebateRole
     ) -> List[str]:
-        """提取某角色的关键论点"""
+        """Extract key points from a specific role"""
         points = []
         for arg in arguments:
             if arg.role == role:
-                # 简单分割论点
+                # Simple argument splitting
                 lines = arg.argument.split("\n")
                 for line in lines:
                     line = line.strip()
@@ -587,7 +587,7 @@ class DebateJudge:
     def _evaluate_evidence_strength(
         self, arguments: List[DebateArgument]
     ) -> float:
-        """评估证据强度"""
+        """Evaluate evidence strength"""
         if not arguments:
             return 0.0
 
@@ -600,10 +600,10 @@ class DebateJudge:
                 weighted_relevance += evidence.relevance
 
         if total_evidence == 0:
-            return 0.3  # 没有证据给较低分
+            return 0.3  # No evidence gets lower score
 
         avg_relevance = weighted_relevance / total_evidence
-        # 证据数量也很重要
+        # Evidence quantity also matters
         quantity_factor = min(1.0, total_evidence / 5)
 
         return avg_relevance * 0.7 + quantity_factor * 0.3
@@ -611,8 +611,8 @@ class DebateJudge:
     def _generate_recommendation(
         self, score: float, confidence: float
     ) -> str:
-        """生成投资建议"""
-        adjusted_score = score * confidence  # 置信度调整
+        """Generate investment recommendation"""
+        adjusted_score = score * confidence  # Confidence adjustment
 
         if adjusted_score > 0.5:
             return "strong_buy"
@@ -628,17 +628,17 @@ class DebateJudge:
     def _calculate_position_size(
         self, score: float, confidence: float, consensus_type: str
     ) -> float:
-        """计算建议仓位"""
-        # 基础仓位由得分决定
+        """Calculate suggested position size"""
+        # Base position determined by score
         if score > 0:
-            base_size = min(1.0, score + 0.3)  # 正面得分,最大100%
+            base_size = min(1.0, score + 0.3)  # Positive score, max 100%
         else:
-            base_size = max(0, 0.3 + score)  # 负面得分,最小0%
+            base_size = max(0, 0.3 + score)  # Negative score, min 0%
 
-        # 置信度调整
+        # Confidence adjustment
         confidence_factor = 0.5 + confidence * 0.5
 
-        # 共识度调整
+        # Consensus adjustment
         if consensus_type == "strong_consensus":
             consensus_factor = 1.0
         elif consensus_type == "weak_consensus":
@@ -658,19 +658,19 @@ class DebateJudge:
         bear_strength: float,
         consensus_type: str,
     ) -> str:
-        """生成裁判推理"""
-        reasoning = f"对 {stock} 的综合评估:\n\n"
+        """Generate judge reasoning"""
+        reasoning = f"Comprehensive assessment of {stock}:\n\n"
 
-        reasoning += f"1. 最终得分: {score:+.2f} (置信度: {confidence:.1%})\n"
-        reasoning += f"2. 共识类型: {consensus_type}\n"
-        reasoning += f"3. 多方证据强度: {bull_strength:.2f}\n"
-        reasoning += f"4. 空方证据强度: {bear_strength:.2f}\n\n"
+        reasoning += f"1. Final score: {score:+.2f} (confidence: {confidence:.1%})\n"
+        reasoning += f"2. Consensus type: {consensus_type}\n"
+        reasoning += f"3. Bull evidence strength: {bull_strength:.2f}\n"
+        reasoning += f"4. Bear evidence strength: {bear_strength:.2f}\n\n"
 
         if bull_strength > bear_strength + 0.2:
-            reasoning += "结论: 多方证据更充分,倾向看多。\n"
+            reasoning += "Conclusion: Bull evidence is stronger, leaning bullish.\n"
         elif bear_strength > bull_strength + 0.2:
-            reasoning += "结论: 空方证据更充分,建议谨慎。\n"
+            reasoning += "Conclusion: Bear evidence is stronger, recommend caution.\n"
         else:
-            reasoning += "结论: 多空证据势均力敌,建议观望或小仓位试探。\n"
+            reasoning += "Conclusion: Bull and bear evidence are evenly matched, recommend watching or small exploratory position.\n"
 
         return reasoning

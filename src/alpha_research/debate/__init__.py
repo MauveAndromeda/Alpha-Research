@@ -1,13 +1,13 @@
 """
 Multi-Expert Debate System
 
-用户原始思路的核心: 多LLM专家讨论形成共识
+Core of user's original idea: Multiple LLM experts discuss to form consensus
 
-组件:
-- ExpertDebate: 组织专家讨论
-- DebateJudge: 评判讨论结论 (LLM-as-Judge)
-- EvidenceLedger: 管理证据引用
-- ConsensusBuilder: 形成最终共识
+Components:
+- ExpertDebate: Organizes expert discussions
+- DebateJudge: Evaluates debate conclusions (LLM-as-Judge)
+- EvidenceLedger: Manages evidence citations
+- ConsensusBuilder: Builds final consensus
 """
 
 from .debate import (

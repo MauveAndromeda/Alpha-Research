@@ -1,24 +1,24 @@
 """
 Finnhub.io Client
 
-Finnhub提供的独特数据 (可能产生Alpha的):
-1. Insider Transactions - 内部人交易 (比SEC EDGAR更实时)
-2. Insider Sentiment - 内部人情绪聚合
-3. Lobbying Data - 游说活动数据
-4. Government Spending - 政府支出/合同
-5. SEC Filings Sentiment - SEC文件情绪分析
-6. Earnings Surprises - 盈利惊喜
-7. Revenue Estimates - 收入预期
-8. Recommendation Trends - 分析师评级趋势
-9. Price Target - 目标价变化
-10. Upgrade/Downgrade - 评级变化
-11. IPO Calendar - IPO日历
-12. FDA Calendar - FDA审批日历 (生物科技重要)
-13. Patent Data - 专利数据
+Unique data from Finnhub (potential Alpha sources):
+1. Insider Transactions - More real-time than SEC EDGAR
+2. Insider Sentiment - Aggregated insider sentiment
+3. Lobbying Data - Lobbying activity data
+4. Government Spending - Government spending/contracts
+5. SEC Filings Sentiment - Sentiment analysis of SEC filings
+6. Earnings Surprises - Earnings surprises
+7. Revenue Estimates - Revenue expectations
+8. Recommendation Trends - Analyst rating trends
+9. Price Target - Price target changes
+10. Upgrade/Downgrade - Rating changes
+11. IPO Calendar - IPO calendar
+12. FDA Calendar - FDA approval calendar (important for biotech)
+13. Patent Data - Patent data
 
 API: https://finnhub.io/docs/api
-免费tier: 60 calls/min
-付费tier: 300+ calls/min
+Free tier: 60 calls/min
+Paid tier: 300+ calls/min
 """
 
 import os
@@ -34,40 +34,40 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class InsiderTransaction:
-    """内部人交易记录"""
+    """Insider transaction record"""
     symbol: str
-    name: str  # 内部人姓名
-    share: int  # 股数
-    change: int  # 变化量
+    name: str  # Insider name
+    share: int  # Number of shares
+    change: int  # Change amount
     filing_date: date
     transaction_date: date
-    transaction_code: str  # P=买入, S=卖出
+    transaction_code: str  # P=Purchase, S=Sale
     transaction_price: float
 
 
 @dataclass
 class InsiderSentiment:
-    """内部人情绪聚合"""
+    """Aggregated insider sentiment"""
     symbol: str
     year: int
     month: int
-    change: float  # 净买入/卖出变化
+    change: float  # Net buy/sell change
     mspr: float  # Monthly Share Purchase Ratio
 
 
 @dataclass
 class LobbyingData:
-    """游说活动数据"""
+    """Lobbying activity data"""
     symbol: str
     year: int
     period: str
     expenses: float
-    issues: List[str]  # 游说议题
+    issues: List[str]  # Lobbying issues
 
 
 @dataclass
 class EarningsSurprise:
-    """盈利惊喜"""
+    """Earnings surprise"""
     symbol: str
     period: str
     actual: float
@@ -78,7 +78,7 @@ class EarningsSurprise:
 
 @dataclass
 class RecommendationTrend:
-    """分析师评级趋势"""
+    """Analyst rating trend"""
     symbol: str
     period: date
     strong_buy: int
@@ -89,7 +89,7 @@ class RecommendationTrend:
 
     @property
     def consensus_score(self) -> float:
-        """计算共识分数 (-1 to 1)"""
+        """Calculate consensus score (-1 to 1)"""
         total = self.strong_buy + self.buy + self.hold + self.sell + self.strong_sell
         if total == 0:
             return 0
@@ -105,10 +105,10 @@ class RecommendationTrend:
 
 @dataclass
 class UpgradeDowngrade:
-    """评级变化"""
+    """Rating change"""
     symbol: str
     grade_date: date
-    company: str  # 评级机构
+    company: str  # Rating agency
     from_grade: str
     to_grade: str
     action: str  # upgrade, downgrade, maintain
@@ -118,17 +118,17 @@ class FinnhubClient:
     """
     Finnhub API Client
 
-    提供另类数据接口,重点关注可能产生Alpha的数据
+    Provides alternative data interfaces, focusing on data that may generate Alpha
     """
 
     BASE_URL = "https://finnhub.io/api/v1"
 
     def __init__(self, api_key: Optional[str] = None):
         """
-        初始化客户端
+        Initialize client
 
         Args:
-            api_key: Finnhub API key (免费注册获取)
+            api_key: Finnhub API key (free registration to obtain)
         """
         self.api_key = api_key or os.getenv("FINNHUB_API_KEY")
         if not self.api_key:
@@ -141,7 +141,7 @@ class FinnhubClient:
         self._last_request_time = datetime.now()
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """获取或创建session"""
+        """Get or create session"""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
         return self._session
@@ -151,14 +151,14 @@ class FinnhubClient:
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """发送API请求"""
+        """Send API request"""
         session = await self._get_session()
 
         url = f"{self.BASE_URL}/{endpoint}"
         params = params or {}
         params["token"] = self.api_key
 
-        # 简单的速率限制
+        # Simple rate limiting
         elapsed = (datetime.now() - self._last_request_time).total_seconds()
         if elapsed < 1.0 and self._rate_limit_remaining < 5:
             await asyncio.sleep(1.0 - elapsed)
@@ -177,11 +177,11 @@ class FinnhubClient:
             return await response.json()
 
     async def close(self):
-        """关闭session"""
+        """Close session"""
         if self._session and not self._session.closed:
             await self._session.close()
 
-    # ========== 内部人数据 (高Alpha潜力) ==========
+    # ========== Insider Data (High Alpha Potential) ==========
 
     async def get_insider_transactions(
         self,
@@ -190,12 +190,12 @@ class FinnhubClient:
         to_date: Optional[date] = None,
     ) -> List[InsiderTransaction]:
         """
-        获取内部人交易
+        Get insider transactions
 
-        为什么有Alpha潜力:
-        - 内部人有信息优势
-        - Cluster buying是强信号
-        - 比公开财报更实时
+        Why it has Alpha potential:
+        - Insiders have information advantage
+        - Cluster buying is a strong signal
+        - More real-time than public financial reports
         """
         params = {"symbol": symbol}
         if from_date:
@@ -236,9 +236,9 @@ class FinnhubClient:
         to_date: Optional[date] = None,
     ) -> List[InsiderSentiment]:
         """
-        获取内部人情绪聚合
+        Get aggregated insider sentiment
 
-        MSPR (Monthly Share Purchase Ratio) > 0 表示净买入
+        MSPR (Monthly Share Purchase Ratio) > 0 indicates net buying
         """
         params = {"symbol": symbol}
         if from_date:
@@ -262,15 +262,15 @@ class FinnhubClient:
 
         return sentiments
 
-    # ========== 分析师数据 ==========
+    # ========== Analyst Data ==========
 
     async def get_recommendation_trends(
         self, symbol: str
     ) -> List[RecommendationTrend]:
         """
-        获取分析师评级趋势
+        Get analyst rating trends
 
-        关注: 评级变化的方向和速度
+        Focus: Direction and speed of rating changes
         """
         data = await self._request("stock/recommendation", {"symbol": symbol})
 
@@ -297,11 +297,11 @@ class FinnhubClient:
         to_date: Optional[date] = None,
     ) -> List[UpgradeDowngrade]:
         """
-        获取评级变化
+        Get rating changes
 
-        重点关注:
-        - 大机构的评级变化
-        - 短期内多个升级/降级
+        Key focus:
+        - Rating changes from major institutions
+        - Multiple upgrades/downgrades in short period
         """
         params = {"symbol": symbol}
         if from_date:
@@ -329,18 +329,18 @@ class FinnhubClient:
         return changes
 
     async def get_price_target(self, symbol: str) -> Dict[str, Any]:
-        """获取目标价"""
+        """Get price target"""
         return await self._request("stock/price-target", {"symbol": symbol})
 
-    # ========== 盈利数据 ==========
+    # ========== Earnings Data ==========
 
     async def get_earnings_surprises(
         self, symbol: str, limit: int = 4
     ) -> List[EarningsSurprise]:
         """
-        获取盈利惊喜
+        Get earnings surprises
 
-        惊喜方向和幅度是重要信号
+        Surprise direction and magnitude are important signals
         """
         data = await self._request(
             "stock/earnings", {"symbol": symbol, "limit": limit}
@@ -361,7 +361,7 @@ class FinnhubClient:
 
         return surprises
 
-    # ========== 另类数据 ==========
+    # ========== Alternative Data ==========
 
     async def get_lobbying(
         self,
@@ -370,11 +370,11 @@ class FinnhubClient:
         to_date: Optional[date] = None,
     ) -> List[LobbyingData]:
         """
-        获取游说活动数据
+        Get lobbying activity data
 
-        游说支出增加可能预示:
-        - 监管变化
-        - 政策风险/机会
+        Increased lobbying spending may indicate:
+        - Regulatory changes
+        - Policy risks/opportunities
         """
         params = {"symbol": symbol}
         if from_date:
@@ -405,9 +405,9 @@ class FinnhubClient:
         to_date: Optional[date] = None,
     ) -> List[Dict[str, Any]]:
         """
-        获取政府合同/支出数据
+        Get government contract/spending data
 
-        对国防/医疗/科技公司特别重要
+        Especially important for defense/healthcare/tech companies
         """
         params = {"symbol": symbol}
         if from_date:
@@ -420,21 +420,21 @@ class FinnhubClient:
 
     async def get_social_sentiment(self, symbol: str) -> Dict[str, Any]:
         """
-        获取社交媒体情绪
+        Get social media sentiment
 
-        Twitter/Reddit等平台的情绪分析
+        Sentiment analysis from Twitter/Reddit and other platforms
         """
         return await self._request("stock/social-sentiment", {"symbol": symbol})
 
     async def get_sec_sentiment(self, symbol: str) -> Dict[str, Any]:
         """
-        获取SEC文件情绪分析
+        Get SEC filing sentiment analysis
 
-        分析10-K, 10-Q等文件的情绪变化
+        Analyze sentiment changes in 10-K, 10-Q and other filings
         """
         return await self._request("stock/filings-sentiment", {"symbol": symbol})
 
-    # ========== 日历数据 ==========
+    # ========== Calendar Data ==========
 
     async def get_earnings_calendar(
         self,
@@ -442,7 +442,7 @@ class FinnhubClient:
         to_date: date,
         symbol: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """获取财报日历"""
+        """Get earnings calendar"""
         params = {
             "from": from_date.isoformat(),
             "to": to_date.isoformat(),
@@ -458,7 +458,7 @@ class FinnhubClient:
         from_date: date,
         to_date: date,
     ) -> List[Dict[str, Any]]:
-        """获取IPO日历"""
+        """Get IPO calendar"""
         params = {
             "from": from_date.isoformat(),
             "to": to_date.isoformat(),
@@ -468,21 +468,21 @@ class FinnhubClient:
 
     async def get_fda_calendar(self) -> List[Dict[str, Any]]:
         """
-        获取FDA日历
+        Get FDA calendar
 
-        对生物科技股特别重要 - FDA审批是重大催化剂
+        Especially important for biotech stocks - FDA approvals are major catalysts
         """
         return await self._request("fda-advisory-committee-calendar")
 
-    # ========== 聚合方法 ==========
+    # ========== Aggregation Methods ==========
 
     async def get_alpha_data(self, symbol: str) -> Dict[str, Any]:
         """
-        获取所有可能产生Alpha的数据
+        Get all data that may generate Alpha
 
-        一次性获取所有关键另类数据
+        Fetch all key alternative data at once
         """
-        # 并行获取所有数据
+        # Fetch all data in parallel
         thirty_days_ago = date.today() - timedelta(days=30)
         ninety_days_ago = date.today() - timedelta(days=90)
 

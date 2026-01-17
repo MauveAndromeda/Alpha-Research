@@ -1,18 +1,18 @@
 """
-Niche Market Filter - 利基市场筛选器
+Niche Market Filter - Niche Market Screener
 
-为什么关注利基市场:
-1. 低分析师覆盖 = 信息效率低 = Alpha潜力高
-2. 低机构持仓 = 较少专业竞争
-3. 中小市值 = HFT参与少
-4. 特定事件窗口 = 短期信息不对称
+Why focus on niche markets:
+1. Low analyst coverage = Low information efficiency = High Alpha potential
+2. Low institutional ownership = Less professional competition
+3. Small/mid cap = Less HFT participation
+4. Specific event windows = Short-term information asymmetry
 
-2026策略: 在低效市场寻找结构性Alpha优势
+2026 Strategy: Find structural Alpha advantages in inefficient markets
 
-研究支持:
-- Fama-French: 小市值因子持续有效
-- 分析师覆盖与异常收益负相关 (Hong, Lim, Stein 2000)
-- 机构持仓低的股票有更大的定价偏差
+Research support:
+- Fama-French: Small cap factor remains effective
+- Analyst coverage negatively correlated with abnormal returns (Hong, Lim, Stein 2000)
+- Stocks with low institutional ownership have larger pricing deviations
 """
 
 from dataclasses import dataclass, field
@@ -26,25 +26,25 @@ logger = logging.getLogger(__name__)
 
 
 class NicheType(Enum):
-    """利基市场类型"""
-    LOW_ANALYST_COVERAGE = "low_analyst_coverage"  # 低分析师覆盖
-    LOW_INSTITUTIONAL = "low_institutional"        # 低机构持仓
-    MID_CAP = "mid_cap"                           # 中市值
-    SMALL_CAP = "small_cap"                       # 小市值
-    EARNINGS_CATALYST = "earnings_catalyst"       # 财报催化剂
-    FDA_CATALYST = "fda_catalyst"                 # FDA催化剂
-    SPIN_OFF = "spin_off"                         # 分拆
-    POST_IPO = "post_ipo"                         # IPO后窗口
-    SECTOR_NEGLECTED = "sector_neglected"         # 被忽视板块
+    """Niche market types"""
+    LOW_ANALYST_COVERAGE = "low_analyst_coverage"  # Low analyst coverage
+    LOW_INSTITUTIONAL = "low_institutional"        # Low institutional ownership
+    MID_CAP = "mid_cap"                           # Mid cap
+    SMALL_CAP = "small_cap"                       # Small cap
+    EARNINGS_CATALYST = "earnings_catalyst"       # Earnings catalyst
+    FDA_CATALYST = "fda_catalyst"                 # FDA catalyst
+    SPIN_OFF = "spin_off"                         # Spin-off
+    POST_IPO = "post_ipo"                         # Post-IPO window
+    SECTOR_NEGLECTED = "sector_neglected"         # Neglected sector
 
 
 @dataclass
 class NicheOpportunity:
-    """利基市场机会"""
+    """Niche market opportunity"""
     stock: str
     niche_types: List[NicheType]
-    inefficiency_score: float  # 0-1, 市场效率越低分数越高
-    alpha_potential: float     # 预估Alpha潜力
+    inefficiency_score: float  # 0-1, higher score means lower market efficiency
+    alpha_potential: float     # Estimated Alpha potential
     competition_level: str     # "low", "medium", "high"
     reasoning: str
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -52,7 +52,7 @@ class NicheOpportunity:
 
     @property
     def is_attractive(self) -> bool:
-        """是否值得关注"""
+        """Whether it's worth attention"""
         return (
             self.inefficiency_score > 0.5
             and self.competition_level in ["low", "medium"]
@@ -62,7 +62,7 @@ class NicheOpportunity:
 
 @dataclass
 class MarketSegment:
-    """市场细分"""
+    """Market segment"""
     name: str
     criteria: Dict[str, Any]
     avg_inefficiency: float
@@ -73,18 +73,18 @@ class MarketSegment:
 
 class NicheMarketFilter:
     """
-    利基市场筛选器
+    Niche Market Screener
 
-    核心理念: 在信息效率低的市场寻找Alpha
-    - 大型机构不屑于研究的股票
-    - HFT覆盖较少的股票
-    - 有特定催化剂但未被充分定价的股票
+    Core concept: Find Alpha in informationally inefficient markets
+    - Stocks that large institutions don't bother researching
+    - Stocks with less HFT coverage
+    - Stocks with specific catalysts not yet fully priced in
     """
 
-    # 筛选标准
+    # Screening criteria
     CRITERIA = {
         "analyst_coverage": {
-            "low": {"max": 3},      # 0-3个分析师
+            "low": {"max": 3},      # 0-3 analysts
             "medium": {"min": 3, "max": 10},
             "high": {"min": 10},
         },
@@ -101,7 +101,7 @@ class NicheMarketFilter:
         },
     }
 
-    # 利基市场权重 (对Alpha的贡献)
+    # Niche market weights (contribution to Alpha)
     NICHE_WEIGHTS = {
         NicheType.LOW_ANALYST_COVERAGE: 0.25,
         NicheType.LOW_INSTITUTIONAL: 0.20,
@@ -116,15 +116,15 @@ class NicheMarketFilter:
 
     def __init__(
         self,
-        min_liquidity: float = 500_000,  # 最小日成交额
-        max_spread: float = 0.02,        # 最大买卖价差
+        min_liquidity: float = 500_000,  # Minimum daily turnover
+        max_spread: float = 0.02,        # Maximum bid-ask spread
     ):
         """
-        初始化筛选器
+        Initialize the screener
 
         Args:
-            min_liquidity: 最小日均成交额 (避免流动性问题)
-            max_spread: 最大买卖价差 (避免执行成本过高)
+            min_liquidity: Minimum average daily turnover (to avoid liquidity issues)
+            max_spread: Maximum bid-ask spread (to avoid excessive execution costs)
         """
         self.min_liquidity = min_liquidity
         self.max_spread = max_spread
@@ -135,38 +135,38 @@ class NicheMarketFilter:
         require_niche_count: int = 2,
     ) -> List[NicheOpportunity]:
         """
-        筛选利基市场机会
+        Screen for niche market opportunities
 
         Args:
             stock_data: {symbol: stock_info}
-            require_niche_count: 至少满足多少个利基条件
+            require_niche_count: Minimum number of niche criteria to satisfy
 
         Returns:
-            NicheOpportunity列表,按inefficiency_score排序
+            List of NicheOpportunity, sorted by inefficiency_score
         """
         opportunities = []
 
         for symbol, data in stock_data.items():
-            # 检查基本流动性
+            # Check basic liquidity
             if not self._check_liquidity(data):
                 continue
 
-            # 识别利基类型
+            # Identify niche types
             niche_types = self._identify_niche_types(data)
 
             if len(niche_types) < require_niche_count:
                 continue
 
-            # 计算市场效率分数
+            # Calculate market inefficiency score
             inefficiency_score = self._calculate_inefficiency(data, niche_types)
 
-            # 估算Alpha潜力
+            # Estimate Alpha potential
             alpha_potential = self._estimate_alpha_potential(data, niche_types)
 
-            # 评估竞争水平
+            # Assess competition level
             competition = self._assess_competition(data)
 
-            # 生成推理
+            # Generate reasoning
             reasoning = self._generate_reasoning(symbol, niche_types, data)
 
             opportunities.append(NicheOpportunity(
@@ -184,12 +184,12 @@ class NicheMarketFilter:
                 },
             ))
 
-        # 按效率分数排序 (低效=高分)
+        # Sort by inefficiency score (inefficient = high score)
         opportunities.sort(key=lambda x: x.inefficiency_score, reverse=True)
         return opportunities
 
     def _check_liquidity(self, data: Dict[str, Any]) -> bool:
-        """检查流动性是否足够"""
+        """Check if liquidity is sufficient"""
         avg_volume = data.get("avg_volume", 0)
         avg_price = data.get("price", 0)
         daily_turnover = avg_volume * avg_price
@@ -204,32 +204,32 @@ class NicheMarketFilter:
         return True
 
     def _identify_niche_types(self, data: Dict[str, Any]) -> List[NicheType]:
-        """识别股票所属的利基类型"""
+        """Identify the niche types this stock belongs to"""
         niche_types = []
 
-        # 1. 低分析师覆盖
+        # 1. Low analyst coverage
         analyst_count = data.get("analyst_count", 0)
         if analyst_count <= self.CRITERIA["analyst_coverage"]["low"]["max"]:
             niche_types.append(NicheType.LOW_ANALYST_COVERAGE)
 
-        # 2. 低机构持仓
+        # 2. Low institutional ownership
         inst_own = data.get("institutional_ownership", 0)
         if inst_own <= self.CRITERIA["institutional_ownership"]["low"]["max"]:
             niche_types.append(NicheType.LOW_INSTITUTIONAL)
 
-        # 3. 市值类别
+        # 3. Market cap category
         market_cap = data.get("market_cap", 0)
         if self.CRITERIA["market_cap"]["small"]["min"] <= market_cap < self.CRITERIA["market_cap"]["small"]["max"]:
             niche_types.append(NicheType.SMALL_CAP)
         elif self.CRITERIA["market_cap"]["mid"]["min"] <= market_cap < self.CRITERIA["market_cap"]["mid"]["max"]:
             niche_types.append(NicheType.MID_CAP)
 
-        # 4. 催化剂窗口
+        # 4. Catalyst window
         earnings_days = data.get("days_to_earnings", 999)
         if 0 < earnings_days <= 14:
             niche_types.append(NicheType.EARNINGS_CATALYST)
 
-        # 5. FDA催化剂 (生物科技)
+        # 5. FDA catalyst (biotech)
         sector = data.get("sector", "")
         fda_date = data.get("fda_decision_date")
         if sector in ["Healthcare", "Biotechnology"] and fda_date:
@@ -237,23 +237,23 @@ class NicheMarketFilter:
             if 0 < days_to_fda <= 30:
                 niche_types.append(NicheType.FDA_CATALYST)
 
-        # 6. 分拆后窗口
+        # 6. Post spin-off window
         spinoff_date = data.get("spinoff_date")
         if spinoff_date:
             days_since_spinoff = (date.today() - spinoff_date).days if isinstance(spinoff_date, date) else 999
             if 0 < days_since_spinoff <= 180:
                 niche_types.append(NicheType.SPIN_OFF)
 
-        # 7. IPO后窗口
+        # 7. Post-IPO window
         ipo_date = data.get("ipo_date")
         if ipo_date:
             days_since_ipo = (date.today() - ipo_date).days if isinstance(ipo_date, date) else 999
-            if 90 < days_since_ipo <= 365:  # 锁定期后但仍较新
+            if 90 < days_since_ipo <= 365:  # After lockup but still relatively new
                 niche_types.append(NicheType.POST_IPO)
 
-        # 8. 被忽视板块
+        # 8. Neglected sector
         sector_momentum = data.get("sector_momentum_rank", 50)
-        if sector_momentum > 80:  # 板块表现最差的20%
+        if sector_momentum > 80:  # Bottom 20% performing sectors
             niche_types.append(NicheType.SECTOR_NEGLECTED)
 
         return niche_types
@@ -264,27 +264,27 @@ class NicheMarketFilter:
         niche_types: List[NicheType],
     ) -> float:
         """
-        计算市场效率分数 (越低效分数越高)
+        Calculate market inefficiency score (higher score means less efficient)
 
-        考虑因素:
-        - 分析师覆盖
-        - 机构持仓
-        - 交易量/市值比
-        - 信息发布频率
+        Factors considered:
+        - Analyst coverage
+        - Institutional ownership
+        - Turnover/market cap ratio
+        - Information release frequency
         """
         score = 0.0
 
-        # 分析师覆盖 (越少越低效)
+        # Analyst coverage (fewer = less efficient)
         analyst_count = data.get("analyst_count", 5)
         analyst_score = max(0, 1 - analyst_count / 15)
         score += analyst_score * 0.30
 
-        # 机构持仓 (越低越低效)
+        # Institutional ownership (lower = less efficient)
         inst_own = data.get("institutional_ownership", 0.5)
         inst_score = 1 - inst_own
         score += inst_score * 0.25
 
-        # 换手率 (太低可能流动性差,太高可能已被关注)
+        # Turnover ratio (too low may mean poor liquidity, too high may mean already noticed)
         turnover = data.get("turnover_ratio", 0.02)
         if 0.005 < turnover < 0.03:
             turnover_score = 0.8
@@ -294,12 +294,12 @@ class NicheMarketFilter:
             turnover_score = 0.3
         score += turnover_score * 0.15
 
-        # 新闻覆盖 (越少越低效)
+        # News coverage (less = less efficient)
         news_count = data.get("news_count_30d", 10)
         news_score = max(0, 1 - news_count / 50)
         score += news_score * 0.15
 
-        # 利基类型数量bonus
+        # Niche type count bonus
         niche_bonus = min(0.15, len(niche_types) * 0.03)
         score += niche_bonus
 
@@ -311,52 +311,52 @@ class NicheMarketFilter:
         niche_types: List[NicheType],
     ) -> float:
         """
-        估算Alpha潜力
+        Estimate Alpha potential
 
-        基于历史研究:
-        - 低覆盖股票平均有2-3%年化超额收益
-        - 事件催化剂可带来短期5-10%收益
+        Based on historical research:
+        - Low coverage stocks average 2-3% annualized excess returns
+        - Event catalysts can bring 5-10% short-term returns
         """
-        base_alpha = 0.02  # 基础2%年化
+        base_alpha = 0.02  # Base 2% annualized
 
-        # 利基类型贡献
+        # Niche type contribution
         for niche in niche_types:
             base_alpha += self.NICHE_WEIGHTS.get(niche, 0) * 0.1
 
-        # 估值折扣bonus
+        # Valuation discount bonus
         pe_ratio = data.get("pe_ratio", 20)
         sector_pe = data.get("sector_pe", 20)
         if pe_ratio > 0 and pe_ratio < sector_pe * 0.8:
             base_alpha += 0.02
 
-        # 质量因子bonus
+        # Quality factor bonus
         roe = data.get("roe", 0.1)
         if roe > 0.15:
             base_alpha += 0.01
 
-        return min(0.15, base_alpha)  # 上限15%
+        return min(0.15, base_alpha)  # Cap at 15%
 
     def _assess_competition(self, data: Dict[str, Any]) -> str:
-        """评估竞争水平"""
+        """Assess competition level"""
         analyst_count = data.get("analyst_count", 0)
         inst_own = data.get("institutional_ownership", 0)
         market_cap = data.get("market_cap", 0)
 
         competition_score = 0
 
-        # 分析师多 = 竞争高
+        # More analysts = higher competition
         if analyst_count > 10:
             competition_score += 2
         elif analyst_count > 5:
             competition_score += 1
 
-        # 机构持仓高 = 竞争高
+        # Higher institutional ownership = higher competition
         if inst_own > 0.7:
             competition_score += 2
         elif inst_own > 0.5:
             competition_score += 1
 
-        # 大市值 = 竞争高
+        # Larger market cap = higher competition
         if market_cap > 50_000_000_000:
             competition_score += 2
         elif market_cap > 10_000_000_000:
@@ -375,7 +375,7 @@ class NicheMarketFilter:
         niche_types: List[NicheType],
         data: Dict[str, Any],
     ) -> str:
-        """生成筛选理由"""
+        """Generate screening rationale"""
         reasons = []
 
         if NicheType.LOW_ANALYST_COVERAGE in niche_types:
@@ -418,7 +418,7 @@ class NicheMarketFilter:
         max_stocks: int = 100,
     ) -> Dict[str, List[str]]:
         """
-        构建利基市场投资宇宙
+        Build niche market investment universe
 
         Returns:
             {niche_type: [symbols]}
@@ -443,7 +443,7 @@ class NicheMarketFilter:
         stock_data: Dict[str, Dict[str, Any]],
     ) -> Dict[str, float]:
         """
-        评估每个利基宇宙的整体质量
+        Evaluate overall quality of each niche universe
 
         Returns:
             {niche_type: quality_score}
@@ -455,7 +455,7 @@ class NicheMarketFilter:
                 scores[niche_type] = 0.0
                 continue
 
-            # 计算宇宙平均质量
+            # Calculate average universe quality
             inefficiencies = []
             for symbol in symbols:
                 data = stock_data.get(symbol, {})
@@ -464,7 +464,7 @@ class NicheMarketFilter:
                 inefficiencies.append(ineff)
 
             avg_inefficiency = np.mean(inefficiencies) if inefficiencies else 0
-            count_score = min(1.0, len(symbols) / 50)  # 数量得分
+            count_score = min(1.0, len(symbols) / 50)  # Count score
 
             scores[niche_type] = avg_inefficiency * 0.7 + count_score * 0.3
 
@@ -473,12 +473,12 @@ class NicheMarketFilter:
 
 class SmartMoneyTracker:
     """
-    Smart Money追踪器
+    Smart Money Tracker
 
-    追踪"聪明钱"的动向来寻找利基机会:
-    - 机构13F持仓变化
-    - 内部人买入
-    - 国会议员交易
+    Track "smart money" movements to find niche opportunities:
+    - Institutional 13F holdings changes
+    - Insider buying
+    - Congressional trading
     """
 
     def __init__(self):
@@ -491,11 +491,11 @@ class SmartMoneyTracker:
         min_new_positions: int = 3,
     ) -> List[Dict[str, Any]]:
         """
-        寻找机构正在积累的股票
+        Find stocks institutions are accumulating
 
-        条件:
-        - 多家机构同时增持
-        - 低覆盖股票的新建仓
+        Conditions:
+        - Multiple institutions increasing positions simultaneously
+        - New positions in low coverage stocks
         """
         accumulation = []
 
@@ -524,7 +524,7 @@ class SmartMoneyTracker:
                     "signal_strength": min(1.0, (new_positions + increased_positions) / 10),
                 })
 
-        # 按信号强度排序
+        # Sort by signal strength
         accumulation.sort(key=lambda x: x["signal_strength"], reverse=True)
         return accumulation
 
@@ -535,9 +535,9 @@ class SmartMoneyTracker:
         lookback_days: int = 30,
     ) -> List[Dict[str, Any]]:
         """
-        寻找内部人集中买入的股票
+        Find stocks with clustered insider buying
 
-        研究显示集群买入是强信号
+        Research shows clustered buying is a strong signal
         """
         clusters = []
         cutoff = date.today() - timedelta(days=lookback_days)

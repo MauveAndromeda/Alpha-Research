@@ -1,18 +1,18 @@
 """
 Multi-LLM Ensemble System
 
-核心创新: 使用多个前沿大模型进行交叉验证
+Core Innovation: Cross-validation using multiple frontier large language models
 
-为什么这可能产生Alpha:
-1. 不同LLM有不同的训练数据和bias
-2. 一致信号 = 更可靠的信号
-3. 分歧 = 不确定性的量化
-4. 可以捕获单一模型遗漏的洞察
+Why this may generate Alpha:
+1. Different LLMs have different training data and biases
+2. Consistent signals = more reliable signals
+3. Disagreement = quantification of uncertainty
+4. Can capture insights missed by a single model
 
-集成策略:
-- Majority Voting: 多数LLM同意才行动
-- Weighted Ensemble: 按历史准确率加权
-- Disagreement Filter: 分歧大时不行动 (WAIT)
+Ensemble Strategies:
+- Majority Voting: Only act when most LLMs agree
+- Weighted Ensemble: Weight by historical accuracy
+- Disagreement Filter: Do not act when disagreement is high (WAIT)
 """
 
 import asyncio
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMProvider(Enum):
-    """LLM提供商"""
+    """LLM Provider"""
     CLAUDE = "claude"
     OPENAI = "openai"
     DEEPSEEK = "deepseek"
@@ -38,9 +38,9 @@ class LLMProvider(Enum):
 
 @dataclass
 class LLMConfig:
-    """LLM配置"""
+    """LLM Configuration"""
     provider: LLMProvider
-    weight: float = 1.0  # 集成权重
+    weight: float = 1.0  # Ensemble weight
     temperature: float = 0.3
     max_tokens: int = 4096
     enabled: bool = True
@@ -49,7 +49,7 @@ class LLMConfig:
 
 @dataclass
 class ModelAnalysis:
-    """单个模型的分析结果"""
+    """Analysis result from a single model"""
     provider: str
     model: str
     score: float  # -1 to 1
@@ -66,31 +66,31 @@ class ModelAnalysis:
 
 @dataclass
 class EnsembleResult:
-    """集成结果"""
+    """Ensemble Result"""
     stock: str
     timestamp: datetime
 
-    # 集成分数
+    # Ensemble scores
     ensemble_score: float
     ensemble_confidence: float
     ensemble_direction: str
 
-    # 一致性分析
-    agreement_ratio: float  # 0-1, 模型一致程度
-    direction_consensus: bool  # 方向是否一致
-    score_std: float  # 分数标准差
+    # Agreement analysis
+    agreement_ratio: float  # 0-1, degree of model agreement
+    direction_consensus: bool  # Whether direction is consistent
+    score_std: float  # Score standard deviation
 
-    # 各模型结果
+    # Individual model results
     model_analyses: List[ModelAnalysis]
 
-    # 综合洞察
-    consensus_points: List[str]  # 所有模型都提到的点
-    divergence_points: List[str]  # 模型间分歧点
-    unique_insights: Dict[str, List[str]]  # 各模型独特洞察
+    # Combined insights
+    consensus_points: List[str]  # Points mentioned by all models
+    divergence_points: List[str]  # Divergence points between models
+    unique_insights: Dict[str, List[str]]  # Unique insights from each model
 
-    # 决策建议
+    # Decision recommendation
     action_recommendation: str  # "strong_buy", "buy", "hold", "sell", "strong_sell", "wait"
-    should_wait: bool  # 如果分歧太大,建议等待
+    should_wait: bool  # If disagreement is too large, recommend waiting
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -111,12 +111,12 @@ class EnsembleResult:
 
 class MultiLLMEnsemble:
     """
-    多LLM集成分析器
+    Multi-LLM Ensemble Analyzer
 
-    使用Claude + GPT + DeepSeek进行交叉验证
+    Uses Claude + GPT + DeepSeek for cross-validation
     """
 
-    # 分析提示模板
+    # Analysis prompt template
     ANALYSIS_PROMPT = """Analyze {stock} for investment potential.
 
 ## Data Provided:
@@ -151,30 +151,30 @@ Output valid JSON only."""
     def __init__(
         self,
         configs: Optional[List[LLMConfig]] = None,
-        min_agreement: float = 0.6,  # 最小一致率才行动
-        max_score_std: float = 0.4,  # 最大分数标准差
+        min_agreement: float = 0.6,  # Minimum agreement ratio to act
+        max_score_std: float = 0.4,  # Maximum score standard deviation
     ):
         """
-        初始化集成系统
+        Initialize ensemble system
 
         Args:
-            configs: LLM配置列表
-            min_agreement: 最小方向一致率
-            max_score_std: 最大分数标准差 (超过则WAIT)
+            configs: List of LLM configurations
+            min_agreement: Minimum direction agreement ratio
+            max_score_std: Maximum score standard deviation (WAIT if exceeded)
         """
         self.min_agreement = min_agreement
         self.max_score_std = max_score_std
 
-        # 初始化客户端
+        # Initialize clients
         self.clients: Dict[str, BaseLLMClient] = {}
         self.weights: Dict[str, float] = {}
 
         if configs is None:
-            # 默认配置: 三个主流模型
+            # Default config: three mainstream models
             configs = [
-                LLMConfig(LLMProvider.CLAUDE, weight=0.4),   # 高权重,最强推理
-                LLMConfig(LLMProvider.OPENAI, weight=0.35),  # Thinking能力
-                LLMConfig(LLMProvider.DEEPSEEK, weight=0.25), # 性价比
+                LLMConfig(LLMProvider.CLAUDE, weight=0.4),   # High weight, strongest reasoning
+                LLMConfig(LLMProvider.OPENAI, weight=0.35),  # Thinking capability
+                LLMConfig(LLMProvider.DEEPSEEK, weight=0.25), # Cost-effective
             ]
 
         for config in configs:
@@ -197,7 +197,7 @@ Output valid JSON only."""
             except Exception as e:
                 logger.warning(f"Failed to initialize {config.provider}: {e}")
 
-        # 归一化权重
+        # Normalize weights
         total_weight = sum(self.weights.values())
         if total_weight > 0:
             self.weights = {k: v / total_weight for k, v in self.weights.items()}
@@ -209,23 +209,23 @@ Output valid JSON only."""
         timeout: float = 60.0,
     ) -> EnsembleResult:
         """
-        使用多LLM分析单只股票
+        Analyze a single stock using multiple LLMs
 
         Args:
-            stock: 股票代码
-            data: 股票数据 (价格/基本面/新闻等)
-            timeout: 超时时间
+            stock: Stock ticker symbol
+            data: Stock data (price/fundamentals/news etc.)
+            timeout: Timeout duration
 
         Returns:
             EnsembleResult
         """
-        # 准备提示
+        # Prepare prompt
         prompt = self.ANALYSIS_PROMPT.format(
             stock=stock,
             data=json.dumps(data, indent=2, default=str)
         )
 
-        # 并行调用所有LLM
+        # Call all LLMs in parallel
         tasks = []
         for provider, client in self.clients.items():
             task = self._call_llm_with_timeout(
@@ -233,10 +233,10 @@ Output valid JSON only."""
             )
             tasks.append(task)
 
-        # 等待所有结果
+        # Wait for all results
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 解析结果
+        # Parse results
         model_analyses = []
         for provider, result in zip(self.clients.keys(), results):
             if isinstance(result, Exception):
@@ -246,7 +246,7 @@ Output valid JSON only."""
             if result is not None:
                 model_analyses.append(result)
 
-        # 集成结果
+        # Ensemble results
         return self._ensemble_results(stock, model_analyses)
 
     async def _call_llm_with_timeout(
@@ -256,7 +256,7 @@ Output valid JSON only."""
         provider: str,
         timeout: float,
     ) -> Optional[ModelAnalysis]:
-        """带超时的LLM调用"""
+        """LLM call with timeout"""
         try:
             response = await asyncio.wait_for(
                 client.generate(
@@ -267,7 +267,7 @@ Output valid JSON only."""
                 timeout=timeout
             )
 
-            # 解析JSON响应
+            # Parse JSON response
             return self._parse_response(response, provider)
 
         except asyncio.TimeoutError:
@@ -282,12 +282,12 @@ Output valid JSON only."""
         response: LLMResponse,
         provider: str,
     ) -> Optional[ModelAnalysis]:
-        """解析LLM响应"""
+        """Parse LLM response"""
         try:
-            # 尝试提取JSON
+            # Try to extract JSON
             content = response.content
 
-            # 处理可能的markdown包装
+            # Handle possible markdown wrapping
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
@@ -319,7 +319,7 @@ Output valid JSON only."""
         stock: str,
         analyses: List[ModelAnalysis],
     ) -> EnsembleResult:
-        """集成多个模型的结果"""
+        """Ensemble results from multiple models"""
         if not analyses:
             return EnsembleResult(
                 stock=stock,
@@ -338,12 +338,12 @@ Output valid JSON only."""
                 should_wait=True,
             )
 
-        # 提取分数和方向
+        # Extract scores and directions
         scores = [a.score for a in analyses]
         confidences = [a.confidence for a in analyses]
         directions = [a.direction for a in analyses]
 
-        # 加权平均分数
+        # Weighted average score
         weighted_score = 0
         total_weight = 0
         for analysis in analyses:
@@ -353,10 +353,10 @@ Output valid JSON only."""
 
         ensemble_score = weighted_score / total_weight if total_weight > 0 else 0
 
-        # 平均置信度
+        # Average confidence
         ensemble_confidence = np.mean(confidences)
 
-        # 方向一致性
+        # Direction consistency
         bullish_count = sum(1 for d in directions if d == "bullish")
         bearish_count = sum(1 for d in directions if d == "bearish")
         neutral_count = sum(1 for d in directions if d == "neutral")
@@ -373,15 +373,15 @@ Output valid JSON only."""
 
         direction_consensus = agreement_ratio >= self.min_agreement
 
-        # 分数标准差
+        # Score standard deviation
         score_std = np.std(scores) if len(scores) > 1 else 0
 
-        # 找出共识点和分歧点
+        # Find consensus and divergence points
         consensus_points, divergence_points, unique_insights = self._analyze_agreement(
             analyses
         )
 
-        # 决定行动建议
+        # Determine action recommendation
         should_wait = (
             not direction_consensus
             or score_std > self.max_score_std
@@ -422,8 +422,8 @@ Output valid JSON only."""
         self,
         analyses: List[ModelAnalysis],
     ) -> Tuple[List[str], List[str], Dict[str, List[str]]]:
-        """分析模型间的一致性和分歧"""
-        # 收集所有关键点
+        """Analyze agreement and disagreement between models"""
+        # Collect all key points
         all_key_points = {}
         all_risks = {}
         all_catalysts = {}
@@ -443,7 +443,7 @@ Output valid JSON only."""
                     all_risks[risk_lower] = []
                 all_risks[risk_lower].append(provider)
 
-        # 共识点: 多数模型都提到
+        # Consensus points: mentioned by majority of models
         n_models = len(analyses)
         threshold = max(2, n_models // 2 + 1)
 
@@ -452,7 +452,7 @@ Output valid JSON only."""
             if len(providers) >= threshold
         ]
 
-        # 分歧点: 只有一个模型提到
+        # Unique insights: mentioned by only one model
         unique_insights = {}
         for analysis in analyses:
             provider = analysis.provider
@@ -462,7 +462,7 @@ Output valid JSON only."""
                 if len(all_key_points.get(point.lower(), [])) == 1:
                     unique_insights[provider].append(point)
 
-        # 方向分歧
+        # Direction disagreement
         divergence_points = []
         directions = [a.direction for a in analyses]
         if len(set(directions)) > 1:
@@ -470,7 +470,7 @@ Output valid JSON only."""
                 f"Direction disagreement: {dict((a.provider, a.direction) for a in analyses)}"
             )
 
-        # 分数分歧
+        # Score divergence
         scores = [a.score for a in analyses]
         if max(scores) - min(scores) > 0.5:
             divergence_points.append(
@@ -485,7 +485,7 @@ Output valid JSON only."""
         data_provider,  # Callable[[str], Dict]
         max_concurrent: int = 5,
     ) -> List[EnsembleResult]:
-        """批量分析多只股票"""
+        """Batch analyze multiple stocks"""
         semaphore = asyncio.Semaphore(max_concurrent)
 
         async def analyze_with_semaphore(stock: str) -> EnsembleResult:
@@ -497,7 +497,7 @@ Output valid JSON only."""
         return await asyncio.gather(*tasks)
 
     def get_stats(self) -> Dict[str, Any]:
-        """获取使用统计"""
+        """Get usage statistics"""
         stats = {}
         for provider, client in self.clients.items():
             stats[provider] = client.get_stats()

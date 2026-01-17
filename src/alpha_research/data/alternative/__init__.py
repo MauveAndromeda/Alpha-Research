@@ -1,36 +1,36 @@
 """
-Alternative Data Sources - 另类数据源
+Alternative Data Sources
 
-这是产生Alpha的关键: 独特数据 = 独特洞察
+This is key to generating Alpha: Unique data = Unique insights
 
-数据源分类:
+Data Source Categories:
 
-1. 实时另类数据 (Real-time Alternative)
-   - 国会议员交易 (Congress Trades)
-   - 内部人交易 (Insider Trading)
-   - 机构持仓 (13F Filings)
-   - 卖空数据 (Short Interest)
+1. Real-time Alternative Data
+   - Congress Trades
+   - Insider Trading
+   - 13F Filings (Institutional Holdings)
+   - Short Interest
 
-2. 情绪/社交数据 (Sentiment/Social)
-   - Reddit WSB 讨论
-   - Twitter/X 金融情绪
-   - 新闻情绪
+2. Sentiment/Social Data
+   - Reddit WSB Discussions
+   - Twitter/X Financial Sentiment
+   - News Sentiment
 
-3. 公司活动数据 (Corporate Activity)
-   - 招聘数据 (Job Postings)
-   - 专利申请 (Patent Filings)
-   - 政府合同 (Government Contracts)
-   - 游说活动 (Lobbying)
+3. Corporate Activity Data
+   - Job Postings
+   - Patent Filings
+   - Government Contracts
+   - Lobbying Activity
 
-4. 经济指标 (Economic Indicators)
-   - 供应链数据
-   - 消费者数据
+4. Economic Indicators
+   - Supply Chain Data
+   - Consumer Data
 
-提供商:
-- Finnhub.io: 综合金融数据 + 另类数据
-- Polygon.io: 实时市场数据
-- Quiver Quantitative: 国会交易/游说/合同
-- Nasdaq Data Link (前Quandl): 机构级数据
+Providers:
+- Finnhub.io: Comprehensive financial data + alternative data
+- Polygon.io: Real-time market data
+- Quiver Quantitative: Congress trading/lobbying/contracts
+- Nasdaq Data Link (formerly Quandl): Institutional-grade data
 """
 
 from .finnhub_client import FinnhubClient

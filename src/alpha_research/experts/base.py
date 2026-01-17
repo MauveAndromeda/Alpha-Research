@@ -16,25 +16,25 @@ import json
 
 class AssessmentType(Enum):
     """Type of assessment signal"""
-    STRONG_BULLISH = "strong_bullish"      # 强烈看多
-    BULLISH = "bullish"                     # 看多
-    NEUTRAL = "neutral"                     # 中性
-    BEARISH = "bearish"                     # 看空
-    STRONG_BEARISH = "strong_bearish"       # 强烈看空
-    INSUFFICIENT_DATA = "insufficient_data" # 数据不足
+    STRONG_BULLISH = "strong_bullish"      # Strongly bullish
+    BULLISH = "bullish"                     # Bullish
+    NEUTRAL = "neutral"                     # Neutral
+    BEARISH = "bearish"                     # Bearish
+    STRONG_BEARISH = "strong_bearish"       # Strongly bearish
+    INSUFFICIENT_DATA = "insufficient_data" # Insufficient data
 
 
 @dataclass
 class Evidence:
     """
-    证据结构 - 每个观点必须有证据支撑
+    Evidence structure - each view must be supported by evidence
 
     Attributes:
-        source: 证据来源 (e.g., "10-K Filing 2024", "Reuters 2024-01-15")
-        content: 证据内容摘要
-        timestamp: 证据时间戳 (point-in-time)
-        relevance: 与当前分析的相关度 (0-1)
-        data_point: 具体数据点 (e.g., {"ROE": 0.25, "year": 2024})
+        source: Evidence source (e.g., "10-K Filing 2024", "Reuters 2024-01-15")
+        content: Evidence content summary
+        timestamp: Evidence timestamp (point-in-time)
+        relevance: Relevance to current analysis (0-1)
+        data_point: Specific data point (e.g., {"ROE": 0.25, "year": 2024})
     """
     source: str
     content: str
@@ -64,20 +64,20 @@ class Evidence:
 @dataclass
 class StockAssessment:
     """
-    股票评估结果 - 每个专家模块的输出
+    Stock assessment result - output from each expert module
 
     Attributes:
-        stock_symbol: 股票代码
-        expert_name: 专家模块名称
-        assessment_type: 评估类型 (看多/看空/中性)
-        score: 评分 (-1 到 1, 负为看空, 正为看多)
-        confidence: 置信度 (0 到 1)
-        reasoning: 推理过程 (LLM生成的解释)
-        evidence: 支撑证据列表
-        risks: 识别的风险点
-        catalysts: 识别的催化剂
-        timestamp: 评估时间
-        snapshot_id: 关联的数据快照ID (用于回放)
+        stock_symbol: Stock ticker
+        expert_name: Expert module name
+        assessment_type: Assessment type (bullish/bearish/neutral)
+        score: Score (-1 to 1, negative is bearish, positive is bullish)
+        confidence: Confidence level (0 to 1)
+        reasoning: Reasoning process (LLM-generated explanation)
+        evidence: List of supporting evidence
+        risks: Identified risk points
+        catalysts: Identified catalysts
+        timestamp: Assessment time
+        snapshot_id: Associated data snapshot ID (for replay)
     """
     stock_symbol: str
     expert_name: str
@@ -141,13 +141,13 @@ class StockAssessment:
 @dataclass
 class Snapshot:
     """
-    数据快照 - Point-in-Time数据容器
+    Data Snapshot - Point-in-Time data container
 
-    确保回放时使用完全相同的数据
+    Ensures exactly the same data is used during replay
     """
     snapshot_id: str
     timestamp: datetime
-    stocks: List[str]  # S&P 500成分股列表
+    stocks: List[str]  # S&P 500 constituent list
     prices: Dict[str, Dict[str, float]]  # symbol -> {open, high, low, close, volume}
     fundamentals: Dict[str, Dict[str, Any]]  # symbol -> fundamentals data
     news: Dict[str, List[Dict[str, Any]]]  # symbol -> news items
@@ -167,13 +167,13 @@ class Snapshot:
 
 class ExpertBase(ABC):
     """
-    专家基类 - 所有LLM专家继承此类
+    Expert Base Class - All LLM experts inherit from this class
 
-    设计原则:
-    1. 只负责自己的领域
-    2. 必须引用证据
-    3. 输出结构化评估
-    4. 支持回放验证
+    Design principles:
+    1. Only responsible for own domain
+    2. Must cite evidence
+    3. Output structured assessment
+    4. Support replay verification
     """
 
     def __init__(self, name: str, llm_client: Optional[Any] = None):
@@ -189,7 +189,7 @@ class ExpertBase(ABC):
     @abstractmethod
     def analyze(self, stock: str, snapshot: Snapshot) -> StockAssessment:
         """
-        分析单只股票
+        Analyze a single stock
 
         Args:
             stock: Stock symbol

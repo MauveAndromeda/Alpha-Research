@@ -1,14 +1,14 @@
 """
 Alternative Data Aggregator
 
-整合所有另类数据源,生成综合Alpha信号
+Integrates all alternative data sources to generate comprehensive Alpha signals
 
-数据源:
-1. Finnhub - 内部人交易, 分析师评级, SEC情绪
-2. Polygon - 实时交易, 期权流, 异常检测
-3. Quiver - 国会交易, 政府合同, 散户情绪
+Data Sources:
+1. Finnhub - Insider trading, analyst ratings, SEC sentiment
+2. Polygon - Real-time trading, options flow, anomaly detection
+3. Quiver - Congress trading, government contracts, retail sentiment
 
-2026前沿: 多源数据融合 + 信号验证
+2026 Frontier: Multi-source data fusion + signal validation
 """
 
 import asyncio
@@ -22,15 +22,15 @@ logger = logging.getLogger(__name__)
 
 
 class DataQuality(Enum):
-    """数据质量"""
-    HIGH = "high"        # 官方披露数据
-    MEDIUM = "medium"    # 聚合/衍生数据
-    LOW = "low"          # 情绪/社交数据
+    """Data quality"""
+    HIGH = "high"        # Official disclosure data
+    MEDIUM = "medium"    # Aggregated/derived data
+    LOW = "low"          # Sentiment/social data
 
 
 @dataclass
 class AlternativeSignal:
-    """另类数据信号"""
+    """Alternative data signal"""
     signal_id: str
     source: str
     data_type: str
@@ -45,7 +45,7 @@ class AlternativeSignal:
 
     @property
     def weighted_signal(self) -> float:
-        """加权信号值"""
+        """Weighted signal value"""
         quality_weight = {
             DataQuality.HIGH: 1.0,
             DataQuality.MEDIUM: 0.7,
@@ -61,26 +61,26 @@ class AlternativeSignal:
 
 @dataclass
 class AggregatedAlternativeData:
-    """聚合的另类数据"""
+    """Aggregated alternative data"""
     stock: str
     timestamp: datetime
 
-    # 信号汇总
+    # Signal summary
     overall_signal: float  # -1 to 1
     overall_confidence: float  # 0 to 1
     signal_agreement: float  # 0 to 1
 
-    # 各来源信号
+    # Signals from each source
     signals: List[AlternativeSignal]
 
-    # 数据摘要
+    # Data summaries
     insider_activity: Dict[str, Any]
     analyst_sentiment: Dict[str, Any]
     political_activity: Dict[str, Any]
     retail_sentiment: Dict[str, Any]
     market_microstructure: Dict[str, Any]
 
-    # 关键洞察
+    # Key insights
     key_insights: List[str]
     risk_flags: List[str]
     catalyst_events: List[str]
@@ -101,23 +101,23 @@ class AggregatedAlternativeData:
 
 class AlternativeDataAggregator:
     """
-    另类数据聚合器
+    Alternative Data Aggregator
 
-    整合多个数据源,生成统一的Alpha信号
+    Integrates multiple data sources to generate unified Alpha signals
     """
 
-    # 数据类型权重
+    # Data type weights
     SIGNAL_WEIGHTS = {
-        "insider_transaction": 0.20,      # 内部人交易 (高价值)
-        "insider_sentiment": 0.10,        # 内部人情绪
-        "analyst_upgrade": 0.12,          # 分析师升级
-        "analyst_downgrade": 0.12,        # 分析师降级
-        "congress_trading": 0.18,         # 国会交易 (独特数据)
-        "government_contract": 0.10,      # 政府合同
-        "volume_spike": 0.06,             # 成交量异常
-        "price_momentum": 0.04,           # 价格动量
-        "wsb_sentiment": 0.04,            # WSB情绪 (反向指标)
-        "lobbying": 0.04,                 # 游说活动
+        "insider_transaction": 0.20,      # Insider transaction (high value)
+        "insider_sentiment": 0.10,        # Insider sentiment
+        "analyst_upgrade": 0.12,          # Analyst upgrade
+        "analyst_downgrade": 0.12,        # Analyst downgrade
+        "congress_trading": 0.18,         # Congress trading (unique data)
+        "government_contract": 0.10,      # Government contract
+        "volume_spike": 0.06,             # Volume anomaly
+        "price_momentum": 0.04,           # Price momentum
+        "wsb_sentiment": 0.04,            # WSB sentiment (contrarian indicator)
+        "lobbying": 0.04,                 # Lobbying activity
     }
 
     def __init__(
@@ -127,12 +127,12 @@ class AlternativeDataAggregator:
         quiver_client=None,
     ):
         """
-        初始化聚合器
+        Initialize aggregator
 
         Args:
-            finnhub_client: Finnhub客户端
-            polygon_client: Polygon客户端
-            quiver_client: Quiver客户端
+            finnhub_client: Finnhub client
+            polygon_client: Polygon client
+            quiver_client: Quiver client
         """
         self.finnhub = finnhub_client
         self.polygon = polygon_client
@@ -140,21 +140,21 @@ class AlternativeDataAggregator:
         self._signal_counter = 0
 
     def _generate_signal_id(self) -> str:
-        """生成信号ID"""
+        """Generate signal ID"""
         self._signal_counter += 1
         return f"ALT_{datetime.now().strftime('%Y%m%d%H%M%S')}_{self._signal_counter:04d}"
 
     async def aggregate(self, stock: str) -> AggregatedAlternativeData:
         """
-        聚合单只股票的所有另类数据
+        Aggregate all alternative data for a single stock
 
         Args:
-            stock: 股票代码
+            stock: Stock ticker
 
         Returns:
             AggregatedAlternativeData
         """
-        # 并行获取所有数据
+        # Fetch all data in parallel
         tasks = []
 
         if self.finnhub:
@@ -164,7 +164,7 @@ class AlternativeDataAggregator:
         if self.quiver:
             tasks.append(("quiver", self._get_quiver_data(stock)))
 
-        # 执行所有任务
+        # Execute all tasks
         raw_results = {}
         if tasks:
             results = await asyncio.gather(
@@ -178,20 +178,20 @@ class AlternativeDataAggregator:
                 else:
                     raw_results[source] = result
 
-        # 生成信号
+        # Generate signals
         signals = self._generate_signals(stock, raw_results)
 
-        # 聚合信号
+        # Aggregate signals
         overall_signal, overall_confidence, signal_agreement = self._combine_signals(
             signals
         )
 
-        # 提取洞察
+        # Extract insights
         key_insights, risk_flags, catalysts = self._extract_insights(
             raw_results, signals
         )
 
-        # 构建摘要
+        # Build summaries
         insider_activity = self._summarize_insider(raw_results)
         analyst_sentiment = self._summarize_analyst(raw_results)
         political_activity = self._summarize_political(raw_results)
@@ -216,7 +216,7 @@ class AlternativeDataAggregator:
         )
 
     async def _get_finnhub_data(self, stock: str) -> Dict[str, Any]:
-        """获取Finnhub数据"""
+        """Get Finnhub data"""
         try:
             return await self.finnhub.get_alpha_data(stock)
         except Exception as e:
@@ -224,7 +224,7 @@ class AlternativeDataAggregator:
             return {}
 
     async def _get_polygon_data(self, stock: str) -> Dict[str, Any]:
-        """获取Polygon数据"""
+        """Get Polygon data"""
         try:
             return await self.polygon.get_alpha_signals(stock)
         except Exception as e:
@@ -232,7 +232,7 @@ class AlternativeDataAggregator:
             return {}
 
     async def _get_quiver_data(self, stock: str) -> Dict[str, Any]:
-        """获取Quiver数据"""
+        """Get Quiver data"""
         try:
             return await self.quiver.get_alpha_data(stock)
         except Exception as e:
@@ -244,18 +244,18 @@ class AlternativeDataAggregator:
         stock: str,
         raw_data: Dict[str, Dict[str, Any]],
     ) -> List[AlternativeSignal]:
-        """从原始数据生成信号"""
+        """Generate signals from raw data"""
         signals = []
 
-        # Finnhub 信号
+        # Finnhub signals
         finnhub_data = raw_data.get("finnhub", {})
         signals.extend(self._signals_from_finnhub(stock, finnhub_data))
 
-        # Polygon 信号
+        # Polygon signals
         polygon_data = raw_data.get("polygon", {})
         signals.extend(self._signals_from_polygon(stock, polygon_data))
 
-        # Quiver 信号
+        # Quiver signals
         quiver_data = raw_data.get("quiver", {})
         signals.extend(self._signals_from_quiver(stock, quiver_data))
 
@@ -266,10 +266,10 @@ class AlternativeDataAggregator:
         stock: str,
         data: Dict[str, Any],
     ) -> List[AlternativeSignal]:
-        """从Finnhub数据生成信号"""
+        """Generate signals from Finnhub data"""
         signals = []
 
-        # 内部人交易信号
+        # Insider transaction signal
         insider_txns = data.get("insider_transactions", [])
         if insider_txns:
             buys = sum(1 for t in insider_txns if getattr(t, 'transaction_code', '') == 'P')
@@ -286,14 +286,14 @@ class AlternativeDataAggregator:
                     stock=stock,
                     direction=direction,
                     strength=min(1.0, strength),
-                    confidence=min(1.0, (buys + sells) / 10),  # 更多交易=更高置信
+                    confidence=min(1.0, (buys + sells) / 10),  # More trades = higher confidence
                     data_quality=DataQuality.HIGH,
                     reasoning=f"Insider activity: {buys} buys, {sells} sells",
                     timestamp=datetime.now(),
                     raw_data={"buys": buys, "sells": sells},
                 ))
 
-        # 内部人情绪信号
+        # Insider sentiment signal
         insider_sent = data.get("insider_sentiment", [])
         if insider_sent:
             recent = insider_sent[-1] if insider_sent else None
@@ -315,7 +315,7 @@ class AlternativeDataAggregator:
                     raw_data={"mspr": mspr},
                 ))
 
-        # 分析师信号
+        # Analyst signal
         upgrades = data.get("upgrades_downgrades", [])
         if upgrades:
             recent_upgrades = [u for u in upgrades if getattr(u, 'action', '').lower() == 'upgrade']
@@ -356,10 +356,10 @@ class AlternativeDataAggregator:
         stock: str,
         data: Dict[str, Any],
     ) -> List[AlternativeSignal]:
-        """从Polygon数据生成信号"""
+        """Generate signals from Polygon data"""
         signals = []
 
-        # 成交量异常信号
+        # Volume anomaly signal
         volume_spike = data.get("volume_spike")
         if volume_spike:
             signals.append(AlternativeSignal(
@@ -367,7 +367,7 @@ class AlternativeDataAggregator:
                 source="polygon",
                 data_type="volume_spike",
                 stock=stock,
-                direction=0,  # 成交量本身不指示方向
+                direction=0,  # Volume itself doesn't indicate direction
                 strength=min(1.0, volume_spike.magnitude / 5),
                 confidence=0.5,
                 data_quality=DataQuality.MEDIUM,
@@ -376,7 +376,7 @@ class AlternativeDataAggregator:
                 raw_data=volume_spike.metadata,
             ))
 
-        # 价格动量信号
+        # Price momentum signal
         momentum = data.get("price_momentum")
         if momentum:
             direction = 1 if momentum.metadata.get("direction") == "bullish" else -1
@@ -402,10 +402,10 @@ class AlternativeDataAggregator:
         stock: str,
         data: Dict[str, Any],
     ) -> List[AlternativeSignal]:
-        """从Quiver数据生成信号"""
+        """Generate signals from Quiver data"""
         signals = []
 
-        # 国会交易信号
+        # Congress trading signal
         congress = data.get("congress_trading", {})
         if congress:
             buy_count = congress.get("buy_count", 0)
@@ -423,13 +423,13 @@ class AlternativeDataAggregator:
                     direction=direction,
                     strength=min(1.0, strength),
                     confidence=min(1.0, (buy_count + sell_count) / 5),
-                    data_quality=DataQuality.HIGH,  # 官方披露
+                    data_quality=DataQuality.HIGH,  # Official disclosure
                     reasoning=f"Congress: {buy_count} buys, {sell_count} sells",
                     timestamp=datetime.now(),
                     raw_data=congress,
                 ))
 
-        # 政府合同信号
+        # Government contract signal
         contracts = data.get("government_contracts", {})
         recent_major = contracts.get("recent_major", [])
         if recent_major:
@@ -438,7 +438,7 @@ class AlternativeDataAggregator:
                 source="quiver",
                 data_type="government_contract",
                 stock=stock,
-                direction=1,  # 合同通常是利好
+                direction=1,  # Contracts are usually positive
                 strength=min(1.0, len(recent_major) / 3),
                 confidence=0.7,
                 data_quality=DataQuality.HIGH,
@@ -446,17 +446,17 @@ class AlternativeDataAggregator:
                 timestamp=datetime.now(),
             ))
 
-        # WSB情绪 (可作反向指标)
+        # WSB sentiment (can be used as contrarian indicator)
         wsb = data.get("wsb_mentions", [])
         if wsb:
-            recent_wsb = wsb[-7:] if len(wsb) >= 7 else wsb  # 最近7天
+            recent_wsb = wsb[-7:] if len(wsb) >= 7 else wsb  # Last 7 days
             avg_sentiment = sum(getattr(m, 'sentiment', 0) for m in recent_wsb) / len(recent_wsb)
             total_mentions = sum(getattr(m, 'mentions', 0) for m in recent_wsb)
 
-            if total_mentions > 50:  # 有足够关注
-                # WSB极端情绪可作反向指标
+            if total_mentions > 50:  # Enough attention
+                # WSB extreme sentiment can be used as contrarian indicator
                 if abs(avg_sentiment) > 0.5:
-                    direction = -1 if avg_sentiment > 0 else 1  # 反向
+                    direction = -1 if avg_sentiment > 0 else 1  # Contrarian
                     signals.append(AlternativeSignal(
                         signal_id=self._generate_signal_id(),
                         source="quiver",
@@ -464,7 +464,7 @@ class AlternativeDataAggregator:
                         stock=stock,
                         direction=direction,
                         strength=min(1.0, abs(avg_sentiment)),
-                        confidence=0.3,  # 低置信度
+                        confidence=0.3,  # Low confidence
                         data_quality=DataQuality.LOW,
                         reasoning=f"WSB contrarian: sentiment {avg_sentiment:.2f}, {total_mentions} mentions",
                         timestamp=datetime.now(),
@@ -476,11 +476,11 @@ class AlternativeDataAggregator:
         self,
         signals: List[AlternativeSignal],
     ) -> Tuple[float, float, float]:
-        """组合所有信号"""
+        """Combine all signals"""
         if not signals:
             return 0.0, 0.0, 0.0
 
-        # 加权平均
+        # Weighted average
         weighted_sum = 0
         total_weight = 0
         confidence_sum = 0
@@ -497,7 +497,7 @@ class AlternativeDataAggregator:
         overall_signal = weighted_sum / total_weight
         overall_confidence = confidence_sum / total_weight
 
-        # 计算一致性
+        # Calculate agreement
         directions = [s.direction for s in signals if s.direction != 0]
         if directions:
             agreement = abs(sum(directions)) / len(directions)
@@ -511,12 +511,12 @@ class AlternativeDataAggregator:
         raw_data: Dict[str, Dict[str, Any]],
         signals: List[AlternativeSignal],
     ) -> Tuple[List[str], List[str], List[str]]:
-        """提取关键洞察"""
+        """Extract key insights"""
         insights = []
         risks = []
         catalysts = []
 
-        # 从信号提取
+        # Extract from signals
         for signal in signals:
             if signal.strength > 0.5 and signal.confidence > 0.5:
                 if signal.direction > 0:
@@ -524,17 +524,17 @@ class AlternativeDataAggregator:
                 elif signal.direction < 0:
                     risks.append(f"[{signal.source}] {signal.reasoning}")
 
-        # 国会交易洞察
+        # Congress trading insight
         congress = raw_data.get("quiver", {}).get("congress_trading", {})
         if congress.get("unique_representatives", 0) >= 3:
             insights.append(f"Multiple congress members ({congress['unique_representatives']}) trading")
 
-        # 政府合同催化剂
+        # Government contract catalyst
         contracts = raw_data.get("quiver", {}).get("government_contracts", {})
         if contracts.get("recent_major"):
             catalysts.append("Recent major government contract(s)")
 
-        # 分析师活动催化剂
+        # Analyst activity catalyst
         finnhub = raw_data.get("finnhub", {})
         upgrades = finnhub.get("upgrades_downgrades", [])
         if upgrades:
@@ -545,7 +545,7 @@ class AlternativeDataAggregator:
         return insights[:5], risks[:5], catalysts[:5]
 
     def _summarize_insider(self, raw_data: Dict) -> Dict[str, Any]:
-        """汇总内部人活动"""
+        """Summarize insider activity"""
         finnhub = raw_data.get("finnhub", {})
         return {
             "transactions": len(finnhub.get("insider_transactions", [])),
@@ -553,7 +553,7 @@ class AlternativeDataAggregator:
         }
 
     def _summarize_analyst(self, raw_data: Dict) -> Dict[str, Any]:
-        """汇总分析师活动"""
+        """Summarize analyst activity"""
         finnhub = raw_data.get("finnhub", {})
         return {
             "recommendation_trends": finnhub.get("recommendation_trends", []),
@@ -562,7 +562,7 @@ class AlternativeDataAggregator:
         }
 
     def _summarize_political(self, raw_data: Dict) -> Dict[str, Any]:
-        """汇总政治活动"""
+        """Summarize political activity"""
         quiver = raw_data.get("quiver", {})
         return {
             "congress_trading": quiver.get("congress_trading", {}),
@@ -571,7 +571,7 @@ class AlternativeDataAggregator:
         }
 
     def _summarize_retail(self, raw_data: Dict) -> Dict[str, Any]:
-        """汇总散户活动"""
+        """Summarize retail activity"""
         quiver = raw_data.get("quiver", {})
         return {
             "wsb_mentions": quiver.get("wsb_mentions", []),
@@ -579,7 +579,7 @@ class AlternativeDataAggregator:
         }
 
     def _summarize_microstructure(self, raw_data: Dict) -> Dict[str, Any]:
-        """汇总市场微观结构"""
+        """Summarize market microstructure"""
         polygon = raw_data.get("polygon", {})
         return {
             "volume_spike": polygon.get("volume_spike"),
@@ -593,11 +593,11 @@ class AlternativeDataAggregator:
         max_concurrent: int = 10,
     ) -> Dict[str, AggregatedAlternativeData]:
         """
-        批量聚合多只股票
+        Batch aggregate multiple stocks
 
         Args:
-            stocks: 股票列表
-            max_concurrent: 最大并发数
+            stocks: List of stocks
+            max_concurrent: Maximum concurrency
 
         Returns:
             {stock: AggregatedAlternativeData}

@@ -1,17 +1,17 @@
 """
-Causal Expert - 因果/Lead-Lag分析专家
+Causal Expert - Causal/Lead-Lag Analysis Expert
 
-这是用户原始思路的核心组件:
-- Lead-Lag关系发现 (谁领先谁滞后)
-- 因果传导路径 (信息如何在股票间传播)
-- 图结构分析 (股票关系网络)
-- 套利机会识别 (信息传导延迟)
+This is a core component of the user's original concept:
+- Lead-Lag relationship discovery (who leads and who lags)
+- Causal propagation paths (how information spreads between stocks)
+- Graph structure analysis (stock relationship networks)
+- Arbitrage opportunity identification (information propagation delays)
 
-2026前沿技术:
-- Transfer Entropy (因果方向检测)
-- Granger Causality (统计因果)
-- PCMCI (时序因果发现)
-- Graph Neural Networks (关系建模)
+2026 frontier technologies:
+- Transfer Entropy (causal direction detection)
+- Granger Causality (statistical causality)
+- PCMCI (time-series causal discovery)
+- Graph Neural Networks (relationship modeling)
 """
 
 from datetime import datetime, timedelta
@@ -24,31 +24,31 @@ from .base import ExpertBase, StockAssessment, Evidence, Snapshot
 
 class CausalExpert(ExpertBase):
     """
-    因果分析专家 - 发现股票间的领先滞后关系
+    Causal Analysis Expert - Discovers lead-lag relationships between stocks
 
-    核心能力:
-    1. 识别当前"领先者" (哪些股票在带动市场/板块)
-    2. 预测传导路径 (A涨了,B可能跟涨)
-    3. 检测套利机会 (A已经涨了但相关的B还没动)
-    4. 验证因子信号 (信号是否有因果支撑)
+    Core capabilities:
+    1. Identify current "leaders" (which stocks are driving the market/sector)
+    2. Predict propagation paths (if A rises, B may follow)
+    3. Detect arbitrage opportunities (A already moved but related B hasn't)
+    4. Validate factor signals (does the signal have causal support)
     """
 
-    # 行业传导先验 (基于经济逻辑)
+    # Sector propagation priors (based on economic logic)
     SECTOR_LEAD_LAG = {
-        # 科技供应链
+        # Tech supply chain
         ("NVDA", "AMD"): {"lag_days": 1, "correlation": 0.7},
         ("NVDA", "TSM"): {"lag_days": 2, "correlation": 0.6},
         ("AAPL", "QCOM"): {"lag_days": 1, "correlation": 0.5},
 
-        # 金融传导
+        # Financial propagation
         ("JPM", "BAC"): {"lag_days": 0.5, "correlation": 0.8},
         ("GS", "MS"): {"lag_days": 0.5, "correlation": 0.75},
 
-        # 能源传导
+        # Energy propagation
         ("XOM", "CVX"): {"lag_days": 0.5, "correlation": 0.85},
-        ("CL=F", "XOM"): {"lag_days": 1, "correlation": 0.6},  # 原油->石油股
+        ("CL=F", "XOM"): {"lag_days": 1, "correlation": 0.6},  # Crude oil -> oil stocks
 
-        # 消费传导
+        # Consumer propagation
         ("AMZN", "UPS"): {"lag_days": 2, "correlation": 0.4},
         ("WMT", "TGT"): {"lag_days": 1, "correlation": 0.6},
     }
@@ -56,7 +56,7 @@ class CausalExpert(ExpertBase):
     def __init__(self, llm_client: Optional[Any] = None):
         super().__init__("CausalExpert", llm_client)
 
-        # 动态学习的因果关系
+        # Dynamically learned causal relationships
         self._learned_causality: Dict[Tuple[str, str], Dict] = {}
         self._lead_lag_cache: Dict[str, List[str]] = {}
 
@@ -79,17 +79,17 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
 """
 
     def analyze(self, stock: str, snapshot: Snapshot) -> StockAssessment:
-        """分析单只股票的因果/领先滞后关系"""
+        """Analyze causal/lead-lag relationships for a single stock"""
 
-        # 分析是否为领先者
+        # Analyze whether it's a leader
         leader_score, leader_evidence = self._analyze_leadership(stock, snapshot)
 
-        # 分析传导机会
+        # Analyze propagation opportunities
         propagation_score, propagation_evidence = self._analyze_propagation_opportunity(
             stock, snapshot
         )
 
-        # 分析因果支撑
+        # Analyze causal support
         causal_support, causal_evidence = self._analyze_causal_support(stock, snapshot)
 
         # Combine evidence
@@ -97,9 +97,9 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
 
         # Composite score
         composite_score = (
-            leader_score * 0.30        # 是否是领先者
-            + propagation_score * 0.40  # 传导机会 (核心)
-            + causal_support * 0.30     # 因果支撑度
+            leader_score * 0.30        # Whether it's a leader
+            + propagation_score * 0.40  # Propagation opportunity (core)
+            + causal_support * 0.30     # Causal support level
         )
 
         # Confidence
@@ -129,31 +129,31 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
         self, stock: str, snapshot: Snapshot
     ) -> Tuple[float, List[Evidence]]:
         """
-        分析该股票是否是当前的市场/板块领先者
+        Analyze whether this stock is currently a market/sector leader
 
-        领先者特征:
-        - 比同行更早开始涨/跌
-        - 成交量放大
-        - 带动板块走势
+        Leader characteristics:
+        - Starts rising/falling earlier than peers
+        - Volume expansion
+        - Drives sector movement
         """
         evidence = []
         data = snapshot.get_stock_data(stock)
         prices = data.get("prices", {})
 
-        # 计算相对强度 (vs sector/market)
+        # Calculate relative strength (vs sector/market)
         stock_return_1d = prices.get("return_1d", 0)
         stock_return_5d = prices.get("return_5d", 0)
         sector_return_1d = prices.get("sector_return_1d", 0)
         sector_return_5d = prices.get("sector_return_5d", 0)
         market_return_1d = prices.get("market_return_1d", 0)
 
-        # 领先者信号: 跑赢板块且成交量放大
+        # Leader signal: outperforming sector with volume expansion
         relative_strength_1d = stock_return_1d - sector_return_1d
         relative_strength_5d = stock_return_5d - sector_return_5d
 
         vol_ratio = prices.get("volume", 1) / prices.get("avg_volume_20d", 1)
 
-        # 计算领先得分
+        # Calculate leadership score
         if relative_strength_1d > 0.02 and relative_strength_5d > 0.03 and vol_ratio > 1.3:
             leader_score = 0.7
             status = "Strong leader"
@@ -187,16 +187,16 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
         self, stock: str, snapshot: Snapshot
     ) -> Tuple[float, List[Evidence]]:
         """
-        分析传导机会 - 核心Alpha来源
+        Analyze propagation opportunities - Core Alpha source
 
-        机会类型:
-        1. 领先者已动但该股还没动 (做多机会)
-        2. 领先者已跌但该股还没跌 (做空机会)
+        Opportunity types:
+        1. Leader has moved but this stock hasn't (long opportunity)
+        2. Leader has declined but this stock hasn't (short opportunity)
         """
         evidence = []
         opportunities = []
 
-        # 获取该股票的潜在领先者
+        # Get potential leaders for this stock
         potential_leaders = self._get_potential_leaders(stock, snapshot)
 
         for leader in potential_leaders:
@@ -211,13 +211,13 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
             leader_return_1d = leader_prices.get("return_1d", 0)
             stock_return_1d = stock_prices.get("return_1d", 0)
 
-            # 获取历史传导关系
+            # Get historical propagation relationship
             relationship = self._get_lead_lag_relationship(leader, stock)
             expected_lag = relationship.get("lag_days", 2)
             historical_corr = relationship.get("correlation", 0.5)
 
-            # 传导机会检测
-            # 领先者已经动了但滞后者还没跟上
+            # Propagation opportunity detection
+            # Leader has already moved but laggard hasn't caught up
             if abs(leader_return_3d) > 0.03 and abs(stock_return_3d) < 0.01:
                 # 存在传导机会
                 if leader_return_3d > 0:
@@ -258,10 +258,10 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
         self, stock: str, snapshot: Snapshot
     ) -> Tuple[float, List[Evidence]]:
         """
-        分析该股票当前信号的因果支撑度
+        Analyze the causal support level for this stock's current signal
 
-        高因果支撑 = 信号有经济逻辑支撑
-        低因果支撑 = 可能是噪声或伪相关
+        High causal support = Signal has economic logic support
+        Low causal support = May be noise or spurious correlation
         """
         evidence = []
         data = snapshot.get_stock_data(stock)
@@ -272,10 +272,10 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
         earnings_surprise = fundamentals.get("earnings_surprise", 0)
         revenue_growth = fundamentals.get("revenue_growth_yoy", 0)
 
-        # 因果支撑检查
+        # Causal support check
         support_factors = []
 
-        # 1. 动量有基本面支撑?
+        # 1. Is momentum supported by fundamentals?
         if current_momentum > 0.05 and earnings_surprise > 0 and revenue_growth > 0.1:
             support_factors.append(("fundamental_support", 0.4))
             evidence.append(
@@ -288,7 +288,7 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
                 )
             )
 
-        # 2. 领先者支撑?
+        # 2. Leader support?
         leaders = self._get_potential_leaders(stock, snapshot)
         for leader in leaders[:2]:
             leader_data = snapshot.get_stock_data(leader)
@@ -306,7 +306,7 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
                 )
                 break
 
-        # 3. 板块支撑?
+        # 3. Sector support?
         sector_return = prices.get("sector_return_1m", 0)
         if np.sign(current_momentum) == np.sign(sector_return) and abs(sector_return) > 0.02:
             support_factors.append(("sector_support", 0.2))
@@ -321,15 +321,15 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
         return np.clip(score, -1, 1), evidence
 
     def _get_potential_leaders(self, stock: str, snapshot: Snapshot) -> List[str]:
-        """获取该股票的潜在领先者"""
+        """Get potential leaders for this stock"""
         leaders = []
 
-        # 从先验关系中查找
+        # Look up from prior relationships
         for (leader, follower), _ in self.SECTOR_LEAD_LAG.items():
             if follower == stock:
                 leaders.append(leader)
 
-        # 从同行业中查找 (基于市值排序)
+        # Look up from same sector (sorted by market cap)
         data = snapshot.get_stock_data(stock)
         sector = data.get("fundamentals", {}).get("sector", "")
         sector_peers = data.get("fundamentals", {}).get("sector_peers", [])
@@ -343,24 +343,24 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
     def _get_lead_lag_relationship(
         self, leader: str, follower: str
     ) -> Dict[str, float]:
-        """获取两只股票间的领先滞后关系"""
-        # 检查预定义关系
+        """Get lead-lag relationship between two stocks"""
+        # Check predefined relationships
         key = (leader, follower)
         if key in self.SECTOR_LEAD_LAG:
             return self.SECTOR_LEAD_LAG[key]
 
-        # 检查学习到的关系
+        # Check learned relationships
         if key in self._learned_causality:
             return self._learned_causality[key]
 
-        # 默认关系
+        # Default relationship
         return {"lag_days": 2, "correlation": 0.3}
 
     def find_market_leaders(self, snapshot: Snapshot, top_n: int = 10) -> List[Dict]:
         """
-        扫描全市场找出当前的领先者
+        Scan the entire market to find current leaders
 
-        这是用户原始思路中"全市场扫描找alpha"的核心
+        This is the core of "full market scan for alpha" from the user's original concept
         """
         leaders = []
 
@@ -368,14 +368,14 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
             data = snapshot.get_stock_data(stock)
             prices = data.get("prices", {})
 
-            # 计算领先指标
+            # Calculate leadership indicators
             relative_strength_5d = prices.get("return_5d", 0) - prices.get(
                 "sector_return_5d", 0
             )
             vol_ratio = prices.get("volume", 1) / prices.get("avg_volume_20d", 1)
             momentum_rank = prices.get("momentum_rank_sector", 50)  # percentile
 
-            # 领先得分
+            # Leadership score
             leader_score = (
                 relative_strength_5d * 10
                 + (vol_ratio - 1) * 0.2
@@ -391,7 +391,7 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
                 }
             )
 
-        # 排序返回top领先者
+        # Sort and return top leaders
         leaders.sort(key=lambda x: x["leader_score"], reverse=True)
         return leaders[:top_n]
 
@@ -399,33 +399,33 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
         self, snapshot: Snapshot, min_confidence: float = 0.5
     ) -> List[Dict]:
         """
-        扫描全市场找出传导机会
+        Scan the entire market to find propagation opportunities
 
-        机会: 领先者已动 + 滞后者还没动 + 历史上有因果关系
+        Opportunity: Leader has moved + Laggard hasn't moved + Historical causal relationship
         """
         opportunities = []
 
-        # 找出当前领先者
+        # Find current leaders
         current_leaders = self.find_market_leaders(snapshot, top_n=20)
         leader_moves = {l["stock"]: l["relative_strength"] for l in current_leaders}
 
-        # 对每个潜在的领先-滞后对检查机会
+        # Check opportunities for each potential leader-laggard pair
         for (leader, follower), relationship in self.SECTOR_LEAD_LAG.items():
             if leader not in leader_moves:
                 continue
 
             leader_move = leader_moves[leader]
-            if abs(leader_move) < 0.02:  # 领先者没有显著变动
+            if abs(leader_move) < 0.02:  # Leader has no significant movement
                 continue
 
-            # 检查滞后者是否还没动
+            # Check if laggard hasn't moved yet
             follower_data = snapshot.get_stock_data(follower)
             follower_prices = follower_data.get("prices", {})
             follower_move = follower_prices.get("return_3d", 0) - follower_prices.get(
                 "sector_return_3d", 0
             )
 
-            # 传导机会: 领先者动了但滞后者没跟
+            # Propagation opportunity: Leader moved but laggard didn't follow
             if abs(leader_move) > 0.03 and abs(follower_move) < 0.01:
                 confidence = relationship["correlation"]
                 if confidence >= min_confidence:
@@ -442,7 +442,7 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
                         }
                     )
 
-        # 按置信度排序
+        # Sort by confidence
         opportunities.sort(key=lambda x: x["confidence"], reverse=True)
         return opportunities
 
@@ -505,9 +505,9 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
 
 class LeadLagDetector:
     """
-    Lead-Lag检测器 - 使用统计方法发现领先滞后关系
+    Lead-Lag Detector - Discovers lead-lag relationships using statistical methods
 
-    2026前沿方法:
+    2026 frontier methods:
     - Transfer Entropy (with adaptive binning)
     - Granger Causality (proper statistical test)
     - Cross-Correlation with lags
@@ -522,7 +522,7 @@ class LeadLagDetector:
         self, returns_a: np.ndarray, returns_b: np.ndarray
     ) -> Dict[str, Any]:
         """
-        检测两个收益率序列间的领先滞后关系
+        Detect lead-lag relationship between two return series
 
         Uses multiple methods and combines evidence:
         1. Cross-correlation analysis
@@ -531,10 +531,10 @@ class LeadLagDetector:
 
         Returns:
             {
-                "optimal_lag": int,  # A领先B的天数 (负数表示B领先)
-                "correlation": float,  # 最优滞后下的相关性
+                "optimal_lag": int,  # Days A leads B (negative means B leads)
+                "correlation": float,  # Correlation at optimal lag
                 "direction": str,  # "a_leads" or "b_leads" or "contemporaneous"
-                "significance": float,  # 统计显著性
+                "significance": float,  # Statistical significance
                 "granger_pvalue": float,  # Granger causality p-value
                 "transfer_entropy": float,  # TE score
             }
@@ -612,7 +612,7 @@ class LeadLagDetector:
         self, x: np.ndarray, y: np.ndarray, lag: int
     ) -> float:
         """
-        Granger因果检验
+        Granger Causality Test
 
         Tests if x Granger-causes y using F-test
         H0: x does not Granger-cause y
@@ -718,11 +718,11 @@ class LeadLagDetector:
         self, source: np.ndarray, target: np.ndarray, lag: int = 1, bins: Optional[int] = None
     ) -> float:
         """
-        计算Transfer Entropy (信息论因果度量)
+        Compute Transfer Entropy (information-theoretic causality measure)
 
-        TE(X→Y) = H(Y_t | Y_{t-1}) - H(Y_t | Y_{t-1}, X_{t-lag})
+        TE(X->Y) = H(Y_t | Y_{t-1}) - H(Y_t | Y_{t-1}, X_{t-lag})
 
-        改进: 自适应分箱 (Freedman-Diaconis rule)
+        Improvement: Adaptive binning (Freedman-Diaconis rule)
         """
         if len(source) < lag + 2 or len(target) < lag + 2:
             return 0.0
@@ -813,16 +813,16 @@ class LeadLagDetector:
 
 class MultipleTestingCorrection:
     """
-    Multiple Testing Correction - FDR控制
+    Multiple Testing Correction - FDR Control
 
-    当同时测试多个因果关系时,需要校正p值
-    避免假阳性 (Type I errors)
+    When testing multiple causal relationships simultaneously, p-values need correction
+    to avoid false positives (Type I errors)
     """
 
     @staticmethod
     def benjamini_hochberg(p_values: List[float], alpha: float = 0.05) -> List[bool]:
         """
-        Benjamini-Hochberg FDR控制
+        Benjamini-Hochberg FDR Control
 
         Args:
             p_values: List of p-values from multiple tests
@@ -894,9 +894,9 @@ class MultipleTestingCorrection:
 
 class CausalGraphBuilder:
     """
-    Causal Graph Builder - 构建股票间的因果关系图
+    Causal Graph Builder - Builds causal relationship graphs between stocks
 
-    从多对股票的因果检验结果构建DAG
+    Constructs DAG from pairwise stock causal test results
     """
 
     def __init__(

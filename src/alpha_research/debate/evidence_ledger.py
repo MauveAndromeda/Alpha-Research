@@ -1,11 +1,11 @@
 """
-Evidence Ledger - 证据账本
+Evidence Ledger
 
-管理讨论中引用的所有证据:
-- 证据来源追踪
-- 证据时效性检查
-- 证据冲突检测
-- 证据可信度评估
+Manages all evidence cited in discussions:
+- Evidence source tracking
+- Evidence freshness checking
+- Evidence conflict detection
+- Evidence credibility assessment
 """
 
 from dataclasses import dataclass, field
@@ -19,12 +19,12 @@ from ..experts.base import Evidence
 
 @dataclass
 class EvidenceEntry:
-    """账本中的一条证据记录"""
+    """A single evidence record in the ledger"""
     evidence: Evidence
     entry_id: str
-    cited_by: List[str]  # 引用这条证据的论点ID列表
-    verified: bool = False  # 是否经过验证
-    conflicts_with: List[str] = field(default_factory=list)  # 冲突的证据ID
+    cited_by: List[str]  # List of argument IDs citing this evidence
+    verified: bool = False  # Whether it has been verified
+    conflicts_with: List[str] = field(default_factory=list)  # Conflicting evidence IDs
 
     def __post_init__(self):
         if not self.entry_id:
@@ -34,19 +34,19 @@ class EvidenceEntry:
 
 class EvidenceLedger:
     """
-    证据账本 - 管理所有证据
+    Evidence Ledger - Manages all evidence
 
-    功能:
-    1. 证据注册和去重
-    2. 证据引用追踪
-    3. 证据冲突检测
-    4. 证据时效性检查
+    Features:
+    1. Evidence registration and deduplication
+    2. Evidence citation tracking
+    3. Evidence conflict detection
+    4. Evidence freshness checking
     """
 
     def __init__(self, stale_threshold_days: int = 30):
         """
         Args:
-            stale_threshold_days: 证据过期阈值 (天)
+            stale_threshold_days: Evidence expiration threshold (days)
         """
         self.entries: Dict[str, EvidenceEntry] = {}
         self.stale_threshold = timedelta(days=stale_threshold_days)
@@ -60,31 +60,31 @@ class EvidenceLedger:
         stock: Optional[str] = None,
     ) -> str:
         """
-        注册一条证据
+        Register a piece of evidence
 
         Args:
-            evidence: 证据对象
-            cited_by: 引用此证据的论点ID
-            stock: 相关股票代码
+            evidence: Evidence object
+            cited_by: ID of argument citing this evidence
+            stock: Related stock symbol
 
         Returns:
-            证据条目ID
+            Evidence entry ID
         """
-        # 创建条目
+        # Create entry
         entry = EvidenceEntry(
             evidence=evidence,
-            entry_id="",  # 会在__post_init__中生成
+            entry_id="",  # Will be generated in __post_init__
             cited_by=[cited_by] if cited_by else [],
         )
 
-        # 检查是否已存在
+        # Check if already exists
         if entry.entry_id in self.entries:
-            # 更新引用
+            # Update citations
             if cited_by:
                 self.entries[entry.entry_id].cited_by.append(cited_by)
             return entry.entry_id
 
-        # 添加新条目
+        # Add new entry
         self.entries[entry.entry_id] = entry
         self._source_index[evidence.source].append(entry.entry_id)
         if stock:
@@ -98,20 +98,20 @@ class EvidenceLedger:
         cited_by: Optional[str] = None,
         stock: Optional[str] = None,
     ) -> List[str]:
-        """批量注册证据"""
+        """Batch register evidence"""
         return [self.register(e, cited_by, stock) for e in evidences]
 
     def get(self, entry_id: str) -> Optional[EvidenceEntry]:
-        """获取证据条目"""
+        """Get evidence entry"""
         return self.entries.get(entry_id)
 
     def get_by_stock(self, stock: str) -> List[EvidenceEntry]:
-        """获取某只股票的所有证据"""
+        """Get all evidence for a stock"""
         entry_ids = self._stock_index.get(stock, [])
         return [self.entries[eid] for eid in entry_ids if eid in self.entries]
 
     def get_by_source(self, source: str) -> List[EvidenceEntry]:
-        """获取某来源的所有证据"""
+        """Get all evidence from a source"""
         entry_ids = self._source_index.get(source, [])
         return [self.entries[eid] for eid in entry_ids if eid in self.entries]
 
@@ -119,10 +119,10 @@ class EvidenceLedger:
         self, current_time: Optional[datetime] = None
     ) -> List[EvidenceEntry]:
         """
-        检查过期证据
+        Check for stale evidence
 
         Returns:
-            过期的证据条目列表
+            List of stale evidence entries
         """
         if current_time is None:
             current_time = datetime.now()
@@ -137,29 +137,29 @@ class EvidenceLedger:
 
     def detect_conflicts(self) -> List[tuple]:
         """
-        检测证据冲突
+        Detect evidence conflicts
 
-        冲突类型:
-        1. 同一来源的矛盾证据
-        2. 同一数据点的不同值
+        Conflict types:
+        1. Contradictory evidence from same source
+        2. Different values for same data point
 
         Returns:
-            冲突对列表 [(entry_id1, entry_id2, conflict_type), ...]
+            List of conflict pairs [(entry_id1, entry_id2, conflict_type), ...]
         """
         conflicts = []
 
-        # 按数据点分组
+        # Group by data point
         data_point_groups: Dict[str, List[EvidenceEntry]] = defaultdict(list)
 
         for entry in self.entries.values():
             if entry.evidence.data_point:
-                # 创建数据点键
+                # Create data point key
                 metric = entry.evidence.data_point.get("metric", "")
                 if metric:
                     key = f"{metric}"
                     data_point_groups[key].append(entry)
 
-        # 检测同一数据点的冲突值
+        # Detect conflicting values for same data point
         for key, entries in data_point_groups.items():
             if len(entries) < 2:
                 continue
@@ -170,7 +170,7 @@ class EvidenceLedger:
                     v2 = e2.evidence.data_point.get("value")
 
                     if v1 is not None and v2 is not None:
-                        # 检查值是否有显著差异
+                        # Check if values differ significantly
                         if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
                             if abs(v1 - v2) / (abs(v1) + 1e-10) > 0.1:
                                 conflicts.append(
@@ -183,13 +183,13 @@ class EvidenceLedger:
 
     def calculate_credibility(self, entry_id: str) -> float:
         """
-        计算证据可信度
+        Calculate evidence credibility
 
-        考虑因素:
-        1. 来源可信度
-        2. 时效性
-        3. 是否有冲突
-        4. 被引用次数
+        Factors considered:
+        1. Source credibility
+        2. Freshness
+        3. Whether there are conflicts
+        4. Citation count
         """
         entry = self.get(entry_id)
         if entry is None:
@@ -197,17 +197,17 @@ class EvidenceLedger:
 
         evidence = entry.evidence
 
-        # 来源可信度
+        # Source credibility
         source_credibility = self._get_source_credibility(evidence.source)
 
-        # 时效性
+        # Freshness
         age_days = (datetime.now() - evidence.timestamp).days
-        freshness = max(0, 1 - age_days / 90)  # 90天内逐渐衰减
+        freshness = max(0, 1 - age_days / 90)  # Gradually decays over 90 days
 
-        # 冲突惩罚
+        # Conflict penalty
         conflict_penalty = len(entry.conflicts_with) * 0.1
 
-        # 被引用加成
+        # Citation bonus
         citation_bonus = min(0.2, len(entry.cited_by) * 0.05)
 
         credibility = (
@@ -221,10 +221,10 @@ class EvidenceLedger:
         return max(0, min(1, credibility))
 
     def _get_source_credibility(self, source: str) -> float:
-        """获取来源可信度"""
+        """Get source credibility"""
         source_lower = source.lower()
 
-        # 预定义来源可信度
+        # Predefined source credibility
         if any(s in source_lower for s in ["sec", "10-k", "10-q", "8-k"]):
             return 1.0
         elif any(s in source_lower for s in ["reuters", "bloomberg", "wsj"]):
@@ -239,7 +239,7 @@ class EvidenceLedger:
             return 0.5
 
     def get_summary(self) -> Dict[str, Any]:
-        """获取账本摘要"""
+        """Get ledger summary"""
         stale = self.check_staleness()
         conflicts = self.detect_conflicts()
 
@@ -261,7 +261,7 @@ class EvidenceLedger:
         }
 
     def export_for_audit(self) -> List[Dict[str, Any]]:
-        """导出所有证据用于审计"""
+        """Export all evidence for auditing"""
         return [
             {
                 "entry_id": entry.entry_id,

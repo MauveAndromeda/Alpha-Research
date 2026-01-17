@@ -1,7 +1,7 @@
 """
 LLM Client Implementations
 
-支持多个前沿大模型:
+Supports multiple frontier LLMs:
 - Claude Opus 4.5 (claude-opus-4-5-20251101)
 - GPT-5.2 with Thinking (gpt-5.2-thinking)
 - DeepSeek-V3 (deepseek-chat)
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class LLMResponse:
-    """LLM响应结构"""
+    """LLM response structure"""
     content: str
     model: str
     provider: str
@@ -32,7 +32,7 @@ class LLMResponse:
 
 
 class BaseLLMClient(ABC):
-    """LLM客户端基类"""
+    """Base class for LLM clients"""
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key
@@ -47,21 +47,21 @@ class BaseLLMClient(ABC):
         temperature: float = 0.3,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        """生成响应"""
+        """Generate response"""
         pass
 
     @abstractmethod
     def get_model_name(self) -> str:
-        """获取模型名称"""
+        """Get model name"""
         pass
 
     @abstractmethod
     def get_provider_name(self) -> str:
-        """获取提供商名称"""
+        """Get provider name"""
         pass
 
     def get_stats(self) -> Dict[str, Any]:
-        """获取使用统计"""
+        """Get usage statistics"""
         return {
             "request_count": self._request_count,
             "total_tokens": self._total_tokens,
@@ -72,10 +72,10 @@ class ClaudeClient(BaseLLMClient):
     """
     Claude Opus 4.5 Client
 
-    特点:
-    - 最强的深度推理能力
-    - 优秀的金融分析能力
-    - 支持长上下文 (200K tokens)
+    Features:
+    - Strongest deep reasoning capability
+    - Excellent financial analysis ability
+    - Supports long context (200K tokens)
     """
 
     def __init__(self, api_key: Optional[str] = None):
@@ -96,7 +96,7 @@ class ClaudeClient(BaseLLMClient):
         temperature: float = 0.3,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        """调用Claude API"""
+        """Call Claude API"""
         import aiohttp
         import time
 
@@ -157,15 +157,15 @@ class OpenAIClient(BaseLLMClient):
     """
     GPT-5.2 Thinking Client
 
-    特点:
-    - 内置思考链 (Chain of Thought)
-    - 多步推理能力强
-    - 适合复杂分析任务
+    Features:
+    - Built-in Chain of Thought
+    - Strong multi-step reasoning
+    - Suitable for complex analysis tasks
     """
 
     def __init__(self, api_key: Optional[str] = None, use_thinking: bool = True):
         super().__init__(api_key or os.getenv("OPENAI_API_KEY"))
-        # 使用thinking模型或普通模型
+        # Use thinking model or regular model
         self.model = "o3" if use_thinking else "gpt-4.1"
         self.use_thinking = use_thinking
         self.base_url = "https://api.openai.com/v1/chat/completions"
@@ -183,7 +183,7 @@ class OpenAIClient(BaseLLMClient):
         temperature: float = 0.3,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        """调用OpenAI API"""
+        """Call OpenAI API"""
         import aiohttp
         import time
 
@@ -253,10 +253,10 @@ class DeepSeekClient(BaseLLMClient):
     """
     DeepSeek-V3 Client
 
-    特点:
-    - 极高的性价比 (比Claude便宜10x)
-    - 中文能力强
-    - 适合批量分析任务
+    Features:
+    - Extremely cost-effective (10x cheaper than Claude)
+    - Strong multilingual capability
+    - Suitable for batch analysis tasks
     """
 
     def __init__(self, api_key: Optional[str] = None):
@@ -277,7 +277,7 @@ class DeepSeekClient(BaseLLMClient):
         temperature: float = 0.3,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        """调用DeepSeek API"""
+        """Call DeepSeek API"""
         import aiohttp
         import time
 
@@ -333,9 +333,9 @@ class DeepSeekClient(BaseLLMClient):
             raise
 
 
-# 便捷函数
+# Convenience function
 def create_llm_client(provider: str, **kwargs) -> BaseLLMClient:
-    """创建LLM客户端"""
+    """Create LLM client"""
     providers = {
         "claude": ClaudeClient,
         "anthropic": ClaudeClient,
