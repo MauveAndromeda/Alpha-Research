@@ -1,12 +1,12 @@
 """
-Insider Expert - 内部人交易分析专家
+Insider Expert - Insider Trading Analysis Expert
 
-负责分析:
-- Form 4 内部人买卖
-- 买卖模式 (Cluster buying/selling)
-- 内部人类型 (CEO, CFO, Directors)
-- 交易规模相对薪酬
-- 10b5-1计划交易 vs 自主交易
+Responsible for analyzing:
+- Form 4 Insider Transactions
+- Trading Patterns (Cluster buying/selling)
+- Insider Types (CEO, CFO, Directors)
+- Transaction Size Relative to Compensation
+- 10b5-1 Plan Trades vs Discretionary Trades
 """
 
 from datetime import datetime, timedelta
@@ -18,13 +18,13 @@ from .base import ExpertBase, StockAssessment, Evidence, Snapshot
 
 class InsiderExpert(ExpertBase):
     """
-    内部人交易专家 - 分析Form 4披露的内部人交易
+    Insider Trading Expert - Analyzes insider transactions disclosed in Form 4
 
-    研究表明内部人买入比卖出更有信息量
-    Cluster buying特别有意义
+    Research shows insider buying is more informative than selling
+    Cluster buying is particularly meaningful
     """
 
-    # 内部人类型权重 (信息含量)
+    # Insider type weights (information content)
     INSIDER_WEIGHTS = {
         "ceo": 1.0,
         "cfo": 0.95,
@@ -33,16 +33,16 @@ class InsiderExpert(ExpertBase):
         "director": 0.7,
         "vp": 0.6,
         "officer": 0.5,
-        "10%_owner": 0.4,  # 大股东可能有其他动机
+        "10%_owner": 0.4,  # Large shareholders may have other motives
     }
 
-    # 交易类型权重
+    # Transaction type weights
     TRANSACTION_WEIGHTS = {
-        "open_market_buy": 1.0,      # 最有信息量
-        "open_market_sell": -0.6,    # 卖出信息量较低
-        "option_exercise": -0.2,     # 通常是税务/流动性驱动
-        "gift": 0.0,                  # 无信息
-        "10b5-1_buy": 0.5,           # 计划交易，信息量较低
+        "open_market_buy": 1.0,      # Most informative
+        "open_market_sell": -0.6,    # Less informative
+        "option_exercise": -0.2,     # Usually tax/liquidity driven
+        "gift": 0.0,                  # No information
+        "10b5-1_buy": 0.5,           # Planned trades, less informative
         "10b5-1_sell": -0.3,
     }
 
@@ -68,7 +68,7 @@ Be conservative - most insider selling is not informative.
 """
 
     def analyze(self, stock: str, snapshot: Snapshot) -> StockAssessment:
-        """分析单只股票的内部人交易"""
+        """Analyze insider trading for a single stock"""
         data = snapshot.get_stock_data(stock)
         insider_trades = data.get("insider_trades", [])
 
@@ -92,9 +92,9 @@ Be conservative - most insider selling is not informative.
 
         # Weighted score (buying matters more)
         composite_score = (
-            buy_score * 0.50        # 买入信号最重要
-            + sell_score * 0.25     # 卖出信号
-            + cluster_score * 0.25  # 聚集效应
+            buy_score * 0.50        # Buy signals most important
+            + sell_score * 0.25     # Sell signals
+            + cluster_score * 0.25  # Clustering effect
         )
 
         # Confidence based on trade significance
@@ -124,7 +124,7 @@ Be conservative - most insider selling is not informative.
     def _analyze_buying(
         self, stock: str, trades: List[Dict], timestamp: datetime
     ) -> tuple:
-        """分析内部人买入"""
+        """Analyze insider buying"""
         evidence = []
         buy_signals = []
 
@@ -176,7 +176,7 @@ Be conservative - most insider selling is not informative.
     def _analyze_selling(
         self, stock: str, trades: List[Dict], timestamp: datetime
     ) -> tuple:
-        """分析内部人卖出 (less informative than buying)"""
+        """Analyze insider selling (less informative than buying)"""
         evidence = []
         sell_signals = []
 
@@ -241,7 +241,7 @@ Be conservative - most insider selling is not informative.
     def _analyze_clustering(
         self, stock: str, trades: List[Dict], timestamp: datetime
     ) -> tuple:
-        """分析交易聚集效应 (cluster buying/selling)"""
+        """Analyze trading clustering effects (cluster buying/selling)"""
         evidence = []
 
         # Group by date (within 30 days)

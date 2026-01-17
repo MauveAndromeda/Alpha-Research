@@ -1,15 +1,15 @@
 """
-Market Scanner - 全市场扫描系统
+Market Scanner - Market-wide Scanning System
 
-用户原始思路的完整实现:
-"用多LLM专家讨论 + 因果/lead-lag/图思路
-在S&P全市场扫描里找满足条件的alpha,
-如果同时有多只股票满足就组一个portfolio,没有就等待"
+Complete implementation of the user's original approach:
+"Use multi-LLM expert discussion + causal/lead-lag/graph approach
+to scan the entire S&P market for alpha that meets criteria,
+if multiple stocks qualify simultaneously, build a portfolio; otherwise wait"
 
-核心组件:
-- MarketScanner: 全市场扫描协调器
-- AlphaFactory: Alpha信号工厂
-- PortfolioBuilder: 组合构建器
+Core components:
+- MarketScanner: Market-wide scan coordinator
+- AlphaFactory: Alpha signal factory
+- PortfolioBuilder: Portfolio builder
 """
 
 from .market_scanner import (

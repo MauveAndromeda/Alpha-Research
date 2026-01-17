@@ -1,14 +1,14 @@
 """
-Enhanced Opportunity Gate - 增强的机会评估门
+Enhanced Opportunity Gate - Advanced Opportunity Assessment Gate
 
-整合用户原始思路的所有组件:
-1. 多专家评估 (Fundamentals, Technical, Filing, News, Insider, Causal)
-2. 专家讨论会 (Multi-Expert Debate)
-3. 因果/Lead-Lag分析
-4. 图结构机会发现
-5. BUILD/WAIT决策
+Integrates all components from the original design:
+1. Multi-Expert Assessment (Fundamentals, Technical, Filing, News, Insider, Causal)
+2. Expert Debate Session (Multi-Expert Debate)
+3. Causal/Lead-Lag Analysis
+4. Graph-Based Opportunity Discovery
+5. BUILD/WAIT Decision
 
-核心原则: 没有高质量机会就不交易
+Core Principle: No trading without high-quality opportunities
 """
 
 from dataclasses import dataclass, field
@@ -32,33 +32,33 @@ from .state_machine import GateConfig, OpportunityAssessment
 
 @dataclass
 class EnhancedOpportunityScore:
-    """增强的机会评分"""
-    # 基础分数
+    """Enhanced opportunity score"""
+    # Base score
     base_score: float  # 0-1
 
-    # 专家共识
+    # Expert consensus
     expert_consensus_score: float
     expert_confidence: float
     expert_agreement: str  # "strong", "moderate", "weak", "disagreement"
 
-    # 讨论结论
+    # Debate conclusion
     debate_conclusion: Optional[DebateConclusion] = None
 
-    # 因果支撑
+    # Causal support
     causal_support_score: float = 0.0
     lead_lag_opportunities: List[Dict] = field(default_factory=list)
 
-    # 图结构机会
+    # Graph-based opportunities
     graph_anomaly_score: float = 0.0
     graph_opportunities: List[Dict] = field(default_factory=list)
 
-    # 最终决策
+    # Final decision
     final_score: float = 0.0
     should_build: bool = False
     build_size: str = "none"  # "none", "small", "normal", "aggressive"
     wait_reasons: List[str] = field(default_factory=list)
 
-    # 推荐股票
+    # Recommended stocks
     recommended_stocks: List[Dict] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -79,16 +79,16 @@ class EnhancedOpportunityScore:
 
 class EnhancedOpportunityGate:
     """
-    增强的机会评估门
+    Enhanced Opportunity Assessment Gate
 
-    整合所有分析模块,做出BUILD/WAIT决策
+    Integrates all analysis modules to make BUILD/WAIT decisions
 
-    流程:
-    1. 各专家独立分析
-    2. 专家讨论会形成共识
-    3. 因果/Lead-Lag分析验证
-    4. 图结构机会发现补充
-    5. 综合评估,决定BUILD/WAIT
+    Process:
+    1. Each expert analyzes independently
+    2. Expert debate session forms consensus
+    3. Causal/Lead-Lag analysis validation
+    4. Graph-based opportunity discovery supplement
+    5. Comprehensive evaluation, decide BUILD/WAIT
     """
 
     def __init__(
@@ -99,7 +99,7 @@ class EnhancedOpportunityGate:
         self.config = config or GateConfig()
         self.llm_client = llm_client
 
-        # 初始化专家
+        # Initialize experts
         self.experts = {
             "fundamentals": FundamentalsExpert(llm_client),
             "technical": TechnicalExpert(llm_client),
@@ -109,28 +109,28 @@ class EnhancedOpportunityGate:
             "causal": CausalExpert(llm_client),
         }
 
-        # 讨论系统
+        # Debate system
         self.debate = ExpertDebate(llm_client)
         self.consensus_builder = ConsensusBuilder()
 
-        # 图分析
+        # Graph analysis
         self.stock_graph: Optional[StockGraph] = None
         self.graph_alpha: Optional[GraphAlphaDiscovery] = None
 
-        # 阈值配置
+        # Threshold configuration
         self.thresholds = {
-            "min_final_score": 0.5,          # 最低综合分数
-            "min_confidence": 0.4,            # 最低置信度
-            "min_candidates": 3,              # 最少候选股票
-            "min_causal_support": 0.3,        # 最低因果支撑
-            "max_disagreement_ratio": 0.5,    # 最大分歧比例
-            "build_small_threshold": 0.5,     # 小仓位阈值
-            "build_normal_threshold": 0.65,   # 正常仓位阈值
-            "build_aggressive_threshold": 0.8, # 激进仓位阈值
+            "min_final_score": 0.5,          # Minimum final score
+            "min_confidence": 0.4,            # Minimum confidence
+            "min_candidates": 3,              # Minimum candidate stocks
+            "min_causal_support": 0.3,        # Minimum causal support
+            "max_disagreement_ratio": 0.5,    # Maximum disagreement ratio
+            "build_small_threshold": 0.5,     # Small position threshold
+            "build_normal_threshold": 0.65,   # Normal position threshold
+            "build_aggressive_threshold": 0.8, # Aggressive position threshold
         }
 
     def set_stock_graph(self, graph: StockGraph):
-        """设置股票关系图"""
+        """Set stock relationship graph"""
         self.stock_graph = graph
         self.graph_alpha = GraphAlphaDiscovery(graph)
 
@@ -140,13 +140,13 @@ class EnhancedOpportunityGate:
         returns_history: Optional[Dict[str, np.ndarray]] = None,
     ) -> EnhancedOpportunityScore:
         """
-        评估全市场机会
+        Evaluate market-wide opportunities
 
-        这是用户原始思路的核心: "全市场扫描找满足条件的alpha"
+        This is the core of the original design: "Scan the entire market to find qualifying alpha"
 
         Args:
-            snapshot: 当前数据快照
-            returns_history: 历史收益率 (用于因果/图分析)
+            snapshot: Current data snapshot
+            returns_history: Historical returns (for causal/graph analysis)
 
         Returns:
             EnhancedOpportunityScore
@@ -154,7 +154,7 @@ class EnhancedOpportunityGate:
         wait_reasons = []
         recommended_stocks = []
 
-        # ===== Step 1: 各专家独立分析所有股票 =====
+        # ===== Step 1: Each expert independently analyzes all stocks =====
         all_assessments: Dict[str, Dict[str, StockAssessment]] = {}
 
         for stock in snapshot.stocks:
@@ -164,7 +164,7 @@ class EnhancedOpportunityGate:
                     assessment = expert.analyze(stock, snapshot)
                     stock_assessments[expert_name] = assessment
                 except Exception as e:
-                    # 某个专家失败不影响整体
+                    # Individual expert failure does not affect the overall process
                     pass
 
             if stock_assessments:
@@ -182,15 +182,15 @@ class EnhancedOpportunityGate:
                 wait_reasons=["No stocks could be analyzed"],
             )
 
-        # ===== Step 2: 筛选候选股票 (初步过滤) =====
+        # ===== Step 2: Filter candidate stocks (preliminary filtering) =====
         candidates = []
         for stock, assessments in all_assessments.items():
-            # 计算加权平均分
+            # Calculate weighted average score
             scores = [a.score for a in assessments.values()]
             avg_score = np.mean(scores)
             avg_confidence = np.mean([a.confidence for a in assessments.values()])
 
-            if avg_score > 0.2 and avg_confidence > 0.3:  # 初步门槛
+            if avg_score > 0.2 and avg_confidence > 0.3:  # Preliminary threshold
                 candidates.append({
                     "stock": stock,
                     "avg_score": avg_score,
@@ -198,22 +198,22 @@ class EnhancedOpportunityGate:
                     "assessments": assessments,
                 })
 
-        # 排序取前N
+        # Sort and take top N
         candidates.sort(key=lambda x: x["avg_score"], reverse=True)
-        top_candidates = candidates[:20]  # 取前20只进入讨论
+        top_candidates = candidates[:20]  # Take top 20 for debate
 
         if len(top_candidates) < self.thresholds["min_candidates"]:
             wait_reasons.append(
                 f"Insufficient candidates: {len(top_candidates)} < {self.thresholds['min_candidates']}"
             )
 
-        # ===== Step 3: 对每个候选股票进行专家讨论 =====
+        # ===== Step 3: Conduct expert debate for each candidate stock =====
         debate_results = {}
         for candidate in top_candidates:
             stock = candidate["stock"]
             assessments = candidate["assessments"]
 
-            # 获取因果分析 (如果有causal expert)
+            # Get causal analysis (if causal expert exists)
             causal_analysis = None
             if "causal" in assessments:
                 causal_assessment = assessments["causal"]
@@ -223,11 +223,11 @@ class EnhancedOpportunityGate:
                     "causal_support": causal_assessment.confidence,
                 }
 
-            # 专家讨论
+            # Expert debate
             conclusion = self.debate.debate(stock, assessments, causal_analysis)
             debate_results[stock] = conclusion
 
-            # 记录推荐
+            # Record recommendation
             if conclusion.final_score > 0.3 and conclusion.confidence > 0.4:
                 recommended_stocks.append({
                     "stock": stock,
@@ -239,23 +239,23 @@ class EnhancedOpportunityGate:
                     "key_risks": conclusion.key_risks[:3],
                 })
 
-        # ===== Step 4: 因果/Lead-Lag分析 =====
+        # ===== Step 4: Causal/Lead-Lag Analysis =====
         causal_support_score = 0.0
         lead_lag_opportunities = []
 
         if returns_history and "causal" in self.experts:
             causal_expert = self.experts["causal"]
 
-            # 找出当前领先者
+            # Find current market leaders
             leaders = causal_expert.find_market_leaders(snapshot, top_n=10)
 
-            # 找出传导机会
+            # Find propagation opportunities
             propagation_opps = causal_expert.find_propagation_opportunities(
                 snapshot, min_confidence=0.4
             )
             lead_lag_opportunities = propagation_opps[:5]
 
-            # 计算因果支撑分数
+            # Calculate causal support score
             for rec in recommended_stocks:
                 stock = rec["stock"]
                 if stock in all_assessments and "causal" in all_assessments[stock]:
@@ -266,47 +266,47 @@ class EnhancedOpportunityGate:
             if recommended_stocks:
                 causal_support_score /= len(recommended_stocks)
 
-        # ===== Step 5: 图结构机会分析 =====
+        # ===== Step 5: Graph-Based Opportunity Analysis =====
         graph_anomaly_score = 0.0
         graph_opportunities = []
 
         if self.graph_alpha and returns_history:
-            # 当前收益率
+            # Current returns
             current_returns = {
                 stock: returns_history[stock][-1]
                 for stock in returns_history
                 if len(returns_history[stock]) > 0
             }
 
-            # 检测异常
+            # Detect anomalies
             anomalies = self.graph_alpha.detect_anomalies(current_returns)
             graph_opportunities = anomalies[:5]
 
-            # 信息延迟机会
+            # Information delay opportunities
             delay_opps = self.graph_alpha.find_information_delay_opportunities(
                 returns_history
             )
             graph_opportunities.extend(delay_opps[:5])
 
             if graph_opportunities:
-                graph_anomaly_score = len(graph_opportunities) / 10  # 归一化
+                graph_anomaly_score = len(graph_opportunities) / 10  # Normalize
 
-        # ===== Step 6: 综合评估 =====
+        # ===== Step 6: Comprehensive Evaluation =====
 
-        # 计算各维度分数
+        # Calculate scores for each dimension
         if recommended_stocks:
-            # 基础分数: 推荐股票的平均分
+            # Base score: average score of recommended stocks
             base_score = np.mean([r["score"] for r in recommended_stocks])
 
-            # 专家共识分数
+            # Expert consensus score
             expert_consensus_score = np.mean(
                 [r["confidence"] for r in recommended_stocks]
             )
 
-            # 专家置信度
+            # Expert confidence
             expert_confidence = expert_consensus_score
 
-            # 一致性评估
+            # Agreement assessment
             score_std = np.std([r["score"] for r in recommended_stocks])
             if score_std < 0.15:
                 expert_agreement = "strong"
@@ -323,7 +323,7 @@ class EnhancedOpportunityGate:
             expert_agreement = "disagreement"
             wait_reasons.append("No recommended stocks after debate")
 
-        # 综合最终分数
+        # Calculate comprehensive final score
         final_score = (
             base_score * 0.35
             + expert_consensus_score * 0.25
@@ -332,9 +332,9 @@ class EnhancedOpportunityGate:
             + (1.0 if expert_agreement in ["strong", "moderate"] else 0.5) * 0.10
         )
 
-        # ===== Step 7: BUILD/WAIT决策 =====
+        # ===== Step 7: BUILD/WAIT Decision =====
 
-        # 检查各项阈值
+        # Check all thresholds
         if final_score < self.thresholds["min_final_score"]:
             wait_reasons.append(
                 f"Final score {final_score:.2f} < threshold {self.thresholds['min_final_score']}"
@@ -353,7 +353,7 @@ class EnhancedOpportunityGate:
         if expert_agreement == "disagreement":
             wait_reasons.append("Experts have significant disagreement")
 
-        # 决定BUILD规模
+        # Determine BUILD size
         should_build = len(wait_reasons) == 0
 
         if should_build:
@@ -370,7 +370,7 @@ class EnhancedOpportunityGate:
         else:
             build_size = "none"
 
-        # 排序推荐股票
+        # Sort recommended stocks
         recommended_stocks.sort(key=lambda x: x["score"], reverse=True)
 
         return EnhancedOpportunityScore(
@@ -398,16 +398,16 @@ class EnhancedOpportunityGate:
         snapshot: Snapshot,
     ) -> Tuple[DebateConclusion, Dict[str, StockAssessment]]:
         """
-        评估单只股票
+        Evaluate a single stock
 
         Args:
-            stock: 股票代码
-            snapshot: 数据快照
+            stock: Stock symbol
+            snapshot: Data snapshot
 
         Returns:
             (DebateConclusion, assessments)
         """
-        # 各专家分析
+        # Each expert analyzes
         assessments = {}
         for expert_name, expert in self.experts.items():
             try:
@@ -419,7 +419,7 @@ class EnhancedOpportunityGate:
         if not assessments:
             raise ValueError(f"Could not analyze {stock}")
 
-        # 因果分析
+        # Causal analysis
         causal_analysis = None
         if "causal" in assessments:
             causal = assessments["causal"]
@@ -428,7 +428,7 @@ class EnhancedOpportunityGate:
                 "is_leader": causal.score > 0.3,
             }
 
-        # 专家讨论
+        # Expert debate
         conclusion = self.debate.debate(stock, assessments, causal_analysis)
 
         return conclusion, assessments
@@ -439,11 +439,11 @@ class EnhancedOpportunityGate:
         total_capital: float = 1.0,
     ) -> Dict[str, float]:
         """
-        获取建仓权重
+        Get position building weights
 
         Args:
-            opportunity: 机会评估结果
-            total_capital: 总资金
+            opportunity: Opportunity assessment result
+            total_capital: Total capital
 
         Returns:
             {stock: weight}
@@ -453,7 +453,7 @@ class EnhancedOpportunityGate:
 
         weights = {}
 
-        # 根据build_size决定总仓位
+        # Determine total position based on build_size
         if opportunity.build_size == "aggressive":
             max_total = 0.9
         elif opportunity.build_size == "normal":
@@ -463,20 +463,20 @@ class EnhancedOpportunityGate:
         else:
             return {}
 
-        # 分配到各个推荐股票
+        # Allocate to each recommended stock
         for rec in opportunity.recommended_stocks:
             stock = rec["stock"]
             score = rec["score"]
             position_size = rec.get("position_size", 0.5)
 
-            # 基础权重
+            # Base weight
             base_weight = position_size * score
 
-            # 限制单只股票权重
+            # Limit single stock weight
             weight = min(base_weight, self.config.max_single_stock)
             weights[stock] = weight
 
-        # 归一化到max_total
+        # Normalize to max_total
         total_weight = sum(weights.values())
         if total_weight > 0:
             scale = min(max_total, total_weight) / total_weight

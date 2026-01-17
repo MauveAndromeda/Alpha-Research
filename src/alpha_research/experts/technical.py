@@ -1,12 +1,12 @@
 """
-Technical Expert - 技术面分析专家
+Technical Expert - Technical Analysis Expert
 
-负责分析:
-- 趋势 (Trend direction, strength)
-- 动量 (Momentum, RSI, MACD)
-- 支撑阻力 (Support/Resistance levels)
-- 成交量 (Volume patterns, accumulation/distribution)
-- 波动率 (Volatility regime)
+Responsible for analyzing:
+- Trend (Direction, Strength)
+- Momentum (RSI, MACD)
+- Support/Resistance Levels
+- Volume (Patterns, Accumulation/Distribution)
+- Volatility (Regime)
 """
 
 from datetime import datetime
@@ -18,9 +18,9 @@ from .base import ExpertBase, StockAssessment, Evidence, Snapshot
 
 class TechnicalExpert(ExpertBase):
     """
-    技术面专家 - 分析价格行为和市场结构
+    Technical Expert - Analyzes price action and market structure
 
-    使用动量因子和趋势跟踪的框架
+    Uses momentum factor and trend-following frameworks
     """
 
     def __init__(self, llm_client: Optional[Any] = None):
@@ -46,7 +46,7 @@ Be objective - technical analysis has limitations and false signals.
 """
 
     def analyze(self, stock: str, snapshot: Snapshot) -> StockAssessment:
-        """分析单只股票的技术面"""
+        """Analyze technical indicators for a single stock"""
         data = snapshot.get_stock_data(stock)
         prices = data.get("prices", {})
 
@@ -71,10 +71,10 @@ Be objective - technical analysis has limitations and false signals.
 
         # Weighted composite score (momentum-focused per spec)
         composite_score = (
-            trend_score * 0.35      # 趋势最重要
-            + momentum_score * 0.35  # 动量同样重要
-            + volume_score * 0.15    # 成交量确认
-            + volatility_score * 0.15  # 波动率环境
+            trend_score * 0.35      # Trend most important
+            + momentum_score * 0.35  # Momentum equally important
+            + volume_score * 0.15    # Volume confirmation
+            + volatility_score * 0.15  # Volatility environment
         )
 
         # Confidence based on signal agreement
@@ -106,7 +106,7 @@ Be objective - technical analysis has limitations and false signals.
     def _analyze_trend(
         self, stock: str, prices: Dict[str, Any], timestamp: datetime
     ) -> tuple:
-        """分析趋势方向和强度"""
+        """Analyze trend direction and strength"""
         evidence = []
         scores = []
 
@@ -186,7 +186,7 @@ Be objective - technical analysis has limitations and false signals.
     def _analyze_momentum(
         self, stock: str, prices: Dict[str, Any], timestamp: datetime
     ) -> tuple:
-        """分析动量指标"""
+        """Analyze momentum indicators"""
         evidence = []
         scores = []
 
@@ -260,7 +260,7 @@ Be objective - technical analysis has limitations and false signals.
     def _analyze_volume(
         self, stock: str, prices: Dict[str, Any], timestamp: datetime
     ) -> tuple:
-        """分析成交量"""
+        """Analyze volume"""
         evidence = []
 
         volume = prices.get("volume", 0)
@@ -303,7 +303,7 @@ Be objective - technical analysis has limitations and false signals.
     def _analyze_volatility(
         self, stock: str, prices: Dict[str, Any], timestamp: datetime
     ) -> tuple:
-        """分析波动率环境"""
+        """Analyze volatility environment"""
         evidence = []
 
         atr = prices.get("atr_14", 0)

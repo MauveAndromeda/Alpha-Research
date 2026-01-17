@@ -1,12 +1,12 @@
 """
-News Expert - 新闻事件分析专家
+News Expert - News Event Analysis Expert
 
-负责分析:
-- 公司新闻事件提取
-- 市场情绪变化
-- 行业趋势新闻
-- 宏观经济影响
-- 分析师观点变化
+Responsible for analyzing:
+- Company News Event Extraction
+- Market Sentiment Changes
+- Industry Trend News
+- Macroeconomic Impacts
+- Analyst Opinion Changes
 """
 
 from datetime import datetime, timedelta
@@ -19,12 +19,12 @@ from .base import ExpertBase, StockAssessment, Evidence, Snapshot
 
 class NewsExpert(ExpertBase):
     """
-    新闻专家 - 分析新闻事件和市场情绪
+    News Expert - Analyzes news events and market sentiment
 
-    使用事件驱动和情绪分析框架
+    Uses event-driven and sentiment analysis frameworks
     """
 
-    # 事件类型及其典型影响
+    # Event types and their typical impacts
     EVENT_IMPACTS = {
         # 正面事件
         "earnings_beat": 0.4,
@@ -51,7 +51,7 @@ class NewsExpert(ExpertBase):
         "lawsuit_filed": -0.3,
     }
 
-    # 新闻来源权重 (可靠性)
+    # News source weights (reliability)
     SOURCE_WEIGHTS = {
         "reuters": 1.0,
         "bloomberg": 1.0,
@@ -88,7 +88,7 @@ News impact decays - recent news matters more.
 """
 
     def analyze(self, stock: str, snapshot: Snapshot) -> StockAssessment:
-        """分析单只股票的新闻"""
+        """Analyze news for a single stock"""
         data = snapshot.get_stock_data(stock)
         news_items = data.get("news", [])
 
@@ -113,9 +113,9 @@ News impact decays - recent news matters more.
 
         # Weighted score with recency adjustment
         composite_score = (
-            event_score * 0.45       # 具体事件最重要
-            + sentiment_score * 0.30  # 情绪
-            + analyst_score * 0.25    # 分析师观点
+            event_score * 0.45       # Specific events most important
+            + sentiment_score * 0.30  # Sentiment
+            + analyst_score * 0.25    # Analyst opinions
         ) * recency_factor
 
         # Confidence based on news quality and quantity
@@ -145,7 +145,7 @@ News impact decays - recent news matters more.
     def _analyze_events(
         self, stock: str, news_items: List[Dict], timestamp: datetime
     ) -> tuple:
-        """提取和分析具体事件"""
+        """Extract and analyze specific events"""
         evidence = []
         event_impacts = []
 
@@ -181,7 +181,7 @@ News impact decays - recent news matters more.
     def _analyze_sentiment(
         self, stock: str, news_items: List[Dict], timestamp: datetime
     ) -> tuple:
-        """分析新闻情绪"""
+        """Analyze news sentiment"""
         evidence = []
         sentiments = []
 
@@ -220,7 +220,7 @@ News impact decays - recent news matters more.
     def _analyze_analyst_actions(
         self, stock: str, news_items: List[Dict], timestamp: datetime
     ) -> tuple:
-        """分析分析师评级变化"""
+        """Analyze analyst rating changes"""
         evidence = []
         analyst_impacts = []
 
@@ -277,7 +277,7 @@ News impact decays - recent news matters more.
     def _calculate_recency_factor(
         self, news_items: List[Dict], current_time: datetime
     ) -> float:
-        """计算新闻时效性因子"""
+        """Calculate news recency factor"""
         if not news_items:
             return 0.5
 
@@ -300,7 +300,7 @@ News impact decays - recent news matters more.
         return max(0.3, min(1.0, recency_factor))
 
     def _calculate_news_quality(self, news_items: List[Dict]) -> float:
-        """计算新闻质量分数"""
+        """Calculate news quality score"""
         if not news_items:
             return 0.0
 

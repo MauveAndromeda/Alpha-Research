@@ -1,12 +1,12 @@
 """
-Filing Expert - SEC财报分析专家
+Filing Expert - SEC Filing Analysis Expert
 
-负责分析:
-- 10-K/10-Q 年报季报
-- 8-K 重大事件披露
-- Risk Factors 风险因素变化
-- 会计政策变更
-- 管理层讨论 (MD&A)
+Responsible for analyzing:
+- 10-K/10-Q Annual and Quarterly Reports
+- 8-K Material Event Disclosures
+- Risk Factors Changes
+- Accounting Policy Changes
+- Management Discussion & Analysis (MD&A)
 """
 
 from datetime import datetime
@@ -19,16 +19,16 @@ from .base import ExpertBase, StockAssessment, Evidence, Snapshot
 
 class FilingExpert(ExpertBase):
     """
-    财报专家 - 分析SEC文件中的风险信号和机会
+    Filing Expert - Analyzes risk signals and opportunities in SEC filings
 
-    使用NLP和规则结合的方式识别:
-    - 会计异常 (Accounting red flags)
-    - 风险因素变化 (Risk factor changes)
-    - 管理层语气变化 (Tone changes)
-    - 重大事件 (Material events)
+    Uses a combination of NLP and rules to identify:
+    - Accounting red flags
+    - Risk factor changes
+    - Management tone changes
+    - Material events
     """
 
-    # 风险关键词 (根据学术研究)
+    # Risk keywords (based on academic research)
     RISK_KEYWORDS = {
         "high_risk": [
             "material weakness", "going concern", "restatement",
@@ -48,7 +48,7 @@ class FilingExpert(ExpertBase):
         ],
     }
 
-    # 正面关键词
+    # Positive keywords
     POSITIVE_KEYWORDS = [
         "record revenue", "exceeded expectations", "strong demand",
         "market share gains", "margin expansion", "cash flow improvement",
@@ -81,7 +81,7 @@ Be conservative - accounting red flags often precede stock declines.
 """
 
     def analyze(self, stock: str, snapshot: Snapshot) -> StockAssessment:
-        """分析单只股票的SEC文件"""
+        """Analyze SEC filings for a single stock"""
         data = snapshot.get_stock_data(stock)
         filings = data.get("filings", [])
 
@@ -106,10 +106,10 @@ Be conservative - accounting red flags often precede stock declines.
 
         # Weighted score (risk-focused - bad news matters more)
         composite_score = (
-            risk_score * 0.35       # 风险因素最重要
-            + accounting_score * 0.30  # 会计质量
-            + mda_score * 0.20       # 管理层讨论
-            + event_score * 0.15     # 重大事件
+            risk_score * 0.35       # Risk factors most important
+            + accounting_score * 0.30  # Accounting quality
+            + mda_score * 0.20       # Management discussion
+            + event_score * 0.15     # Material events
         )
 
         # Conservative confidence (filing analysis has lag)
@@ -138,7 +138,7 @@ Be conservative - accounting red flags often precede stock declines.
     def _analyze_risk_factors(
         self, stock: str, filings: List[Dict], timestamp: datetime
     ) -> tuple:
-        """分析Risk Factors部分"""
+        """Analyze Risk Factors section"""
         evidence = []
         risk_signals = {"high": 0, "medium": 0, "low": 0}
 
@@ -198,7 +198,7 @@ Be conservative - accounting red flags often precede stock declines.
     def _analyze_accounting_quality(
         self, stock: str, filings: List[Dict], timestamp: datetime
     ) -> tuple:
-        """分析会计质量"""
+        """Analyze accounting quality"""
         evidence = []
         red_flags = 0
 
@@ -277,7 +277,7 @@ Be conservative - accounting red flags often precede stock declines.
     def _analyze_mda(
         self, stock: str, filings: List[Dict], timestamp: datetime
     ) -> tuple:
-        """分析Management Discussion & Analysis"""
+        """Analyze Management Discussion & Analysis"""
         evidence = []
         sentiment_scores = []
 
@@ -339,7 +339,7 @@ Be conservative - accounting red flags often precede stock declines.
     def _analyze_material_events(
         self, stock: str, filings: List[Dict], timestamp: datetime
     ) -> tuple:
-        """分析8-K重大事件"""
+        """Analyze 8-K material events"""
         evidence = []
         event_impact = 0
 

@@ -1,11 +1,11 @@
 """
-Fundamentals Expert - 基本面分析专家
+Fundamentals Expert - Fundamental Analysis Expert
 
-负责分析:
-- 盈利能力 (ROE, ROA, Profit Margins)
-- 财务健康 (Debt/Equity, Current Ratio, Cash Flow)
-- 盈利质量 (Accruals, Cash Flow vs Earnings)
-- 成长性 (Revenue Growth, Earnings Growth)
+Responsible for analyzing:
+- Profitability (ROE, ROA, Profit Margins)
+- Financial Health (Debt/Equity, Current Ratio, Cash Flow)
+- Earnings Quality (Accruals, Cash Flow vs Earnings)
+- Growth (Revenue Growth, Earnings Growth)
 """
 
 import json
@@ -18,9 +18,9 @@ from .base import ExpertBase, StockAssessment, Evidence, Snapshot, AssessmentTyp
 
 class FundamentalsExpert(ExpertBase):
     """
-    基本面专家 - 分析公司财务健康和盈利能力
+    Fundamentals Expert - Analyzes company financial health and profitability
 
-    使用价值投资和质量因子的框架进行分析
+    Uses value investing and quality factor frameworks for analysis
     """
 
     def __init__(self, llm_client: Optional[Any] = None):
@@ -58,7 +58,7 @@ Be objective and balanced - acknowledge both strengths and weaknesses.
 """
 
     def analyze(self, stock: str, snapshot: Snapshot) -> StockAssessment:
-        """分析单只股票的基本面"""
+        """Analyze fundamentals for a single stock"""
         data = snapshot.get_stock_data(stock)
         fundamentals = data.get("fundamentals", {})
 
@@ -97,10 +97,10 @@ Be objective and balanced - acknowledge both strengths and weaknesses.
         # Weighted composite score
         # Quality-focused weighting (per user's spec)
         composite_score = (
-            profitability_score * 0.30  # 盈利能力
-            + health_score * 0.25       # 财务健康
-            + quality_score * 0.25      # 盈利质量
-            + growth_score * 0.20       # 成长性
+            profitability_score * 0.30  # Profitability
+            + health_score * 0.25       # Financial health
+            + quality_score * 0.25      # Earnings quality
+            + growth_score * 0.20       # Growth
         )
 
         # Calculate confidence based on data availability
@@ -135,7 +135,7 @@ Be objective and balanced - acknowledge both strengths and weaknesses.
     def _analyze_profitability(
         self, stock: str, data: Dict[str, Any], timestamp: datetime
     ) -> tuple:
-        """分析盈利能力"""
+        """Analyze profitability"""
         evidence = []
         scores = []
 
@@ -190,7 +190,7 @@ Be objective and balanced - acknowledge both strengths and weaknesses.
     def _analyze_financial_health(
         self, stock: str, data: Dict[str, Any], timestamp: datetime
     ) -> tuple:
-        """分析财务健康度"""
+        """Analyze financial health"""
         evidence = []
         scores = []
 
@@ -247,7 +247,7 @@ Be objective and balanced - acknowledge both strengths and weaknesses.
     def _analyze_earnings_quality(
         self, stock: str, data: Dict[str, Any], timestamp: datetime
     ) -> tuple:
-        """分析盈利质量 (Sloan Accruals, CFO/NI ratio)"""
+        """Analyze earnings quality (Sloan Accruals, CFO/NI ratio)"""
         evidence = []
         scores = []
 
@@ -288,7 +288,7 @@ Be objective and balanced - acknowledge both strengths and weaknesses.
     def _analyze_growth(
         self, stock: str, data: Dict[str, Any], timestamp: datetime
     ) -> tuple:
-        """分析成长性"""
+        """Analyze growth"""
         evidence = []
         scores = []
 

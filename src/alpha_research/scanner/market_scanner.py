@@ -1,19 +1,19 @@
 """
-Market Scanner - 全市场扫描协调器
+Market Scanner - Market-wide Scan Coordinator
 
-这是用户原始思路的主入口:
+This is the main entry point for the user's original approach:
 
-每日流程:
-1. 获取数据快照 (Point-in-Time)
-2. 扫描全S&P 500
-3. 各专家模块并行分析
-4. 因果/Lead-Lag/图分析
-5. 专家讨论会
-6. 机会评估 → BUILD/WAIT决策
-7. 如果BUILD: 构建Portfolio
-8. 如果WAIT: 持有现金,等待下一天
+Daily workflow:
+1. Obtain data snapshot (Point-in-Time)
+2. Scan entire S&P 500
+3. Run expert modules in parallel analysis
+4. Causal/Lead-Lag/Graph analysis
+5. Expert debate session
+6. Opportunity assessment -> BUILD/WAIT decision
+7. If BUILD: Construct Portfolio
+8. If WAIT: Hold cash, wait for next day
 
-关键创新: WAIT是有效决策,不强行交易
+Key innovation: WAIT is a valid decision, no forced trading
 """
 
 from dataclasses import dataclass, field
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ScanResult:
-    """单只股票的扫描结果"""
+    """Scan result for a single stock"""
     stock: str
     overall_score: float
     confidence: float
@@ -60,38 +60,38 @@ class ScanResult:
 
 @dataclass
 class DailyScanReport:
-    """每日扫描报告"""
+    """Daily scan report"""
     scan_date: date
     scan_timestamp: datetime
     snapshot_id: str
 
-    # 扫描统计
+    # Scan statistics
     stocks_scanned: int
     stocks_analyzed: int
     candidates_found: int
 
-    # 决策
+    # Decision
     gate_decision: str  # "BUILD", "WAIT", "REDUCE", etc.
     decision_reason: str
 
-    # 机会评估
+    # Opportunity assessment
     opportunity_score: float
     expert_agreement: str
     causal_support: float
 
-    # 推荐股票 (如果BUILD)
+    # Recommended stocks (if BUILD)
     recommended_stocks: List[ScanResult] = field(default_factory=list)
 
-    # 组合 (如果BUILD)
+    # Portfolio (if BUILD)
     portfolio_weights: Dict[str, float] = field(default_factory=dict)
 
-    # Lead-Lag机会
+    # Lead-Lag opportunities
     lead_lag_opportunities: List[Dict] = field(default_factory=list)
 
-    # 图结构机会
+    # Graph structure opportunities
     graph_opportunities: List[Dict] = field(default_factory=list)
 
-    # 等待原因 (如果WAIT)
+    # Wait reasons (if WAIT)
     wait_reasons: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -120,7 +120,7 @@ class DailyScanReport:
         }
 
     def summary(self) -> str:
-        """生成人类可读的摘要"""
+        """Generate human-readable summary"""
         lines = [
             f"=== Daily Scan Report: {self.scan_date} ===",
             f"Stocks Scanned: {self.stocks_scanned}",
@@ -150,14 +150,14 @@ class DailyScanReport:
 
 class MarketScanner:
     """
-    全市场扫描协调器
+    Market-wide Scan Coordinator
 
-    实现用户原始思路:
-    1. 每日扫描S&P 500
-    2. 多专家并行分析
-    3. 因果/Lead-Lag/图发现
-    4. 专家讨论形成共识
-    5. BUILD/WAIT决策
+    Implements the user's original approach:
+    1. Daily scan of S&P 500
+    2. Multi-expert parallel analysis
+    3. Causal/Lead-Lag/Graph discovery
+    4. Expert debate to form consensus
+    5. BUILD/WAIT decision
     """
 
     def __init__(
@@ -168,23 +168,23 @@ class MarketScanner:
     ):
         """
         Args:
-            llm_client: LLM客户端
-            db_path: 数据库路径
-            report_dir: 报告输出目录
+            llm_client: LLM client
+            db_path: Database path
+            report_dir: Report output directory
         """
         self.llm_client = llm_client
         self.report_dir = Path(report_dir) if report_dir else Path("./reports")
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
-        # 初始化组件
+        # Initialize components
         self.opportunity_gate = EnhancedOpportunityGate(llm_client=llm_client)
         self.gate_state_machine = GateStateMachine(db_path=db_path)
         self.evidence_ledger = EvidenceLedger()
 
-        # 股票关系图 (动态构建)
+        # Stock relationship graph (dynamically built)
         self.stock_graph: Optional[StockGraph] = None
 
-        # 历史收益率缓存
+        # Historical returns cache
         self.returns_history: Dict[str, np.ndarray] = {}
 
     def daily_scan(
@@ -194,14 +194,14 @@ class MarketScanner:
         returns_history: Optional[Dict[str, np.ndarray]] = None,
     ) -> DailyScanReport:
         """
-        执行每日扫描
+        Execute daily scan
 
-        这是核心方法,实现完整的扫描流程
+        This is the core method implementing the complete scan workflow
 
         Args:
-            snapshot: 当日数据快照 (Point-in-Time)
-            current_drawdown: 当前回撤
-            returns_history: 历史收益率
+            snapshot: Current day's data snapshot (Point-in-Time)
+            current_drawdown: Current drawdown
+            returns_history: Historical returns
 
         Returns:
             DailyScanReport
@@ -209,15 +209,15 @@ class MarketScanner:
         scan_start = datetime.now()
         logger.info(f"Starting daily scan for {snapshot.timestamp.date()}")
 
-        # 更新历史数据
+        # Update historical data
         if returns_history:
             self.returns_history = returns_history
 
-        # ===== Step 1: 构建/更新股票关系图 =====
+        # ===== Step 1: Build/Update stock relationship graph =====
         if self.returns_history:
             self._update_stock_graph()
 
-        # ===== Step 2: 机会评估 (核心) =====
+        # ===== Step 2: Opportunity assessment (core) =====
         logger.info(f"Evaluating market opportunity across {len(snapshot.stocks)} stocks")
 
         opportunity = self.opportunity_gate.evaluate_market(
@@ -225,7 +225,7 @@ class MarketScanner:
             self.returns_history,
         )
 
-        # ===== Step 3: 转换为扫描结果 =====
+        # ===== Step 3: Convert to scan results =====
         scan_results = []
         for rec in opportunity.recommended_stocks:
             scan_results.append(
@@ -234,15 +234,15 @@ class MarketScanner:
                     overall_score=rec["score"],
                     confidence=rec["confidence"],
                     recommendation=rec["recommendation"],
-                    expert_scores={},  # 简化
+                    expert_scores={},  # Simplified
                     key_bull_points=rec.get("key_bull_points", []),
                     key_risks=rec.get("key_risks", []),
                     causal_support=rec.get("causal_support", 0),
                 )
             )
 
-        # ===== Step 4: Gate决策 =====
-        # 准备Gate输入
+        # ===== Step 4: Gate decision =====
+        # Prepare Gate input
         if opportunity.should_build:
             proposed_weights = self.opportunity_gate.get_build_weights(opportunity)
             candidates = [
@@ -254,12 +254,12 @@ class MarketScanner:
                 for r in scan_results
             ]
 
-            # 计算sector weights
-            sector_weights: Dict[str, float] = {}  # 简化
+            # Calculate sector weights
+            sector_weights: Dict[str, float] = {}  # Simplified
 
-            # 估算成本
+            # Estimate costs
             estimated_costs = sum(proposed_weights.values()) * 0.001  # 10bps
-            expected_return = opportunity.final_score * 0.1  # 简化估算
+            expected_return = opportunity.final_score * 0.1  # Simplified estimate
         else:
             proposed_weights = {}
             candidates = []
@@ -267,7 +267,7 @@ class MarketScanner:
             estimated_costs = 0
             expected_return = 0
 
-        # 调用Gate状态机
+        # Call Gate state machine
         gate_decision = self.gate_state_machine.decide(
             proposed_weights=proposed_weights,
             candidates=candidates,
@@ -275,10 +275,10 @@ class MarketScanner:
             estimated_costs=estimated_costs,
             expected_return=expected_return,
             current_drawdown=current_drawdown,
-            audit_flags=[],  # 简化
+            audit_flags=[],  # Simplified
         )
 
-        # ===== Step 5: 生成报告 =====
+        # ===== Step 5: Generate report =====
         report = DailyScanReport(
             scan_date=snapshot.timestamp.date(),
             scan_timestamp=scan_start,
@@ -298,7 +298,7 @@ class MarketScanner:
             wait_reasons=opportunity.wait_reasons,
         )
 
-        # 保存报告
+        # Save report
         self._save_report(report)
 
         logger.info(f"Scan complete. Decision: {report.gate_decision}")
@@ -307,42 +307,42 @@ class MarketScanner:
         return report
 
     def _update_stock_graph(self):
-        """更新股票关系图"""
+        """Update stock relationship graph"""
         if not self.returns_history:
             return
 
         self.stock_graph = StockGraph()
 
-        # 从收益率构建相关性图
+        # Build correlation graph from returns
         self.stock_graph.build_from_returns(
             self.returns_history,
             threshold=0.5,
             window=60,
         )
 
-        # 构建因果图
+        # Build causal graph
         self.stock_graph.build_causal_graph(
             self.returns_history,
             max_lag=5,
         )
 
-        # 设置到opportunity gate
+        # Set to opportunity gate
         self.opportunity_gate.set_stock_graph(self.stock_graph)
 
     def _save_report(self, report: DailyScanReport):
-        """保存报告"""
-        # JSON格式
+        """Save report"""
+        # JSON format
         report_path = self.report_dir / f"scan_{report.scan_date.isoformat()}.json"
         with open(report_path, "w") as f:
             json.dump(report.to_dict(), f, indent=2)
 
-        # 文本摘要
+        # Text summary
         summary_path = self.report_dir / f"scan_{report.scan_date.isoformat()}.txt"
         with open(summary_path, "w") as f:
             f.write(report.summary())
 
     def get_current_state(self) -> Dict[str, Any]:
-        """获取当前系统状态"""
+        """Get current system state"""
         return {
             "gate_state": self.gate_state_machine.state.value,
             "is_in_cooldown": self.gate_state_machine.is_in_cooldown,
@@ -356,13 +356,13 @@ class MarketScanner:
         snapshot: Snapshot,
     ) -> Tuple[ScanResult, DebateConclusion]:
         """
-        分析单只股票
+        Analyze a single stock
 
-        用于深度分析或调试
+        Used for deep analysis or debugging
 
         Args:
-            stock: 股票代码
-            snapshot: 数据快照
+            stock: Stock symbol
+            snapshot: Data snapshot
 
         Returns:
             (ScanResult, DebateConclusion)
@@ -390,12 +390,12 @@ class MarketScanner:
 
 class AlphaFactoryRunner:
     """
-    Alpha工厂运行器
+    Alpha Factory Runner
 
-    支持:
-    1. 实时扫描模式
-    2. 回测模式
-    3. 模拟模式
+    Supports:
+    1. Real-time scan mode
+    2. Backtest mode
+    3. Simulation mode
     """
 
     def __init__(self, scanner: MarketScanner):
@@ -407,14 +407,14 @@ class AlphaFactoryRunner:
         returns_history_by_date: Dict[date, Dict[str, np.ndarray]],
     ) -> List[DailyScanReport]:
         """
-        运行回测
+        Run backtest
 
         Args:
-            snapshots: 历史快照列表
-            returns_history_by_date: 每日的历史收益率
+            snapshots: List of historical snapshots
+            returns_history_by_date: Historical returns by date
 
         Returns:
-            报告列表
+            List of reports
         """
         reports = []
 
@@ -424,7 +424,7 @@ class AlphaFactoryRunner:
 
             report = self.scanner.daily_scan(
                 snapshot,
-                current_drawdown=0.0,  # 简化
+                current_drawdown=0.0,  # Simplified
                 returns_history=returns_history,
             )
 
@@ -439,12 +439,12 @@ class AlphaFactoryRunner:
         interval_seconds: int = 86400,  # Daily
     ):
         """
-        运行实时扫描
+        Run real-time scanning
 
         Args:
-            snapshot_provider: 快照提供器
-            returns_provider: 收益率提供器
-            interval_seconds: 扫描间隔
+            snapshot_provider: Snapshot provider
+            returns_provider: Returns provider
+            interval_seconds: Scan interval
         """
         import time
 

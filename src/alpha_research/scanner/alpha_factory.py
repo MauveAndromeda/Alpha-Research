@@ -1,14 +1,14 @@
 """
-Alpha Factory - Alpha信号工厂
+Alpha Factory - Alpha Signal Factory
 
-生成和管理各类Alpha信号:
-1. 专家共识Alpha (Expert Consensus)
-2. 因果传导Alpha (Causal Propagation)
-3. 图结构Alpha (Graph Structure)
-4. 情绪驱动Alpha (Sentiment Driven)
-5. 事件驱动Alpha (Event Driven)
+Generates and manages various types of Alpha signals:
+1. Expert Consensus Alpha
+2. Causal Propagation Alpha
+3. Graph Structure Alpha
+4. Sentiment Driven Alpha
+5. Event Driven Alpha
 
-2026前沿: 多信号融合 + 自适应权重
+2026 Frontier: Multi-signal fusion + Adaptive weighting
 """
 
 from dataclasses import dataclass, field
@@ -21,68 +21,68 @@ from ..experts.base import Snapshot, StockAssessment
 
 
 class SignalType(Enum):
-    """信号类型"""
-    EXPERT_CONSENSUS = "expert_consensus"        # 专家共识
-    CAUSAL_PROPAGATION = "causal_propagation"    # 因果传导
-    LEAD_LAG = "lead_lag"                        # 领先滞后
-    GRAPH_ANOMALY = "graph_anomaly"              # 图异常
-    SENTIMENT = "sentiment"                      # 情绪
-    EVENT = "event"                              # 事件
-    INSIDER = "insider"                          # 内部人
-    MOMENTUM = "momentum"                        # 动量
-    QUALITY = "quality"                          # 质量
-    VALUE = "value"                              # 价值
+    """Signal types"""
+    EXPERT_CONSENSUS = "expert_consensus"        # Expert consensus
+    CAUSAL_PROPAGATION = "causal_propagation"    # Causal propagation
+    LEAD_LAG = "lead_lag"                        # Lead-lag relationship
+    GRAPH_ANOMALY = "graph_anomaly"              # Graph anomaly
+    SENTIMENT = "sentiment"                      # Sentiment
+    EVENT = "event"                              # Event
+    INSIDER = "insider"                          # Insider
+    MOMENTUM = "momentum"                        # Momentum
+    QUALITY = "quality"                          # Quality
+    VALUE = "value"                              # Value
 
 
 @dataclass
 class AlphaSignal:
-    """Alpha信号"""
+    """Alpha Signal"""
     signal_id: str
     signal_type: SignalType
     stock: str
     direction: int  # 1 = long, -1 = short, 0 = neutral
     strength: float  # 0-1
     confidence: float  # 0-1
-    decay_days: int  # 信号有效期
-    source: str  # 信号来源
-    reasoning: str  # 推理说明
+    decay_days: int  # Signal validity period in days
+    source: str  # Signal source
+    reasoning: str  # Reasoning explanation
     timestamp: datetime
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def weighted_signal(self) -> float:
-        """加权信号值"""
+        """Weighted signal value"""
         return self.direction * self.strength * self.confidence
 
     def is_expired(self, current_time: datetime) -> bool:
-        """检查信号是否过期"""
+        """Check if signal is expired"""
         age_days = (current_time - self.timestamp).days
         return age_days > self.decay_days
 
 
 @dataclass
 class SignalCombination:
-    """信号组合"""
+    """Signal Combination"""
     stock: str
     combined_score: float
     combined_confidence: float
     signals: List[AlphaSignal]
-    signal_agreement: float  # 信号一致性
-    dominant_signal: str  # 主导信号类型
+    signal_agreement: float  # Signal agreement/consistency
+    dominant_signal: str  # Dominant signal type
 
 
 class AlphaFactory:
     """
-    Alpha信号工厂
+    Alpha Signal Factory
 
-    职责:
-    1. 从各分析模块生成信号
-    2. 信号融合和冲突处理
-    3. 信号衰减管理
-    4. 信号质量评估
+    Responsibilities:
+    1. Generate signals from various analysis modules
+    2. Signal fusion and conflict resolution
+    3. Signal decay management
+    4. Signal quality assessment
     """
 
-    # 信号权重 (可以动态调整)
+    # Signal weights (can be dynamically adjusted)
     DEFAULT_SIGNAL_WEIGHTS = {
         SignalType.EXPERT_CONSENSUS: 0.25,
         SignalType.CAUSAL_PROPAGATION: 0.20,
@@ -96,7 +96,7 @@ class AlphaFactory:
         SignalType.VALUE: 0.02,
     }
 
-    # 信号衰减天数
+    # Signal decay days
     DEFAULT_DECAY_DAYS = {
         SignalType.EXPERT_CONSENSUS: 5,
         SignalType.CAUSAL_PROPAGATION: 3,
@@ -116,7 +116,7 @@ class AlphaFactory:
         self._signal_counter = 0
 
     def generate_signal_id(self) -> str:
-        """生成唯一信号ID"""
+        """Generate unique signal ID"""
         self._signal_counter += 1
         return f"SIG_{datetime.now().strftime('%Y%m%d%H%M%S')}_{self._signal_counter:04d}"
 
@@ -131,7 +131,7 @@ class AlphaFactory:
         reasoning: str,
         metadata: Optional[Dict] = None,
     ) -> AlphaSignal:
-        """创建新信号"""
+        """Create a new signal"""
         signal = AlphaSignal(
             signal_id=self.generate_signal_id(),
             signal_type=signal_type,
@@ -146,7 +146,7 @@ class AlphaFactory:
             metadata=metadata or {},
         )
 
-        # 存储信号
+        # Store signal
         if stock not in self.active_signals:
             self.active_signals[stock] = []
         self.active_signals[stock].append(signal)
@@ -158,7 +158,7 @@ class AlphaFactory:
         assessment: StockAssessment,
         signal_type: SignalType = SignalType.EXPERT_CONSENSUS,
     ) -> AlphaSignal:
-        """从专家评估创建信号"""
+        """Create signal from expert assessment"""
         direction = 1 if assessment.score > 0 else (-1 if assessment.score < 0 else 0)
         strength = abs(assessment.score)
 
@@ -184,11 +184,11 @@ class AlphaFactory:
         consensus_type: str,
         reasoning: str,
     ) -> AlphaSignal:
-        """从专家讨论结果创建信号"""
+        """Create signal from expert debate results"""
         direction = 1 if debate_score > 0.1 else (-1 if debate_score < -0.1 else 0)
         strength = abs(debate_score)
 
-        # 共识越强,信号越强
+        # Stronger consensus leads to stronger signal
         if consensus_type == "strong_consensus":
             strength *= 1.2
         elif consensus_type == "disagreement":
@@ -213,7 +213,7 @@ class AlphaFactory:
         expected_move: float,
         confidence: float,
     ) -> AlphaSignal:
-        """从Lead-Lag机会创建信号"""
+        """Create signal from Lead-Lag opportunity"""
         direction = 1 if expected_move > 0 else -1
 
         return self.create_signal(
@@ -238,7 +238,7 @@ class AlphaFactory:
         propagation_strength: float,
         confidence: float,
     ) -> AlphaSignal:
-        """从因果传导创建信号"""
+        """Create signal from causal propagation"""
         direction = 1 if propagation_strength > 0 else -1
 
         return self.create_signal(
@@ -259,7 +259,7 @@ class AlphaFactory:
         opportunity_type: str,
         neighbors: List[str],
     ) -> AlphaSignal:
-        """从图异常创建信号"""
+        """Create signal from graph anomaly"""
         # z_score > 0 means outperforming neighbors (might mean revert)
         # z_score < 0 means underperforming (might catch up)
         if opportunity_type == "potential_catch_up_or_deteriorating":
@@ -286,11 +286,11 @@ class AlphaFactory:
         self, stock: str, current_time: Optional[datetime] = None
     ) -> Optional[SignalCombination]:
         """
-        组合某只股票的所有信号
+        Combine all signals for a given stock
 
         Args:
-            stock: 股票代码
-            current_time: 当前时间 (用于过期检查)
+            stock: Stock symbol
+            current_time: Current time (used for expiration check)
 
         Returns:
             SignalCombination or None
@@ -301,7 +301,7 @@ class AlphaFactory:
         if stock not in self.active_signals:
             return None
 
-        # 过滤有效信号
+        # Filter valid (non-expired) signals
         valid_signals = [
             s for s in self.active_signals[stock]
             if not s.is_expired(current_time)
@@ -310,7 +310,7 @@ class AlphaFactory:
         if not valid_signals:
             return None
 
-        # 加权组合
+        # Weighted combination
         weighted_sum = 0
         total_weight = 0
         confidence_sum = 0
@@ -327,14 +327,14 @@ class AlphaFactory:
         combined_score = weighted_sum / total_weight
         combined_confidence = confidence_sum / total_weight
 
-        # 计算信号一致性
+        # Calculate signal agreement/consistency
         directions = [s.direction for s in valid_signals if s.direction != 0]
         if directions:
             agreement = abs(sum(directions)) / len(directions)
         else:
             agreement = 0
 
-        # 找出主导信号
+        # Find dominant signal type
         signal_type_scores = {}
         for signal in valid_signals:
             st = signal.signal_type
@@ -354,7 +354,7 @@ class AlphaFactory:
         )
 
     def cleanup_expired_signals(self, current_time: Optional[datetime] = None):
-        """清理过期信号"""
+        """Clean up expired signals"""
         if current_time is None:
             current_time = datetime.now()
 
@@ -368,7 +368,7 @@ class AlphaFactory:
                 del self.active_signals[stock]
 
     def get_signal_summary(self) -> Dict[str, Any]:
-        """获取信号摘要"""
+        """Get signal summary"""
         total_signals = sum(len(s) for s in self.active_signals.values())
 
         type_counts = {}
@@ -389,35 +389,35 @@ class AlphaFactory:
         learning_rate: float = 0.1,
     ):
         """
-        根据历史表现更新信号权重
+        Update signal weights based on historical performance
 
-        2026前沿: 自适应权重调整
+        2026 Frontier: Adaptive weight adjustment
 
         Args:
             performance_metrics: {signal_type: sharpe_ratio}
-            learning_rate: 学习率
+            learning_rate: Learning rate for weight updates
         """
-        # 计算总表现
+        # Calculate total performance
         total_perf = sum(max(0, p) for p in performance_metrics.values())
         if total_perf == 0:
             return
 
-        # 更新权重
+        # Update weights
         for signal_type, perf in performance_metrics.items():
             if signal_type in self.signal_weights:
                 target_weight = max(0, perf) / total_perf
                 current_weight = self.signal_weights[signal_type]
 
-                # 渐进更新
+                # Gradual update
                 new_weight = (
                     current_weight * (1 - learning_rate)
                     + target_weight * learning_rate
                 )
 
-                # 限制范围
+                # Constrain range
                 self.signal_weights[signal_type] = max(0.01, min(0.5, new_weight))
 
-        # 归一化
+        # Normalize
         total = sum(self.signal_weights.values())
         self.signal_weights = {
             k: v / total for k, v in self.signal_weights.items()

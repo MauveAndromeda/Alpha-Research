@@ -219,7 +219,7 @@ Key insight: Information doesn't move instantly. Leaders move first, followers r
             # Propagation opportunity detection
             # Leader has already moved but laggard hasn't caught up
             if abs(leader_return_3d) > 0.03 and abs(stock_return_3d) < 0.01:
-                # 存在传导机会
+                # Propagation opportunity exists
                 if leader_return_3d > 0:
                     opp_score = 0.6 * historical_corr
                     opp_type = "bullish_propagation"

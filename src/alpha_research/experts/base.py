@@ -203,15 +203,15 @@ class ExpertBase(ABC):
     @abstractmethod
     def get_system_prompt(self) -> str:
         """
-        获取该专家的系统提示词
+        Get the system prompt for this expert
 
-        定义专家的角色、职责和分析框架
+        Defines the expert's role, responsibilities, and analysis framework
         """
         pass
 
     def batch_analyze(self, stocks: List[str], snapshot: Snapshot) -> List[StockAssessment]:
         """
-        批量分析多只股票
+        Batch analyze multiple stocks
 
         Args:
             stocks: List of stock symbols
@@ -276,9 +276,9 @@ class ExpertBase(ABC):
 
     def _call_llm(self, prompt: str, data: Dict[str, Any]) -> str:
         """
-        调用LLM进行分析
+        Call LLM for analysis
 
-        如果没有配置LLM client，返回基于规则的分析
+        If no LLM client is configured, returns rule-based analysis
         """
         if self.llm_client is None:
             # Fallback to rule-based analysis
@@ -310,9 +310,9 @@ Provide your analysis in the following JSON format:
 
     def _rule_based_analysis(self, data: Dict[str, Any]) -> str:
         """
-        基于规则的分析 (当没有LLM时的fallback)
+        Rule-based analysis (fallback when no LLM is available)
 
-        子类应该重写此方法提供domain-specific规则
+        Subclasses should override this method to provide domain-specific rules
         """
         return json.dumps({
             "score": 0.0,
