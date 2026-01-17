@@ -15,7 +15,12 @@ from alpha_research.experts.base import (
 )
 from alpha_research.experts.fundamentals import FundamentalsExpert
 from alpha_research.experts.technical import TechnicalExpert
-from alpha_research.experts.causal import CausalExpert, LeadLagDetector
+from alpha_research.experts.causal import (
+    CausalExpert,
+    LeadLagDetector,
+    MultipleTestingCorrection,
+    CausalGraphBuilder,
+)
 
 
 @pytest.fixture
@@ -271,6 +276,181 @@ class TestLeadLagDetector:
         te = detector.compute_transfer_entropy(source, target, lag=1)
 
         assert te >= 0  # Transfer entropy is non-negative
+
+    def test_granger_causality(self):
+        """Test Granger causality is computed"""
+        detector = LeadLagDetector(max_lag=3)
+
+        np.random.seed(42)
+        n = 150
+        a = np.random.randn(n).cumsum()
+        b = np.zeros(n)
+        b[2:] = a[:-2] + np.random.randn(n - 2) * 0.3
+
+        returns_a = np.diff(a)
+        returns_b = np.diff(b)
+
+        result = detector.detect_lead_lag(returns_a, returns_b)
+
+        assert "granger_pvalue" in result
+        assert "transfer_entropy" in result
+        assert 0 <= result["granger_pvalue"] <= 1
+        # Strong causality should have low p-value
+        assert result["granger_pvalue"] < 0.5
+
+    def test_combined_significance(self):
+        """Test that significance combines multiple measures"""
+        detector = LeadLagDetector(max_lag=3)
+
+        np.random.seed(123)
+        n = 200
+        a = np.random.randn(n).cumsum()
+        b = np.zeros(n)
+        b[1:] = a[:-1] + np.random.randn(n - 1) * 0.2
+
+        returns_a = np.diff(a)
+        returns_b = np.diff(b)
+
+        result = detector.detect_lead_lag(returns_a, returns_b)
+
+        # Significance should be computed
+        assert "significance" in result
+        assert 0 <= result["significance"] <= 1
+
+
+class TestMultipleTestingCorrection:
+    """Tests for Multiple Testing Correction"""
+
+    def test_benjamini_hochberg_basic(self):
+        """Test BH procedure with known p-values"""
+        p_values = [0.01, 0.04, 0.03, 0.20, 0.50]
+        rejected = MultipleTestingCorrection.benjamini_hochberg(p_values, alpha=0.10)
+
+        # Should reject at least some
+        assert sum(rejected) >= 1
+        # Should not reject all
+        assert sum(rejected) < len(p_values)
+
+    def test_benjamini_hochberg_all_significant(self):
+        """Test BH with all small p-values"""
+        p_values = [0.001, 0.002, 0.003, 0.004]
+        rejected = MultipleTestingCorrection.benjamini_hochberg(p_values, alpha=0.05)
+
+        # All should be rejected
+        assert all(rejected)
+
+    def test_benjamini_hochberg_none_significant(self):
+        """Test BH with all large p-values"""
+        p_values = [0.5, 0.6, 0.7, 0.8]
+        rejected = MultipleTestingCorrection.benjamini_hochberg(p_values, alpha=0.05)
+
+        # None should be rejected
+        assert not any(rejected)
+
+    def test_bonferroni(self):
+        """Test Bonferroni correction"""
+        p_values = [0.01, 0.02, 0.03, 0.05]
+        rejected = MultipleTestingCorrection.bonferroni(p_values, alpha=0.05)
+
+        # Bonferroni is more conservative
+        # Only p < 0.05/4 = 0.0125 should be rejected
+        assert rejected[0]  # 0.01 < 0.0125
+        assert not rejected[1]  # 0.02 > 0.0125
+
+    def test_adjust_pvalues_bh(self):
+        """Test adjusted p-values computation"""
+        p_values = [0.01, 0.03, 0.05, 0.10]
+        adjusted = MultipleTestingCorrection.adjust_pvalues_bh(p_values)
+
+        # Adjusted p-values should be >= original
+        for orig, adj in zip(p_values, adjusted):
+            assert adj >= orig
+
+        # Should maintain ordering
+        assert adjusted[0] <= adjusted[1] <= adjusted[2] <= adjusted[3]
+
+
+class TestCausalGraphBuilder:
+    """Tests for Causal Graph Builder"""
+
+    def test_build_graph_basic(self):
+        """Test basic graph building"""
+        np.random.seed(42)
+        n = 100
+
+        # Create returns where A leads B and C
+        returns_a = np.random.randn(n)
+        returns_b = np.zeros(n)
+        returns_b[1:] = returns_a[:-1] * 0.8 + np.random.randn(n - 1) * 0.2
+        returns_c = np.zeros(n)
+        returns_c[2:] = returns_a[:-2] * 0.6 + np.random.randn(n - 2) * 0.3
+
+        returns_dict = {
+            "A": returns_a,
+            "B": returns_b,
+            "C": returns_c,
+        }
+
+        builder = CausalGraphBuilder(fdr_alpha=0.2)
+        graph = builder.build_graph(returns_dict, min_correlation=0.2)
+
+        # Graph should be a dict
+        assert isinstance(graph, dict)
+
+    def test_find_leaders(self):
+        """Test finding leader stocks"""
+        np.random.seed(42)
+        n = 100
+
+        returns_a = np.random.randn(n)
+        returns_b = np.zeros(n)
+        returns_b[1:] = returns_a[:-1] * 0.8 + np.random.randn(n - 1) * 0.2
+
+        returns_dict = {"A": returns_a, "B": returns_b}
+
+        builder = CausalGraphBuilder(fdr_alpha=0.3)
+        builder.build_graph(returns_dict, min_correlation=0.2)
+        leaders = builder.find_leaders(top_n=5)
+
+        # Should return list of tuples
+        assert isinstance(leaders, list)
+        for item in leaders:
+            assert isinstance(item, tuple)
+            assert len(item) == 2
+
+    def test_find_followers(self):
+        """Test finding follower stocks"""
+        np.random.seed(42)
+        n = 100
+
+        returns_a = np.random.randn(n)
+        returns_b = np.zeros(n)
+        returns_b[1:] = returns_a[:-1] * 0.8 + np.random.randn(n - 1) * 0.2
+
+        returns_dict = {"A": returns_a, "B": returns_b}
+
+        builder = CausalGraphBuilder(fdr_alpha=0.3)
+        builder.build_graph(returns_dict, min_correlation=0.2)
+        followers = builder.find_followers(top_n=5)
+
+        assert isinstance(followers, list)
+
+    def test_propagation_path(self):
+        """Test getting propagation paths"""
+        builder = CausalGraphBuilder()
+        # Manually set up graph
+        builder.graph = {
+            "A": [("B", 0.8), ("C", 0.6)],
+            "B": [("D", 0.5)],
+        }
+
+        paths = builder.get_propagation_path("A", max_hops=2)
+
+        # Should find paths from A
+        assert len(paths) > 0
+        for path in paths:
+            assert path[0] == "A"
+            assert len(path) > 1
 
 
 class TestBatchAnalysis:

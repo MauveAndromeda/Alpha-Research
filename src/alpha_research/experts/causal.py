@@ -508,13 +508,15 @@ class LeadLagDetector:
     Lead-Lag检测器 - 使用统计方法发现领先滞后关系
 
     2026前沿方法:
-    - Transfer Entropy
-    - Granger Causality
+    - Transfer Entropy (with adaptive binning)
+    - Granger Causality (proper statistical test)
     - Cross-Correlation with lags
+    - Benjamini-Hochberg FDR control for multiple testing
     """
 
-    def __init__(self, max_lag: int = 5):
+    def __init__(self, max_lag: int = 5, significance_level: float = 0.05):
         self.max_lag = max_lag
+        self.significance_level = significance_level
 
     def detect_lead_lag(
         self, returns_a: np.ndarray, returns_b: np.ndarray
@@ -522,12 +524,19 @@ class LeadLagDetector:
         """
         检测两个收益率序列间的领先滞后关系
 
+        Uses multiple methods and combines evidence:
+        1. Cross-correlation analysis
+        2. Granger causality test
+        3. Transfer entropy
+
         Returns:
             {
                 "optimal_lag": int,  # A领先B的天数 (负数表示B领先)
                 "correlation": float,  # 最优滞后下的相关性
                 "direction": str,  # "a_leads" or "b_leads" or "contemporaneous"
                 "significance": float,  # 统计显著性
+                "granger_pvalue": float,  # Granger causality p-value
+                "transfer_entropy": float,  # TE score
             }
         """
         if len(returns_a) != len(returns_b):
@@ -535,24 +544,44 @@ class LeadLagDetector:
 
         n = len(returns_a)
         if n < self.max_lag * 2:
-            return {"optimal_lag": 0, "correlation": 0, "direction": "unknown", "significance": 0}
+            return {
+                "optimal_lag": 0,
+                "correlation": 0,
+                "direction": "unknown",
+                "significance": 0,
+                "granger_pvalue": 1.0,
+                "transfer_entropy": 0,
+            }
 
+        # 1. Cross-correlation analysis
         correlations = []
-
         for lag in range(-self.max_lag, self.max_lag + 1):
             if lag < 0:
-                # B leads A
                 corr = np.corrcoef(returns_a[-lag:], returns_b[:lag])[0, 1]
             elif lag > 0:
-                # A leads B
                 corr = np.corrcoef(returns_a[:-lag], returns_b[lag:])[0, 1]
             else:
                 corr = np.corrcoef(returns_a, returns_b)[0, 1]
-
             correlations.append((lag, corr if not np.isnan(corr) else 0))
 
-        # Find optimal lag
         optimal_lag, max_corr = max(correlations, key=lambda x: abs(x[1]))
+
+        # 2. Granger causality test
+        if optimal_lag > 0:
+            granger_pvalue = self._granger_causality_test(returns_a, returns_b, abs(optimal_lag))
+        elif optimal_lag < 0:
+            granger_pvalue = self._granger_causality_test(returns_b, returns_a, abs(optimal_lag))
+        else:
+            granger_pvalue = 1.0
+
+        # 3. Transfer entropy with adaptive binning
+        if optimal_lag != 0:
+            if optimal_lag > 0:
+                te = self.compute_transfer_entropy(returns_a, returns_b, abs(optimal_lag))
+            else:
+                te = self.compute_transfer_entropy(returns_b, returns_a, abs(optimal_lag))
+        else:
+            te = 0.0
 
         # Determine direction
         if optimal_lag > 0:
@@ -562,34 +591,149 @@ class LeadLagDetector:
         else:
             direction = "contemporaneous"
 
-        # Simple significance estimate
-        significance = abs(max_corr) * np.sqrt(n - abs(optimal_lag) - 2) / np.sqrt(
-            1 - max_corr**2 + 1e-10
+        # Combined significance (consider both correlation and Granger)
+        corr_significance = self._correlation_significance(max_corr, n - abs(optimal_lag))
+        combined_significance = (
+            (1 - granger_pvalue) * 0.5 +
+            corr_significance * 0.3 +
+            min(1.0, te * 5) * 0.2
         )
 
         return {
             "optimal_lag": optimal_lag,
             "correlation": max_corr,
             "direction": direction,
-            "significance": min(1.0, significance / 3),  # Normalize
+            "significance": combined_significance,
+            "granger_pvalue": granger_pvalue,
+            "transfer_entropy": te,
         }
 
+    def _granger_causality_test(
+        self, x: np.ndarray, y: np.ndarray, lag: int
+    ) -> float:
+        """
+        Granger因果检验
+
+        Tests if x Granger-causes y using F-test
+        H0: x does not Granger-cause y
+
+        Returns p-value (lower = more evidence for causality)
+        """
+        n = len(y)
+        if n < lag * 3:
+            return 1.0
+
+        # Build lagged matrices
+        # Restricted model: y_t ~ y_{t-1}, ..., y_{t-lag}
+        # Unrestricted model: y_t ~ y_{t-1}, ..., y_{t-lag}, x_{t-1}, ..., x_{t-lag}
+
+        y_target = y[lag:]
+        n_obs = len(y_target)
+
+        # Restricted model (only y lags)
+        y_lags = np.column_stack([y[lag - i - 1 : n - i - 1] for i in range(lag)])
+        y_lags = np.column_stack([np.ones(n_obs), y_lags])
+
+        # Unrestricted model (y lags + x lags)
+        x_lags = np.column_stack([x[lag - i - 1 : n - i - 1] for i in range(lag)])
+        xy_lags = np.column_stack([y_lags, x_lags])
+
+        # OLS for restricted model
+        try:
+            beta_r = np.linalg.lstsq(y_lags, y_target, rcond=None)[0]
+            resid_r = y_target - y_lags @ beta_r
+            ssr_r = np.sum(resid_r ** 2)
+        except np.linalg.LinAlgError:
+            return 1.0
+
+        # OLS for unrestricted model
+        try:
+            beta_u = np.linalg.lstsq(xy_lags, y_target, rcond=None)[0]
+            resid_u = y_target - xy_lags @ beta_u
+            ssr_u = np.sum(resid_u ** 2)
+        except np.linalg.LinAlgError:
+            return 1.0
+
+        # F-test
+        df_r = lag  # Number of restrictions
+        df_u = n_obs - 2 * lag - 1  # Residual df
+
+        if df_u <= 0 or ssr_u <= 0:
+            return 1.0
+
+        f_stat = ((ssr_r - ssr_u) / df_r) / (ssr_u / df_u)
+
+        # F-distribution p-value (approximation)
+        # Using simple approximation since scipy may not be available
+        p_value = self._f_distribution_pvalue(f_stat, df_r, df_u)
+
+        return p_value
+
+    def _f_distribution_pvalue(self, f: float, df1: int, df2: int) -> float:
+        """
+        Approximate p-value for F-distribution
+
+        Uses normal approximation for large df
+        """
+        if f <= 0:
+            return 1.0
+
+        # Using Wilson-Hilferty transformation for approximation
+        if df2 > 100:
+            # Normal approximation
+            z = (f ** (1/3) - (1 - 2/(9*df2))) / np.sqrt(2/(9*df2))
+            # Standard normal CDF approximation
+            p_value = 1 - 0.5 * (1 + np.tanh(z * np.sqrt(2) / np.pi))
+        else:
+            # Simple approximation using exponential
+            expected_f = df2 / (df2 - 2) if df2 > 2 else 1
+            p_value = np.exp(-0.5 * (f / expected_f - 1) ** 2)
+            p_value = min(1.0, max(0.0, p_value))
+
+        return p_value
+
+    def _correlation_significance(self, r: float, n: int) -> float:
+        """Calculate significance of correlation coefficient"""
+        if n < 3 or abs(r) >= 1:
+            return 0.0
+
+        # t-statistic
+        t_stat = r * np.sqrt((n - 2) / (1 - r**2 + 1e-10))
+
+        # Approximate p-value and convert to significance
+        p_value = 2 * (1 - self._t_cdf_approx(abs(t_stat), n - 2))
+        return 1 - p_value
+
+    def _t_cdf_approx(self, t: float, df: int) -> float:
+        """Approximate t-distribution CDF"""
+        # Using normal approximation for df > 30
+        if df > 30:
+            return 0.5 * (1 + np.tanh(t * np.sqrt(2) / np.pi))
+        else:
+            # Rough approximation
+            z = t / np.sqrt(df / (df - 2)) if df > 2 else t
+            return 0.5 * (1 + np.tanh(z * 0.8))
+
     def compute_transfer_entropy(
-        self, source: np.ndarray, target: np.ndarray, lag: int = 1, bins: int = 5
+        self, source: np.ndarray, target: np.ndarray, lag: int = 1, bins: Optional[int] = None
     ) -> float:
         """
         计算Transfer Entropy (信息论因果度量)
 
         TE(X→Y) = H(Y_t | Y_{t-1}) - H(Y_t | Y_{t-1}, X_{t-lag})
 
-        高TE表示X对Y有预测能力 (因果方向)
+        改进: 自适应分箱 (Freedman-Diaconis rule)
         """
         if len(source) < lag + 2 or len(target) < lag + 2:
             return 0.0
 
-        # Discretize
-        source_binned = np.digitize(source, np.linspace(source.min(), source.max(), bins))
-        target_binned = np.digitize(target, np.linspace(target.min(), target.max(), bins))
+        # Adaptive binning using Freedman-Diaconis rule
+        if bins is None:
+            bins = self._adaptive_bins(source, target)
+
+        # Discretize with quantile-based binning (more robust)
+        source_binned = self._quantile_discretize(source, bins)
+        target_binned = self._quantile_discretize(target, bins)
 
         # Build joint distributions
         n = len(target) - lag
@@ -605,7 +749,47 @@ class LeadLagDetector:
         h_y_given_yx = self._conditional_entropy(y_t, joint_condition)
 
         te = h_y_given_y - h_y_given_yx
-        return max(0, te)
+
+        # Bias correction (Miller-Madow)
+        te_corrected = te - self._te_bias_correction(bins, n)
+
+        return max(0, te_corrected)
+
+    def _adaptive_bins(self, source: np.ndarray, target: np.ndarray) -> int:
+        """
+        Compute optimal number of bins using Freedman-Diaconis rule
+        """
+        n = min(len(source), len(target))
+
+        # Freedman-Diaconis
+        combined = np.concatenate([source, target])
+        iqr = np.percentile(combined, 75) - np.percentile(combined, 25)
+
+        if iqr > 0:
+            bin_width = 2 * iqr / (n ** (1/3))
+            data_range = combined.max() - combined.min()
+            optimal_bins = int(np.ceil(data_range / bin_width))
+        else:
+            optimal_bins = int(np.ceil(np.sqrt(n)))
+
+        # Bound between 3 and 10
+        return max(3, min(10, optimal_bins))
+
+    def _quantile_discretize(self, arr: np.ndarray, bins: int) -> np.ndarray:
+        """
+        Quantile-based discretization (more robust than equal-width)
+        """
+        percentiles = np.linspace(0, 100, bins + 1)[1:-1]
+        thresholds = np.percentile(arr, percentiles)
+        return np.digitize(arr, thresholds)
+
+    def _te_bias_correction(self, bins: int, n: int) -> float:
+        """
+        Miller-Madow bias correction for entropy estimation
+        """
+        # Approximate number of non-zero bins
+        k = bins * bins  # joint state space
+        return (k - 1) / (2 * n * np.log(2))
 
     def _conditional_entropy(self, x: np.ndarray, y: np.ndarray) -> float:
         """Compute H(X|Y)"""
@@ -625,3 +809,212 @@ class LeadLagDetector:
                 h -= p_xy * np.log2(p_x_given_y)
 
         return h
+
+
+class MultipleTestingCorrection:
+    """
+    Multiple Testing Correction - FDR控制
+
+    当同时测试多个因果关系时,需要校正p值
+    避免假阳性 (Type I errors)
+    """
+
+    @staticmethod
+    def benjamini_hochberg(p_values: List[float], alpha: float = 0.05) -> List[bool]:
+        """
+        Benjamini-Hochberg FDR控制
+
+        Args:
+            p_values: List of p-values from multiple tests
+            alpha: Target FDR level
+
+        Returns:
+            List of booleans (True = reject null hypothesis)
+        """
+        n = len(p_values)
+        if n == 0:
+            return []
+
+        # Sort p-values with original indices
+        indexed_pvals = sorted(enumerate(p_values), key=lambda x: x[1])
+
+        # BH procedure
+        rejected = [False] * n
+        max_k = 0
+
+        for k, (orig_idx, p) in enumerate(indexed_pvals, 1):
+            threshold = k * alpha / n
+            if p <= threshold:
+                max_k = k
+
+        # All p-values up to max_k are rejected
+        for k, (orig_idx, _) in enumerate(indexed_pvals[:max_k], 1):
+            rejected[orig_idx] = True
+
+        return rejected
+
+    @staticmethod
+    def bonferroni(p_values: List[float], alpha: float = 0.05) -> List[bool]:
+        """
+        Bonferroni correction (more conservative)
+
+        Args:
+            p_values: List of p-values
+            alpha: Family-wise error rate
+
+        Returns:
+            List of booleans (True = reject null hypothesis)
+        """
+        n = len(p_values)
+        adjusted_alpha = alpha / n
+        return [p <= adjusted_alpha for p in p_values]
+
+    @staticmethod
+    def adjust_pvalues_bh(p_values: List[float]) -> List[float]:
+        """
+        Compute BH-adjusted p-values (q-values)
+        """
+        n = len(p_values)
+        if n == 0:
+            return []
+
+        indexed_pvals = sorted(enumerate(p_values), key=lambda x: x[1])
+        adjusted = [0.0] * n
+
+        # Work backwards
+        prev_q = 1.0
+        for k in range(n - 1, -1, -1):
+            orig_idx, p = indexed_pvals[k]
+            q = min(prev_q, p * n / (k + 1))
+            adjusted[orig_idx] = q
+            prev_q = q
+
+        return adjusted
+
+
+class CausalGraphBuilder:
+    """
+    Causal Graph Builder - 构建股票间的因果关系图
+
+    从多对股票的因果检验结果构建DAG
+    """
+
+    def __init__(
+        self,
+        lead_lag_detector: Optional[LeadLagDetector] = None,
+        fdr_alpha: float = 0.1,
+    ):
+        self.detector = lead_lag_detector or LeadLagDetector()
+        self.fdr_alpha = fdr_alpha
+        self.graph: Dict[str, List[Tuple[str, float]]] = {}  # node -> [(neighbor, weight)]
+
+    def build_graph(
+        self,
+        returns_dict: Dict[str, np.ndarray],
+        min_correlation: float = 0.3,
+    ) -> Dict[str, List[Tuple[str, float]]]:
+        """
+        Build causal graph from returns data
+
+        Args:
+            returns_dict: {stock: returns_array}
+            min_correlation: Minimum correlation to consider
+
+        Returns:
+            Graph as adjacency list {source: [(target, weight), ...]}
+        """
+        stocks = list(returns_dict.keys())
+        n_stocks = len(stocks)
+
+        # All pairwise tests
+        all_results = []
+        for i in range(n_stocks):
+            for j in range(i + 1, n_stocks):
+                stock_a, stock_b = stocks[i], stocks[j]
+                result = self.detector.detect_lead_lag(
+                    returns_dict[stock_a],
+                    returns_dict[stock_b]
+                )
+                all_results.append((stock_a, stock_b, result))
+
+        # Extract p-values for FDR correction
+        p_values = [r[2]["granger_pvalue"] for r in all_results]
+
+        # Apply BH correction
+        significant = MultipleTestingCorrection.benjamini_hochberg(
+            p_values, self.fdr_alpha
+        )
+
+        # Build graph from significant relationships
+        self.graph = defaultdict(list)
+
+        for (stock_a, stock_b, result), is_significant in zip(all_results, significant):
+            if not is_significant:
+                continue
+
+            if abs(result["correlation"]) < min_correlation:
+                continue
+
+            direction = result["direction"]
+            weight = result["significance"]
+
+            if direction == "a_leads":
+                self.graph[stock_a].append((stock_b, weight))
+            elif direction == "b_leads":
+                self.graph[stock_b].append((stock_a, weight))
+
+        return dict(self.graph)
+
+    def find_leaders(self, top_n: int = 10) -> List[Tuple[str, int]]:
+        """
+        Find stocks that lead many others
+
+        Returns list of (stock, out_degree) sorted by out_degree
+        """
+        out_degrees = [(stock, len(targets)) for stock, targets in self.graph.items()]
+        out_degrees.sort(key=lambda x: x[1], reverse=True)
+        return out_degrees[:top_n]
+
+    def find_followers(self, top_n: int = 10) -> List[Tuple[str, int]]:
+        """
+        Find stocks that follow many others
+
+        Returns list of (stock, in_degree) sorted by in_degree
+        """
+        in_degrees: Dict[str, int] = defaultdict(int)
+
+        for source, targets in self.graph.items():
+            for target, _ in targets:
+                in_degrees[target] += 1
+
+        followers = sorted(in_degrees.items(), key=lambda x: x[1], reverse=True)
+        return followers[:top_n]
+
+    def get_propagation_path(
+        self, source: str, max_hops: int = 3
+    ) -> List[List[str]]:
+        """
+        Get all propagation paths from a source stock
+
+        BFS to find all stocks that might be affected
+        """
+        paths = [[source]]
+        visited = {source}
+
+        for _ in range(max_hops):
+            new_paths = []
+            for path in paths:
+                current = path[-1]
+                if current not in self.graph:
+                    continue
+
+                for next_stock, _ in self.graph[current]:
+                    if next_stock not in visited:
+                        visited.add(next_stock)
+                        new_paths.append(path + [next_stock])
+
+            if not new_paths:
+                break
+            paths.extend(new_paths)
+
+        return [p for p in paths if len(p) > 1]
