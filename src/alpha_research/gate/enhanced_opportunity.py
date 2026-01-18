@@ -138,6 +138,7 @@ class EnhancedOpportunityGate:
         self,
         snapshot: Snapshot,
         returns_history: Optional[Dict[str, np.ndarray]] = None,
+        pre_computed_assessments: Optional[Dict[str, Dict[str, StockAssessment]]] = None,
     ) -> EnhancedOpportunityScore:
         """
         Evaluate market-wide opportunities
@@ -147,6 +148,8 @@ class EnhancedOpportunityGate:
         Args:
             snapshot: Current data snapshot
             returns_history: Historical returns (for causal/graph analysis)
+            pre_computed_assessments: Pre-computed expert assessments (to avoid double analysis)
+                                     Format: {stock: {expert_name: StockAssessment}}
 
         Returns:
             EnhancedOpportunityScore
@@ -154,21 +157,27 @@ class EnhancedOpportunityGate:
         wait_reasons = []
         recommended_stocks = []
 
-        # ===== Step 1: Each expert independently analyzes all stocks =====
+        # ===== Step 1: Use pre-computed or analyze all stocks =====
         all_assessments: Dict[str, Dict[str, StockAssessment]] = {}
 
-        for stock in snapshot.stocks:
-            stock_assessments = {}
-            for expert_name, expert in self.experts.items():
-                try:
-                    assessment = expert.analyze(stock, snapshot)
-                    stock_assessments[expert_name] = assessment
-                except Exception as e:
-                    # Individual expert failure does not affect the overall process
-                    pass
+        if pre_computed_assessments:
+            # Use pre-computed assessments (passed from UnifiedOrchestrator)
+            # This avoids double analysis and improves efficiency
+            all_assessments = pre_computed_assessments
+        else:
+            # Fallback: analyze if no pre-computed assessments provided
+            for stock in snapshot.stocks:
+                stock_assessments = {}
+                for expert_name, expert in self.experts.items():
+                    try:
+                        assessment = expert.analyze(stock, snapshot)
+                        stock_assessments[expert_name] = assessment
+                    except Exception as e:
+                        # Individual expert failure does not affect the overall process
+                        pass
 
-            if stock_assessments:
-                all_assessments[stock] = stock_assessments
+                if stock_assessments:
+                    all_assessments[stock] = stock_assessments
 
         if not all_assessments:
             return EnhancedOpportunityScore(
@@ -242,12 +251,15 @@ class EnhancedOpportunityGate:
         # ===== Step 4: Causal/Lead-Lag Analysis =====
         causal_support_score = 0.0
         lead_lag_opportunities = []
+        causal_leader_set = set()
 
         if returns_history and "causal" in self.experts:
             causal_expert = self.experts["causal"]
 
             # Find current market leaders
             leaders = causal_expert.find_market_leaders(snapshot, top_n=10)
+            causal_leader_set = {leader.get('stock', leader) if isinstance(leader, dict) else leader
+                                 for leader in leaders}
 
             # Find propagation opportunities
             propagation_opps = causal_expert.find_propagation_opportunities(
@@ -255,7 +267,7 @@ class EnhancedOpportunityGate:
             )
             lead_lag_opportunities = propagation_opps[:5]
 
-            # Calculate causal support score
+            # Calculate causal support score and boost leaders
             for rec in recommended_stocks:
                 stock = rec["stock"]
                 if stock in all_assessments and "causal" in all_assessments[stock]:
@@ -263,12 +275,31 @@ class EnhancedOpportunityGate:
                     rec["causal_support"] = causal_score
                     causal_support_score += causal_score
 
+                    # Boost if stock is a causal leader
+                    if stock in causal_leader_set:
+                        leader_boost = 0.07  # 7% boost for leaders
+                        rec["score"] = min(1.0, rec["score"] + leader_boost)
+                        rec["is_causal_leader"] = True
+                        rec["causal_leader_boost"] = leader_boost
+
+                # Check if this stock is a follower in a propagation opportunity
+                for prop_opp in propagation_opps:
+                    follower = prop_opp.get('follower', prop_opp.get('stock'))
+                    if stock == follower and prop_opp.get('confidence', 0) > 0.5:
+                        # This stock should follow a leader's move
+                        rec["propagation_opportunity"] = {
+                            "leader": prop_opp.get('leader'),
+                            "expected_move": prop_opp.get('expected_move'),
+                            "confidence": prop_opp.get('confidence'),
+                        }
+
             if recommended_stocks:
                 causal_support_score /= len(recommended_stocks)
 
         # ===== Step 5: Graph-Based Opportunity Analysis =====
         graph_anomaly_score = 0.0
         graph_opportunities = []
+        graph_boosted_stocks = set()  # Stocks boosted by graph analysis
 
         if self.graph_alpha and returns_history:
             # Current returns
@@ -282,14 +313,58 @@ class EnhancedOpportunityGate:
             anomalies = self.graph_alpha.detect_anomalies(current_returns)
             graph_opportunities = anomalies[:5]
 
-            # Information delay opportunities
+            # Information delay opportunities (key insight for alpha)
             delay_opps = self.graph_alpha.find_information_delay_opportunities(
                 returns_history
             )
             graph_opportunities.extend(delay_opps[:5])
 
+            # Find central/leader nodes in the graph
+            central_nodes = self.stock_graph.find_central_nodes(top_n=10)
+            central_symbols = {symbol for symbol, _ in central_nodes}
+
+            # Boost recommended stocks that are graph leaders or have delay opportunities
+            delay_followers = {opp.get('follower') for opp in delay_opps if 'follower' in opp}
+            catch_up_stocks = {a['symbol'] for a in anomalies
+                              if a.get('opportunity') == 'potential_catch_up_or_deteriorating'
+                              and a.get('z_score', 0) < -2}  # Underperforming but expected to catch up
+
+            for rec in recommended_stocks:
+                stock = rec["stock"]
+                boost = 0.0
+                boost_reasons = []
+
+                # Boost central/leader stocks
+                if stock in central_symbols:
+                    boost += 0.05
+                    boost_reasons.append("graph_central_node")
+
+                # Boost stocks that should catch up (delay opportunity)
+                if stock in delay_followers:
+                    boost += 0.08
+                    boost_reasons.append("information_delay_opportunity")
+
+                # Boost underperforming stocks expected to mean-revert
+                if stock in catch_up_stocks:
+                    boost += 0.06
+                    boost_reasons.append("catch_up_opportunity")
+
+                if boost > 0:
+                    rec["score"] = min(1.0, rec["score"] + boost)
+                    rec["graph_boost"] = boost
+                    rec["graph_reasons"] = boost_reasons
+                    graph_boosted_stocks.add(stock)
+
+            # Calculate graph anomaly score based on quality of opportunities
             if graph_opportunities:
-                graph_anomaly_score = len(graph_opportunities) / 10  # Normalize
+                # Weight by confidence and z-score
+                weighted_score = 0.0
+                for opp in graph_opportunities:
+                    if 'confidence' in opp:  # delay opportunity
+                        weighted_score += opp['confidence'] * 0.15
+                    elif 'z_score' in opp:  # anomaly
+                        weighted_score += min(abs(opp['z_score']) / 5, 0.1)
+                graph_anomaly_score = min(weighted_score, 1.0)
 
         # ===== Step 6: Comprehensive Evaluation =====
 

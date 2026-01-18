@@ -435,12 +435,22 @@ class UnifiedOrchestrator:
             print("[Step 7/10] Conducting expert debate...")
             debate_result = self._run_expert_debate(expert_result)
 
+            # Step 7.5: Multi-LLM Ensemble Validation (if enabled)
+            multi_llm_result = None
+            if self._use_multi_llm and self.multi_llm:
+                print("[Step 7.5/10] Multi-LLM ensemble cross-validation...")
+                multi_llm_result = self._run_multi_llm_validation(debate_result)
+            else:
+                print("[Step 7.5/10] Multi-LLM validation disabled, skipping...")
+
             # Step 8: Enhanced Opportunity Gate (BUILD/WAIT)
             print("[Step 8/10] Enhanced Opportunity Gate evaluation...")
             opportunity = self._evaluate_opportunity(
                 expert_result=expert_result,
                 debate_result=debate_result,
                 regime_result=regime_result,
+                multi_llm_result=multi_llm_result,
+                niche_opportunities=getattr(self, '_niche_opportunities', None),
             )
 
             # Persist state
@@ -598,7 +608,7 @@ class UnifiedOrchestrator:
             return {'regime': 'unknown', 'confidence': 0}
 
     def _build_universe(self, asof_time: datetime) -> Dict[str, Any]:
-        """Build tradeable universe."""
+        """Build tradeable universe with optional niche market filtering."""
         try:
             universe = self.universe_builder.build(
                 market_data=self._market_data,
@@ -607,11 +617,83 @@ class UnifiedOrchestrator:
                 asof_time=asof_time,
             )
 
+            # Apply niche market filter if enabled
+            niche_opportunities = []
+            if self._use_niche_filter and self.niche_filter:
+                print("    Applying niche market filter...")
+                niche_opportunities = self._apply_niche_filter(universe)
+
             self._universe = universe
-            return {'success': True, 'universe_size': len(universe)}
+            self._niche_opportunities = niche_opportunities
+
+            return {
+                'success': True,
+                'universe_size': len(universe),
+                'niche_opportunities': len(niche_opportunities),
+            }
 
         except Exception as e:
             return {'success': False, 'error': str(e)}
+
+    def _apply_niche_filter(self, universe: pd.DataFrame) -> List[Dict]:
+        """
+        Apply niche market filter to identify inefficient market opportunities.
+
+        The niche filter identifies stocks with:
+        - Low analyst coverage (information inefficiency)
+        - Low institutional ownership (less competition)
+        - Small/mid cap (less HFT participation)
+        - Catalysts (earnings, FDA, spin-offs)
+
+        Returns list of NicheOpportunity objects for stocks with alpha potential.
+        """
+        if not self.niche_filter:
+            return []
+
+        # Build stock data dict for niche filter
+        stock_data = {}
+
+        for symbol in self._centralized_data.symbols:
+            fundamentals = self._centralized_data.get_fundamentals(symbol)
+            market_data = self._centralized_data.get_market_data(symbol)
+
+            if not fundamentals:
+                continue
+
+            # Get latest market data
+            latest_price = 0.0
+            avg_volume = 0.0
+            if len(market_data) > 0:
+                latest_price = market_data.iloc[-1].get('close', 0)
+                avg_volume = market_data['volume'].mean() if 'volume' in market_data.columns else 0
+
+            stock_data[symbol] = {
+                'symbol': symbol,
+                'price': latest_price,
+                'avg_volume': avg_volume,
+                'market_cap': fundamentals.get('market_cap', 0),
+                'analyst_count': fundamentals.get('analyst_count', fundamentals.get('num_analysts', 5)),
+                'institutional_ownership': fundamentals.get('institutional_ownership', 0.5),
+                'pe_ratio': fundamentals.get('pe_ratio', 20),
+                'sector': fundamentals.get('sector', ''),
+                'roe': fundamentals.get('roe', 0.1),
+                'days_to_earnings': fundamentals.get('days_to_earnings', 999),
+                'bid_ask_spread': fundamentals.get('spread', 0.01),
+            }
+
+        # Apply niche filter
+        opportunities = self.niche_filter.filter(stock_data, require_niche_count=2)
+
+        # Log findings
+        attractive = [o for o in opportunities if o.is_attractive]
+        if attractive:
+            print(f"    Found {len(attractive)} attractive niche opportunities:")
+            for opp in attractive[:5]:
+                niche_names = [n.value for n in opp.niche_types]
+                print(f"      - {opp.stock}: {opp.inefficiency_score:.2f} inefficiency, "
+                      f"niches: {', '.join(niche_names)}")
+
+        return opportunities
 
     def _build_stock_graph(self):
         """Build stock relationship graph."""
@@ -750,24 +832,144 @@ class UnifiedOrchestrator:
             'success': True,
             'debates_completed': len(debate_conclusions),
             'conclusions': debate_conclusions,
+            'top_candidates': [(s, sc) for s, sc, _ in top_candidates[:10]],
         }
+
+    def _run_multi_llm_validation(self, debate_result: Dict) -> Dict[str, Any]:
+        """
+        Run Multi-LLM ensemble validation for top candidates.
+
+        This is the core vision: Use Claude + GPT + DeepSeek for cross-validation.
+        When LLMs disagree significantly, recommend WAIT.
+        """
+        import asyncio
+
+        conclusions = debate_result.get('conclusions', {})
+        top_candidates = debate_result.get('top_candidates', [])
+
+        if not top_candidates or not self.multi_llm:
+            return {'success': False, 'reason': 'No candidates or Multi-LLM not available'}
+
+        # Only validate top 5 candidates with Multi-LLM (cost/time consideration)
+        stocks_to_validate = [stock for stock, _ in top_candidates[:5]]
+
+        # Prepare data for each stock
+        def get_stock_data(stock: str) -> Dict:
+            """Prepare data for LLM analysis."""
+            data = {
+                'symbol': stock,
+                'market_data': {},
+                'fundamentals': {},
+                'expert_debate': {},
+            }
+
+            # Add market data
+            if self._centralized_data:
+                md = self._centralized_data.get_market_data(stock)
+                if len(md) > 0:
+                    latest = md.iloc[-1].to_dict() if hasattr(md, 'iloc') else {}
+                    data['market_data'] = {
+                        k: v for k, v in latest.items()
+                        if k in ['close', 'volume', 'high', 'low', 'open']
+                    }
+                data['fundamentals'] = self._centralized_data.get_fundamentals(stock)
+
+            # Add debate conclusion
+            if stock in conclusions:
+                conclusion = conclusions[stock]
+                data['expert_debate'] = {
+                    'final_score': conclusion.final_score,
+                    'confidence': conclusion.confidence,
+                    'recommendation': conclusion.recommendation,
+                    'key_bull_points': conclusion.key_bull_points[:3],
+                    'key_bear_points': conclusion.key_bear_points[:3],
+                    'key_risks': conclusion.key_risks[:3],
+                }
+
+            return data
+
+        # Run async validation
+        ensemble_results = {}
+
+        try:
+            # Create event loop if needed
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            async def validate_all():
+                results = {}
+                for stock in stocks_to_validate:
+                    try:
+                        data = get_stock_data(stock)
+                        result = await self.multi_llm.analyze_stock(stock, data, timeout=30.0)
+                        results[stock] = result
+                        print(f"    Multi-LLM validated {stock}: "
+                              f"score={result.ensemble_score:.2f}, "
+                              f"agreement={result.agreement_ratio:.0%}, "
+                              f"action={result.action_recommendation}")
+                    except Exception as e:
+                        logger.warning(f"Multi-LLM failed for {stock}: {e}")
+                return results
+
+            ensemble_results = loop.run_until_complete(validate_all())
+
+        except Exception as e:
+            logger.error(f"Multi-LLM validation failed: {e}")
+            return {'success': False, 'error': str(e)}
+
+        # Aggregate results
+        if ensemble_results:
+            avg_agreement = np.mean([r.agreement_ratio for r in ensemble_results.values()])
+            avg_score = np.mean([r.ensemble_score for r in ensemble_results.values()])
+            any_should_wait = any(r.should_wait for r in ensemble_results.values())
+
+            return {
+                'success': True,
+                'stocks_validated': len(ensemble_results),
+                'results': ensemble_results,
+                'avg_agreement': avg_agreement,
+                'avg_ensemble_score': avg_score,
+                'any_should_wait': any_should_wait,
+            }
+
+        return {'success': False, 'reason': 'No results'}
 
     def _evaluate_opportunity(
         self,
         expert_result: Dict,
         debate_result: Dict,
         regime_result: Dict,
+        multi_llm_result: Optional[Dict] = None,
+        niche_opportunities: Optional[List] = None,
     ) -> EnhancedOpportunityScore:
-        """Evaluate opportunity with regime adjustment."""
+        """
+        Evaluate opportunity with regime adjustment and Multi-LLM validation.
+
+        IMPORTANT: Passes pre-computed assessments to avoid double analysis.
+        The UnifiedOrchestrator already ran parallel expert analysis - we pass
+        those results to the gate instead of re-analyzing.
+
+        Multi-LLM Integration:
+        - If LLMs strongly disagree (low agreement), add WAIT reason
+        - Incorporate ensemble score into final score
+        - Use LLM consensus to boost/reduce confidence
+        """
         expert_snapshot = ExpertSnapshot(
             stocks=self._candidates,
             market_data=self._market_data.to_dict('records') if hasattr(self._market_data, 'to_dict') else {},
             fundamental_data=self._fundamental_data.to_dict('records') if hasattr(self._fundamental_data, 'to_dict') else {},
         )
 
+        # Extract pre-computed assessments from parallel expert analysis
+        pre_computed_assessments = expert_result.get('assessments', None)
+
         opportunity = self.enhanced_gate.evaluate_market(
             snapshot=expert_snapshot,
             returns_history=self._returns_history if self._use_graph_analysis else None,
+            pre_computed_assessments=pre_computed_assessments,  # Pass to avoid double analysis
         )
 
         # Adjust based on regime
@@ -778,6 +980,65 @@ class UnifiedOrchestrator:
                     opportunity.build_size = 'normal'
                 elif opportunity.build_size == 'normal':
                     opportunity.build_size = 'small'
+
+        # Integrate Multi-LLM validation results
+        if multi_llm_result and multi_llm_result.get('success'):
+            avg_agreement = multi_llm_result.get('avg_agreement', 0)
+            any_should_wait = multi_llm_result.get('any_should_wait', False)
+            avg_ensemble_score = multi_llm_result.get('avg_ensemble_score', 0)
+
+            # If LLMs strongly disagree, add WAIT reason
+            if avg_agreement < 0.5:
+                opportunity.wait_reasons.append(
+                    f"Multi-LLM disagreement (agreement: {avg_agreement:.0%})"
+                )
+                opportunity.should_build = False
+                opportunity.build_size = "none"
+
+            # If any LLM recommends WAIT
+            elif any_should_wait and opportunity.should_build:
+                opportunity.wait_reasons.append(
+                    "Multi-LLM ensemble recommends caution"
+                )
+                # Downgrade but don't block
+                if opportunity.build_size == 'aggressive':
+                    opportunity.build_size = 'normal'
+                elif opportunity.build_size == 'normal':
+                    opportunity.build_size = 'small'
+
+            # Blend ensemble score into final score (20% weight)
+            if opportunity.should_build:
+                # Map ensemble_score (-1 to 1) to (0 to 1)
+                normalized_llm_score = (avg_ensemble_score + 1) / 2
+                opportunity.final_score = (
+                    opportunity.final_score * 0.8 +
+                    normalized_llm_score * 0.2
+                )
+
+            print(f"    Multi-LLM impact: agreement={avg_agreement:.0%}, "
+                  f"should_wait={any_should_wait}, adjusted_score={opportunity.final_score:.2f}")
+
+        # Integrate niche market opportunities
+        if niche_opportunities and opportunity.recommended_stocks:
+            # Build lookup for niche stocks
+            niche_lookup = {opp.stock: opp for opp in niche_opportunities if hasattr(opp, 'stock')}
+
+            niche_boosted = 0
+            for rec in opportunity.recommended_stocks:
+                stock = rec.get('stock')
+                if stock in niche_lookup:
+                    niche_opp = niche_lookup[stock]
+                    if niche_opp.is_attractive:
+                        # Boost score based on market inefficiency
+                        niche_boost = niche_opp.inefficiency_score * 0.10  # Up to 10% boost
+                        rec['score'] = min(1.0, rec['score'] + niche_boost)
+                        rec['niche_boost'] = niche_boost
+                        rec['niche_types'] = [n.value for n in niche_opp.niche_types]
+                        rec['alpha_potential'] = niche_opp.alpha_potential
+                        niche_boosted += 1
+
+            if niche_boosted > 0:
+                print(f"    Niche market boost: {niche_boosted} stocks in inefficient markets")
 
         return opportunity
 
