@@ -1,18 +1,9 @@
 """
 Multi-LLM Ensemble System
 
-Core Innovation: Cross-validation using multiple frontier large language models
-
-Why this may generate Alpha:
-1. Different LLMs have different training data and biases
-2. Consistent signals = more reliable signals
-3. Disagreement = quantification of uncertainty
-4. Can capture insights missed by a single model
-
-Ensemble Strategies:
-- Majority Voting: Only act when most LLMs agree
-- Weighted Ensemble: Weight by historical accuracy
-- Disagreement Filter: Do not act when disagreement is high (WAIT)
+Cross-validation using multiple LLMs (Claude/GPT/DeepSeek).
+Key insight: Consistent signals across models = higher reliability.
+High disagreement triggers WAIT decision.
 """
 
 import asyncio

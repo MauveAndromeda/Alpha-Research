@@ -301,7 +301,7 @@ class EnhancedOpportunityGate:
         graph_opportunities = []
         graph_boosted_stocks = set()  # Stocks boosted by graph analysis
 
-        if self.graph_alpha and returns_history:
+        if self.graph_alpha and self.stock_graph and returns_history:
             # Current returns
             current_returns = {
                 stock: returns_history[stock][-1]

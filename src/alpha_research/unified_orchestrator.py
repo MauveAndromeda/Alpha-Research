@@ -892,13 +892,6 @@ class UnifiedOrchestrator:
         ensemble_results = {}
 
         try:
-            # Create event loop if needed
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
             async def validate_all():
                 results = {}
                 for stock in stocks_to_validate:
@@ -914,7 +907,17 @@ class UnifiedOrchestrator:
                         logger.warning(f"Multi-LLM failed for {stock}: {e}")
                 return results
 
-            ensemble_results = loop.run_until_complete(validate_all())
+            # Handle both sync and async contexts safely
+            try:
+                loop = asyncio.get_running_loop()
+                # Already in async context - create task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, validate_all())
+                    ensemble_results = future.result(timeout=180)
+            except RuntimeError:
+                # No running loop - safe to use asyncio.run
+                ensemble_results = asyncio.run(validate_all())
 
         except Exception as e:
             logger.error(f"Multi-LLM validation failed: {e}")
