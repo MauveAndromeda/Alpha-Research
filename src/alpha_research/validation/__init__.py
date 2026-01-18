@@ -13,6 +13,7 @@ Key Components:
 4. Sequential Bootstrapping for IID sampling
 5. Triple Barrier Method for labeling
 6. Feature Importance (MDA/MDI/SFI)
+7. Transaction Cost Modeling
 """
 
 from alpha_research.validation.purged_cv import (
@@ -49,6 +50,13 @@ from alpha_research.validation.backtesting import (
     ProbabilisticSharpe,
 )
 
+from alpha_research.validation.transaction_costs import (
+    TransactionCosts,
+    SlippageModel,
+    CostAwareAlphaCalculator,
+    CapacityEstimator,
+)
+
 __all__ = [
     # Cross-Validation
     'PurgedKFold',
@@ -74,4 +82,9 @@ __all__ = [
     'WalkForwardBacktest',
     'DeflatedSharpe',
     'ProbabilisticSharpe',
+    # Transaction Costs
+    'TransactionCosts',
+    'SlippageModel',
+    'CostAwareAlphaCalculator',
+    'CapacityEstimator',
 ]

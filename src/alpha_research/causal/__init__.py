@@ -49,6 +49,12 @@ from alpha_research.causal.future_architecture import (
     Alpha2027Engine,
     Alpha2027Config,
 )
+from alpha_research.causal.regime_detector import (
+    MarketRegime,
+    RegimeState,
+    MarketRegimeDetector,
+    AdaptiveStrategyManager,
+)
 
 __all__ = [
     # Transfer Entropy
@@ -80,4 +86,9 @@ __all__ = [
     'StrategyWeights',
     'Alpha2027Engine',
     'Alpha2027Config',
+    # Market Regime Detection
+    'MarketRegime',
+    'RegimeState',
+    'MarketRegimeDetector',
+    'AdaptiveStrategyManager',
 ]
