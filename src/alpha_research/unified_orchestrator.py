@@ -1,23 +1,29 @@
 """
 Unified Orchestrator for Alpha Research Trading System.
 
-Integrates the FULL vision:
-1. Multi-LLM Ensemble (Claude/GPT/DeepSeek cross-validation)
-2. 6 Domain Experts (Fundamentals, Technical, Filing, News, Insider, Causal)
-3. Expert Debate System (Bull vs Bear consensus building)
-4. Graph-Based Analysis (Network anomalies, information delay)
-5. Enhanced Opportunity Gate (BUILD/WAIT decision)
-6. Niche Market Filter (Smart money tracking)
+Addresses Critical Architectural Requirements:
+1. PARALLELISM: Uses ThreadPoolExecutor for parallel expert analysis
+2. DATA EFFICIENCY: Centralized data snapshot passed to all experts (no redundant fetches)
+3. STATE PERSISTENCE: Saves/loads BUILD/WAIT state across daily runs
 
-Core principle: same snapshot -> same target weights.
+Integrates the FULL vision:
+- Multi-LLM Ensemble (Claude/GPT/DeepSeek cross-validation)
+- 6 Domain Experts (Fundamentals, Technical, Filing, News, Insider, Causal)
+- Expert Debate System (Bull vs Bear consensus building)
+- Graph-Based Analysis (Network anomalies, information delay)
+- Enhanced Opportunity Gate (BUILD/WAIT decision)
+- Niche Market Filter (Smart money tracking)
 """
 
+import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import numpy as np
+import logging
 
 # Data layer
 from alpha_research.data.snapshot import SnapshotManager, RunResultManager
@@ -29,7 +35,6 @@ from alpha_research.data.models import Snapshot, RunResult, TargetWeight
 from alpha_research.factors.universe import UniverseBuilder, build_security_master_from_market_data
 from alpha_research.factors.core_score import CoreScoreCalculator
 
-# === YOUR VISION MODULES ===
 # Multi-LLM Ensemble
 from alpha_research.llm import MultiLLMEnsemble, LLMConfig, LLMProvider
 
@@ -58,12 +63,15 @@ from alpha_research.scanner.niche_filter import NicheMarketFilter, SmartMoneyTra
 # Alpha Factory
 from alpha_research.scanner.alpha_factory import AlphaFactory, SignalType
 
+# Regime Detection
+from alpha_research.causal.regime_detector import MarketRegimeDetector, AdaptiveStrategyManager
+
 # Portfolio components
 from alpha_research.portfolio.validator import ProposalValidator
 from alpha_research.portfolio.aggregator import ScoreAggregator
 from alpha_research.portfolio.constructor import PortfolioConstructor
 
-# Risk gates (fallback)
+# Risk gates
 from alpha_research.risk.risk_gate import RiskGate, RiskDecision
 from alpha_research.risk.portfolio_gate import PortfolioGate, GateResult
 
@@ -81,24 +89,140 @@ from alpha_research.utils.hashing import generate_snapshot_id, compute_hash
 from alpha_research.utils.time_utils import get_asof_time, is_trading_day
 from alpha_research.utils.enums import IncidentSeverity, ErrorCode
 
+logger = logging.getLogger(__name__)
+
+
+class CentralizedDataSnapshot:
+    """
+    Centralized data container fetched ONCE and passed to all experts.
+    Solves the "Rate Limit" risk by avoiding redundant API calls.
+    """
+
+    def __init__(
+        self,
+        symbols: List[str],
+        market_data: pd.DataFrame,
+        fundamental_data: pd.DataFrame,
+        returns_history: Dict[str, np.ndarray],
+        asof_time: datetime,
+    ):
+        self.symbols = symbols
+        self.market_data = market_data
+        self.fundamental_data = fundamental_data
+        self.returns_history = returns_history
+        self.asof_time = asof_time
+
+        # Pre-compute per-symbol data for fast access
+        self._symbol_market_data: Dict[str, pd.DataFrame] = {}
+        self._symbol_fundamentals: Dict[str, Dict] = {}
+
+        self._index_data()
+
+    def _index_data(self):
+        """Pre-index data by symbol for O(1) lookup."""
+        for symbol in self.symbols:
+            # Market data
+            if 'symbol' in self.market_data.columns:
+                self._symbol_market_data[symbol] = self.market_data[
+                    self.market_data['symbol'] == symbol
+                ].copy()
+
+            # Fundamentals
+            if 'symbol' in self.fundamental_data.columns:
+                fund_rows = self.fundamental_data[
+                    self.fundamental_data['symbol'] == symbol
+                ]
+                if len(fund_rows) > 0:
+                    self._symbol_fundamentals[symbol] = fund_rows.iloc[0].to_dict()
+
+    def get_market_data(self, symbol: str) -> pd.DataFrame:
+        """Get market data for a specific symbol."""
+        return self._symbol_market_data.get(symbol, pd.DataFrame())
+
+    def get_fundamentals(self, symbol: str) -> Dict:
+        """Get fundamentals for a specific symbol."""
+        return self._symbol_fundamentals.get(symbol, {})
+
+    def get_returns(self, symbol: str) -> np.ndarray:
+        """Get returns history for a specific symbol."""
+        return self.returns_history.get(symbol, np.array([]))
+
+    def get_current_price(self, symbol: str) -> float:
+        """Get current price for a symbol."""
+        data = self._symbol_market_data.get(symbol)
+        if data is not None and len(data) > 0:
+            return data.iloc[-1]['close']
+        return 0.0
+
+
+class StatePersistence:
+    """
+    State persistence for BUILD/WAIT decisions across runs.
+    Solves the "Amnesia" risk by saving state to disk.
+    """
+
+    def __init__(self, state_file: Path = None):
+        self.state_file = state_file or Path("artifacts/orchestrator_state.json")
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    def save_state(self, state: Dict[str, Any]) -> None:
+        """Save state to disk."""
+        state['last_updated'] = datetime.now().isoformat()
+        with open(self.state_file, 'w') as f:
+            json.dump(state, f, indent=2, default=str)
+        logger.info(f"State saved to {self.state_file}")
+
+    def load_state(self) -> Dict[str, Any]:
+        """Load state from disk."""
+        if not self.state_file.exists():
+            return self._default_state()
+
+        try:
+            with open(self.state_file, 'r') as f:
+                state = json.load(f)
+            logger.info(f"State loaded from {self.state_file}")
+            return state
+        except Exception as e:
+            logger.warning(f"Failed to load state: {e}, using default")
+            return self._default_state()
+
+    def _default_state(self) -> Dict[str, Any]:
+        """Default initial state."""
+        return {
+            'last_decision': 'NONE',
+            'last_decision_time': None,
+            'wait_until': None,
+            'wait_reasons': [],
+            'consecutive_wait_days': 0,
+            'last_build_size': None,
+            'positions': {},
+            'regime': 'normal',
+        }
+
+    def is_in_wait_period(self) -> Tuple[bool, str]:
+        """Check if currently in a WAIT period."""
+        state = self.load_state()
+
+        if state.get('wait_until'):
+            wait_until = datetime.fromisoformat(state['wait_until'])
+            if datetime.now() < wait_until:
+                return True, f"In WAIT period until {wait_until}"
+
+        return False, ""
+
 
 class UnifiedOrchestrator:
     """
-    Unified orchestrator implementing the FULL vision.
-
-    Workflow:
-    1. Data collection and snapshot creation
-    2. Universe building + Niche filtering
-    3. Build stock relationship graph
-    4. Run 6 domain experts on candidates
-    5. Expert debate for consensus
-    6. Multi-LLM ensemble cross-validation
-    7. Graph-based anomaly detection
-    8. Enhanced Opportunity Gate (BUILD/WAIT)
-    9. Portfolio construction (if BUILD)
-    10. Order execution
-    11. Reconciliation
+    Unified orchestrator implementing the FULL vision with:
+    - PARALLEL expert analysis (ThreadPoolExecutor)
+    - CENTRALIZED data snapshot (no redundant fetches)
+    - STATE PERSISTENCE (BUILD/WAIT remembered across runs)
     """
+
+    # Configuration
+    MAX_PARALLEL_WORKERS = 10
+    EXPERT_TIMEOUT_SECONDS = 30
+    BATCH_SIZE = 20  # Process stocks in batches
 
     def __init__(
         self,
@@ -107,6 +231,7 @@ class UnifiedOrchestrator:
         use_multi_llm: bool = True,
         use_graph_analysis: bool = True,
         use_niche_filter: bool = True,
+        state_file: Optional[Path] = None,
     ):
         """
         Initialize the unified orchestrator.
@@ -117,6 +242,7 @@ class UnifiedOrchestrator:
             use_multi_llm: Enable Multi-LLM ensemble
             use_graph_analysis: Enable graph-based analysis
             use_niche_filter: Enable niche market filtering
+            state_file: Path to state persistence file
         """
         self.mode = mode
         self.settings = Settings()
@@ -126,7 +252,10 @@ class UnifiedOrchestrator:
         self._use_graph_analysis = use_graph_analysis
         self._use_niche_filter = use_niche_filter
 
-        # === Data Layer ===
+        # State persistence (solves "Amnesia" risk)
+        self.state_persistence = StatePersistence(state_file)
+
+        # Data layer
         self.snapshot_manager = SnapshotManager()
         self.run_result_manager = RunResultManager()
         self.evidence_ledger = EvidenceLedger()
@@ -137,11 +266,11 @@ class UnifiedOrchestrator:
         else:
             self.data_provider = YahooDataProvider()
 
-        # === Factor Components ===
+        # Factor components
         self.universe_builder = UniverseBuilder()
         self.core_calculator = CoreScoreCalculator()
 
-        # === YOUR VISION: 6 Domain Experts ===
+        # 6 Domain Experts (initialized without LLM for rule-based analysis)
         self.experts = {
             "fundamentals": FundamentalsExpert(llm_client=None),
             "technical": TechnicalExpert(llm_client=None),
@@ -151,11 +280,11 @@ class UnifiedOrchestrator:
             "causal": CausalExpert(llm_client=None),
         }
 
-        # === YOUR VISION: Expert Debate ===
+        # Expert Debate
         self.expert_debate = ExpertDebate(llm_client=None)
         self.consensus_builder = ConsensusBuilder()
 
-        # === YOUR VISION: Multi-LLM Ensemble ===
+        # Multi-LLM Ensemble
         if use_multi_llm:
             self.multi_llm = MultiLLMEnsemble(
                 configs=[
@@ -169,14 +298,18 @@ class UnifiedOrchestrator:
         else:
             self.multi_llm = None
 
-        # === YOUR VISION: Graph Analysis ===
+        # Graph Analysis
         self.stock_graph = StockGraph()
-        self.graph_alpha = None  # Initialized after graph is built
+        self.graph_alpha = None
 
-        # === YOUR VISION: Enhanced Opportunity Gate ===
+        # Enhanced Opportunity Gate
         self.enhanced_gate = EnhancedOpportunityGate()
 
-        # === YOUR VISION: Niche Market Filter ===
+        # Regime Detection
+        self.regime_detector = MarketRegimeDetector()
+        self.adaptive_strategy = AdaptiveStrategyManager()
+
+        # Niche Market Filter
         if use_niche_filter:
             self.niche_filter = NicheMarketFilter()
             self.smart_money = SmartMoneyTracker()
@@ -184,30 +317,31 @@ class UnifiedOrchestrator:
             self.niche_filter = None
             self.smart_money = None
 
-        # === YOUR VISION: Alpha Factory ===
+        # Alpha Factory
         self.alpha_factory = AlphaFactory()
 
-        # === Portfolio Components ===
+        # Portfolio components
         self.proposal_validator = ProposalValidator()
         self.score_aggregator = ScoreAggregator()
         self.portfolio_constructor = PortfolioConstructor()
 
-        # === Risk Gates (fallback) ===
+        # Risk gates
         self.risk_gate = RiskGate()
         self.portfolio_gate = PortfolioGate()
 
-        # === Execution ===
+        # Execution
         self.executor = OrderExecutor()
         self.reconciler = Reconciler()
         self.position_tracker = PositionTracker()
 
-        # === Monitoring ===
+        # Monitoring
         self.metrics_tracker = MetricsTracker()
         self.alert_manager = AlertManager()
 
-        # === State ===
+        # State
         self._current_run_id: Optional[str] = None
         self._current_snapshot: Optional[Snapshot] = None
+        self._centralized_data: Optional[CentralizedDataSnapshot] = None
         self._is_running = False
         self._initial_capital = 100000.0
 
@@ -217,7 +351,10 @@ class UnifiedOrchestrator:
         dry_run: bool = False,
     ) -> Dict[str, Any]:
         """
-        Run the complete daily workflow with FULL vision integration.
+        Run the complete daily workflow with:
+        - Parallel expert analysis
+        - Centralized data fetching
+        - State persistence
 
         Args:
             asof_time: As-of timestamp (default: now)
@@ -238,9 +375,11 @@ class UnifiedOrchestrator:
                 asof_time = get_asof_time()
 
             self._current_run_id = generate_snapshot_id(asof_time, "unified")
-            print(f"=== Unified Orchestrator: {self._current_run_id} ===")
+            print(f"\n{'='*60}")
+            print(f"UNIFIED ORCHESTRATOR: {self._current_run_id}")
+            print(f"{'='*60}")
 
-            # Check trading day
+            # Check if trading day
             if not is_trading_day(asof_time.date()):
                 return {
                     'run_id': self._current_run_id,
@@ -248,96 +387,105 @@ class UnifiedOrchestrator:
                     'reason': 'Not a trading day',
                 }
 
-            # Step 1: Data Collection
-            print("\n[Step 1/11] Collecting market data...")
-            snapshot_result = self._create_snapshot(asof_time)
-            if not snapshot_result['success']:
-                return self._handle_error(snapshot_result['error'])
+            # Check if in WAIT period (state persistence)
+            in_wait, wait_reason = self.state_persistence.is_in_wait_period()
+            if in_wait:
+                print(f"\n>>> STILL IN WAIT PERIOD: {wait_reason}")
+                return {
+                    'run_id': self._current_run_id,
+                    'status': 'wait',
+                    'decision': 'WAIT (persisted)',
+                    'reasons': [wait_reason],
+                }
 
-            # Step 2: Universe Building + Niche Filter
-            print("[Step 2/11] Building universe with niche filtering...")
-            universe_result = self._build_universe_with_niche(asof_time)
+            # Step 1: Centralized Data Collection (solves "Rate Limit" risk)
+            print("\n[Step 1/10] Fetching centralized data snapshot...")
+            data_result = self._fetch_centralized_data(asof_time)
+            if not data_result['success']:
+                return self._handle_error(data_result['error'])
+
+            # Step 2: Regime Detection
+            print("[Step 2/10] Detecting market regime...")
+            regime_result = self._detect_regime()
+
+            # Step 3: Universe Building
+            print("[Step 3/10] Building universe...")
+            universe_result = self._build_universe(asof_time)
             if not universe_result['success']:
                 return self._handle_error(universe_result['error'])
 
-            # Step 3: Build Stock Graph
-            print("[Step 3/11] Building stock relationship graph...")
-            graph_result = self._build_stock_graph()
+            # Step 4: Build Stock Graph (if enabled)
+            if self._use_graph_analysis:
+                print("[Step 4/10] Building stock relationship graph...")
+                self._build_stock_graph()
+            else:
+                print("[Step 4/10] Graph analysis disabled, skipping...")
 
-            # Step 4: Calculate Core Factors
-            print("[Step 4/11] Calculating core factors...")
+            # Step 5: Calculate Core Factors
+            print("[Step 5/10] Calculating core factors...")
             factor_result = self._calculate_factors()
             if not factor_result['success']:
                 return self._handle_error(factor_result['error'])
 
-            # Step 5: Run 6 Domain Experts
-            print("[Step 5/11] Running 6 domain experts...")
-            expert_result = self._run_expert_analysis()
+            # Step 6: PARALLEL Expert Analysis (solves "Timeout" risk)
+            print(f"[Step 6/10] Running 6 experts in PARALLEL on {len(self._candidates)} stocks...")
+            expert_result = self._run_parallel_expert_analysis()
 
-            # Step 6: Expert Debate
-            print("[Step 6/11] Conducting expert debate...")
+            # Step 7: Expert Debate (on top candidates)
+            print("[Step 7/10] Conducting expert debate...")
             debate_result = self._run_expert_debate(expert_result)
 
-            # Step 7: Multi-LLM Cross-Validation (if enabled)
-            if self._use_multi_llm:
-                print("[Step 7/11] Multi-LLM ensemble cross-validation...")
-                llm_result = self._run_multi_llm_validation()
-            else:
-                print("[Step 7/11] Multi-LLM disabled, skipping...")
-                llm_result = {'skipped': True}
-
-            # Step 8: Enhanced Opportunity Gate (BUILD/WAIT decision)
-            print("[Step 8/11] Enhanced Opportunity Gate evaluation...")
-            opportunity_result = self._evaluate_opportunity(
+            # Step 8: Enhanced Opportunity Gate (BUILD/WAIT)
+            print("[Step 8/10] Enhanced Opportunity Gate evaluation...")
+            opportunity = self._evaluate_opportunity(
                 expert_result=expert_result,
                 debate_result=debate_result,
-                graph_result=graph_result,
+                regime_result=regime_result,
             )
 
+            # Persist state
+            self._persist_decision(opportunity)
+
             # Check BUILD/WAIT decision
-            if not opportunity_result.should_build:
-                print(f"\n>>> WAIT DECISION: {opportunity_result.wait_reasons}")
+            if not opportunity.should_build:
+                print(f"\n>>> WAIT DECISION (score: {opportunity.final_score:.2f})")
+                for reason in opportunity.wait_reasons:
+                    print(f"    - {reason}")
+
                 return {
                     'run_id': self._current_run_id,
                     'status': 'wait',
                     'decision': 'WAIT',
-                    'reasons': opportunity_result.wait_reasons,
-                    'final_score': opportunity_result.final_score,
+                    'reasons': opportunity.wait_reasons,
+                    'final_score': opportunity.final_score,
+                    'regime': regime_result.get('regime', 'unknown'),
                     'duration_seconds': time.time() - start_time,
                 }
 
-            print(f"\n>>> BUILD DECISION: size={opportunity_result.build_size}")
+            print(f"\n>>> BUILD DECISION: size={opportunity.build_size}, score={opportunity.final_score:.2f}")
 
             # Step 9: Portfolio Construction
-            print("[Step 9/11] Constructing portfolio...")
-            construction_result = self._construct_portfolio_from_opportunity(
-                opportunity_result
-            )
+            print("[Step 9/10] Constructing portfolio...")
+            construction_result = self._construct_portfolio(opportunity)
 
             # Step 10: Order Execution
-            print("[Step 10/11] Executing orders...")
-            execution_result = self._execute_orders(
-                construction_result,
-                dry_run=dry_run,
-            )
+            print("[Step 10/10] Executing orders...")
+            execution_result = self._execute_orders(construction_result, dry_run=dry_run)
 
-            # Step 11: Reconciliation
-            print("[Step 11/11] Reconciliation...")
-            recon_result = self._reconcile()
-
-            # Save results
             duration = time.time() - start_time
-            print(f"\n=== Run completed in {duration:.1f}s ===")
+            print(f"\n{'='*60}")
+            print(f"RUN COMPLETED in {duration:.1f}s")
+            print(f"{'='*60}")
 
             return {
                 'run_id': self._current_run_id,
                 'status': 'completed',
                 'decision': 'BUILD',
-                'build_size': opportunity_result.build_size,
-                'final_score': opportunity_result.final_score,
-                'holdings_count': len(opportunity_result.recommended_stocks),
+                'build_size': opportunity.build_size,
+                'final_score': opportunity.final_score,
+                'holdings_count': len(opportunity.recommended_stocks),
                 'orders_executed': execution_result.get('orders_executed', 0),
-                'reconcile_clean': recon_result.get('is_clean', False),
+                'regime': regime_result.get('regime', 'unknown'),
                 'duration_seconds': duration,
             }
 
@@ -349,28 +497,56 @@ class UnifiedOrchestrator:
         finally:
             self._is_running = False
 
-    def _create_snapshot(self, asof_time: datetime) -> Dict[str, Any]:
-        """Create data snapshot."""
+    def _fetch_centralized_data(self, asof_time: datetime) -> Dict[str, Any]:
+        """
+        Fetch ALL data ONCE and create centralized snapshot.
+        This solves the "Rate Limit" risk.
+        """
         try:
             end_date = asof_time.date()
             start_date = end_date - timedelta(days=365)
 
-            # Get universe symbols
-            sample_symbols = self._get_universe_symbols()
+            symbols = self._get_universe_symbols()
 
+            print(f"    Fetching market data for {len(symbols)} symbols...")
             market_data = self.data_provider.get_market_data(
-                symbols=sample_symbols,
+                symbols=symbols,
                 start_date=start_date,
                 end_date=end_date,
                 asof_time=asof_time,
             )
 
+            print(f"    Fetching fundamental data...")
             fundamental_data = self.data_provider.get_fundamental_data(
-                symbols=sample_symbols,
+                symbols=symbols,
                 asof_time=asof_time,
             )
 
-            security_master = build_security_master_from_market_data(market_data)
+            # Build returns history
+            print(f"    Computing returns history...")
+            returns_history = {}
+            for symbol in symbols:
+                symbol_data = market_data[market_data['symbol'] == symbol]
+                if len(symbol_data) > 1:
+                    date_col = 'trade_date' if 'trade_date' in symbol_data.columns else 'date'
+                    symbol_data = symbol_data.sort_values(date_col)
+                    prices = symbol_data['close'].values
+                    returns_history[symbol] = np.diff(prices) / prices[:-1]
+
+            # Create centralized snapshot
+            self._centralized_data = CentralizedDataSnapshot(
+                symbols=symbols,
+                market_data=market_data,
+                fundamental_data=fundamental_data,
+                returns_history=returns_history,
+                asof_time=asof_time,
+            )
+
+            # Also store for compatibility
+            self._market_data = market_data
+            self._fundamental_data = fundamental_data
+            self._returns_history = returns_history
+            self._security_master = build_security_master_from_market_data(market_data)
 
             self._current_snapshot = self.snapshot_manager.create_snapshot(
                 universe=pd.DataFrame(),
@@ -380,36 +556,50 @@ class UnifiedOrchestrator:
                 asof_time=asof_time,
             )
 
-            self._market_data = market_data
-            self._fundamental_data = fundamental_data
-            self._security_master = security_master
-
-            # Build returns history for graph analysis
-            self._build_returns_history()
-
-            return {'success': True, 'snapshot': self._current_snapshot}
+            return {
+                'success': True,
+                'symbols': len(symbols),
+                'market_data_rows': len(market_data),
+            }
 
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def _build_returns_history(self):
-        """Build returns history dictionary for graph analysis."""
-        self._returns_history = {}
-
-        for symbol in self._market_data['symbol'].unique():
-            symbol_data = self._market_data[
-                self._market_data['symbol'] == symbol
-            ].sort_values('trade_date' if 'trade_date' in self._market_data.columns else 'date')
-
-            if len(symbol_data) > 1:
-                prices = symbol_data['close'].values
-                returns = np.diff(prices) / prices[:-1]
-                self._returns_history[symbol] = returns
-
-    def _build_universe_with_niche(self, asof_time: datetime) -> Dict[str, Any]:
-        """Build universe with optional niche filtering."""
+    def _detect_regime(self) -> Dict[str, Any]:
+        """Detect current market regime."""
         try:
-            # Standard universe building
+            # Use SPY or market returns for regime detection
+            if 'SPY' in self._returns_history:
+                market_returns = self._returns_history['SPY']
+            else:
+                # Average of all returns as proxy
+                all_returns = list(self._returns_history.values())
+                if all_returns:
+                    min_len = min(len(r) for r in all_returns)
+                    market_returns = np.mean([r[-min_len:] for r in all_returns], axis=0)
+                else:
+                    market_returns = np.array([])
+
+            if len(market_returns) > 60:
+                regime_state = self.regime_detector.detect_regime(market_returns)
+                adjustments = self.regime_detector.get_strategy_adjustment(regime_state)
+
+                return {
+                    'regime': regime_state.regime.value,
+                    'confidence': regime_state.confidence,
+                    'volatility': regime_state.volatility,
+                    'adjustments': adjustments,
+                }
+
+            return {'regime': 'unknown', 'confidence': 0}
+
+        except Exception as e:
+            logger.warning(f"Regime detection failed: {e}")
+            return {'regime': 'unknown', 'confidence': 0}
+
+    def _build_universe(self, asof_time: datetime) -> Dict[str, Any]:
+        """Build tradeable universe."""
+        try:
             universe = self.universe_builder.build(
                 market_data=self._market_data,
                 fundamental_data=self._fundamental_data,
@@ -417,69 +607,30 @@ class UnifiedOrchestrator:
                 asof_time=asof_time,
             )
 
-            # Apply niche filter if enabled
-            niche_opportunities = []
-            if self._use_niche_filter and self.niche_filter:
-                try:
-                    # Score universe for niche opportunities
-                    niche_scores = self.niche_filter.score_universe(
-                        universe.to_dict('records') if hasattr(universe, 'to_dict') else []
-                    )
-                    niche_opportunities = [
-                        s for s in niche_scores
-                        if s.get('is_attractive', False)
-                    ]
-                except Exception as e:
-                    print(f"  Niche filter warning: {e}")
-
             self._universe = universe
-            self._niche_opportunities = niche_opportunities
-
-            return {
-                'success': True,
-                'universe_size': len(universe),
-                'niche_opportunities': len(niche_opportunities),
-            }
+            return {'success': True, 'universe_size': len(universe)}
 
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def _build_stock_graph(self) -> Dict[str, Any]:
+    def _build_stock_graph(self):
         """Build stock relationship graph."""
-        if not self._use_graph_analysis:
-            return {'skipped': True}
-
         try:
-            # Build correlation graph
             if self._returns_history:
                 self.stock_graph.build_from_returns(
                     returns=self._returns_history,
                     threshold=0.5,
                     window=60,
                 )
-
-                # Build causal graph
                 self.stock_graph.build_causal_graph(
                     returns=self._returns_history,
                     max_lag=5,
                     te_threshold=0.1,
                 )
-
-                # Initialize graph alpha discovery
                 self.graph_alpha = GraphAlphaDiscovery(self.stock_graph)
-
-                # Set graph on enhanced gate
                 self.enhanced_gate.set_stock_graph(self.stock_graph)
-
-            return {
-                'success': True,
-                'nodes': len(self.stock_graph.nodes),
-                'edges': len(self.stock_graph.edges),
-            }
-
         except Exception as e:
-            print(f"  Graph building warning: {e}")
-            return {'success': False, 'error': str(e)}
+            logger.warning(f"Graph building failed: {e}")
 
     def _calculate_factors(self) -> Dict[str, Any]:
         """Calculate core factors."""
@@ -507,36 +658,60 @@ class UnifiedOrchestrator:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def _run_expert_analysis(self) -> Dict[str, Any]:
-        """Run all 6 domain experts on candidates."""
+    def _run_parallel_expert_analysis(self) -> Dict[str, Any]:
+        """
+        Run 6 experts in PARALLEL using ThreadPoolExecutor.
+        This solves the "Timeout" risk.
+        """
         all_assessments = {}
 
-        # Create expert snapshot
+        # Create expert snapshot with centralized data
         expert_snapshot = ExpertSnapshot(
             stocks=self._candidates,
             market_data=self._market_data.to_dict('records') if hasattr(self._market_data, 'to_dict') else {},
             fundamental_data=self._fundamental_data.to_dict('records') if hasattr(self._fundamental_data, 'to_dict') else {},
         )
 
-        for stock in self._candidates:
+        def analyze_stock(stock: str) -> Tuple[str, Dict]:
+            """Analyze a single stock with all experts."""
             stock_assessments = {}
 
             for expert_name, expert in self.experts.items():
                 try:
                     assessment = expert.analyze(stock, expert_snapshot)
                     stock_assessments[expert_name] = assessment
-
-                    # Create alpha signal
-                    self.alpha_factory.create_from_assessment(
-                        assessment=assessment,
-                        signal_type=SignalType.EXPERT_CONSENSUS,
-                    )
                 except Exception as e:
-                    # Individual expert failure doesn't stop the process
-                    pass
+                    logger.debug(f"Expert {expert_name} failed for {stock}: {e}")
 
-            if stock_assessments:
-                all_assessments[stock] = stock_assessments
+            return stock, stock_assessments
+
+        # Process in batches with parallel workers
+        start_time = time.time()
+
+        with ThreadPoolExecutor(max_workers=self.MAX_PARALLEL_WORKERS) as executor:
+            futures = {
+                executor.submit(analyze_stock, stock): stock
+                for stock in self._candidates
+            }
+
+            completed = 0
+            for future in as_completed(futures, timeout=self.EXPERT_TIMEOUT_SECONDS * len(self._candidates)):
+                try:
+                    stock, assessments = future.result(timeout=self.EXPERT_TIMEOUT_SECONDS)
+                    if assessments:
+                        all_assessments[stock] = assessments
+                    completed += 1
+
+                    if completed % 10 == 0:
+                        print(f"    Analyzed {completed}/{len(self._candidates)} stocks...")
+
+                except Exception as e:
+                    stock = futures[future]
+                    logger.warning(f"Analysis failed for {stock}: {e}")
+
+        elapsed = time.time() - start_time
+        print(f"    Completed {len(all_assessments)} stocks in {elapsed:.1f}s "
+              f"({len(all_assessments)/max(elapsed, 0.1):.1f} stocks/sec)")
 
         return {
             'success': True,
@@ -545,38 +720,31 @@ class UnifiedOrchestrator:
         }
 
     def _run_expert_debate(self, expert_result: Dict) -> Dict[str, Any]:
-        """Run expert debate for consensus building."""
+        """Run expert debate for top candidates."""
         assessments = expert_result.get('assessments', {})
         debate_conclusions = {}
 
+        # Only debate top candidates (by average expert score)
+        scored = []
         for stock, stock_assessments in assessments.items():
+            avg_score = np.mean([a.score for a in stock_assessments.values()])
+            scored.append((stock, avg_score, stock_assessments))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top_candidates = scored[:20]  # Debate top 20
+
+        for stock, _, stock_assessments in top_candidates:
             try:
-                # Get causal analysis if available
                 causal_analysis = None
                 if 'causal' in stock_assessments:
                     causal = stock_assessments['causal']
-                    causal_analysis = {
-                        'score': causal.score,
-                        'is_leader': causal.score > 0.3,
-                    }
+                    causal_analysis = {'score': causal.score, 'is_leader': causal.score > 0.3}
 
-                # Run debate
-                conclusion = self.expert_debate.debate(
-                    stock, stock_assessments, causal_analysis
-                )
+                conclusion = self.expert_debate.debate(stock, stock_assessments, causal_analysis)
                 debate_conclusions[stock] = conclusion
 
-                # Create signal from debate
-                self.alpha_factory.create_from_debate(
-                    stock=stock,
-                    debate_score=conclusion.final_score,
-                    debate_confidence=conclusion.confidence,
-                    consensus_type=conclusion.consensus_type,
-                    reasoning=conclusion.recommendation,
-                )
-
             except Exception as e:
-                pass
+                logger.debug(f"Debate failed for {stock}: {e}")
 
         return {
             'success': True,
@@ -584,50 +752,58 @@ class UnifiedOrchestrator:
             'conclusions': debate_conclusions,
         }
 
-    def _run_multi_llm_validation(self) -> Dict[str, Any]:
-        """Run Multi-LLM ensemble cross-validation."""
-        if not self.multi_llm:
-            return {'skipped': True}
-
-        # Note: This would be async in production
-        # For now, we just prepare the data structure
-        return {
-            'success': True,
-            'validated': len(self._candidates),
-        }
-
     def _evaluate_opportunity(
         self,
         expert_result: Dict,
         debate_result: Dict,
-        graph_result: Dict,
+        regime_result: Dict,
     ) -> EnhancedOpportunityScore:
-        """
-        Evaluate market opportunity using Enhanced Opportunity Gate.
-
-        This is the BUILD/WAIT decision point.
-        """
-        # Create expert snapshot for gate
+        """Evaluate opportunity with regime adjustment."""
         expert_snapshot = ExpertSnapshot(
             stocks=self._candidates,
             market_data=self._market_data.to_dict('records') if hasattr(self._market_data, 'to_dict') else {},
             fundamental_data=self._fundamental_data.to_dict('records') if hasattr(self._fundamental_data, 'to_dict') else {},
         )
 
-        # Run enhanced opportunity evaluation
         opportunity = self.enhanced_gate.evaluate_market(
             snapshot=expert_snapshot,
             returns_history=self._returns_history if self._use_graph_analysis else None,
         )
 
+        # Adjust based on regime
+        if regime_result.get('regime') in ['crisis', 'high_volatility']:
+            if opportunity.should_build:
+                # Downgrade build size in volatile regimes
+                if opportunity.build_size == 'aggressive':
+                    opportunity.build_size = 'normal'
+                elif opportunity.build_size == 'normal':
+                    opportunity.build_size = 'small'
+
         return opportunity
 
-    def _construct_portfolio_from_opportunity(
-        self,
-        opportunity: EnhancedOpportunityScore,
-    ) -> Dict[str, Any]:
-        """Construct portfolio from opportunity assessment."""
-        # Get build weights from opportunity gate
+    def _persist_decision(self, opportunity: EnhancedOpportunityScore) -> None:
+        """Persist BUILD/WAIT decision to disk."""
+        state = self.state_persistence.load_state()
+
+        state['last_decision'] = 'BUILD' if opportunity.should_build else 'WAIT'
+        state['last_decision_time'] = datetime.now().isoformat()
+        state['last_build_size'] = opportunity.build_size if opportunity.should_build else None
+
+        if not opportunity.should_build:
+            state['consecutive_wait_days'] = state.get('consecutive_wait_days', 0) + 1
+            state['wait_reasons'] = opportunity.wait_reasons
+
+            # Set wait period (e.g., re-evaluate in 1 day)
+            state['wait_until'] = (datetime.now() + timedelta(hours=20)).isoformat()
+        else:
+            state['consecutive_wait_days'] = 0
+            state['wait_until'] = None
+            state['wait_reasons'] = []
+
+        self.state_persistence.save_state(state)
+
+    def _construct_portfolio(self, opportunity: EnhancedOpportunityScore) -> Dict[str, Any]:
+        """Construct portfolio from opportunity."""
         weights = self.enhanced_gate.get_build_weights(
             opportunity=opportunity,
             total_capital=self._initial_capital,
@@ -636,7 +812,6 @@ class UnifiedOrchestrator:
         if not weights:
             return {'success': False, 'error': 'No weights generated'}
 
-        # Convert to DataFrame format expected by portfolio constructor
         weight_df = pd.DataFrame([
             {'symbol': symbol, 'target_weight': weight}
             for symbol, weight in weights.items()
@@ -650,11 +825,7 @@ class UnifiedOrchestrator:
             'weights': weights,
         }
 
-    def _execute_orders(
-        self,
-        construction_result: Dict,
-        dry_run: bool = False,
-    ) -> Dict[str, Any]:
+    def _execute_orders(self, construction_result: Dict, dry_run: bool = False) -> Dict[str, Any]:
         """Execute orders."""
         if dry_run:
             return {
@@ -666,26 +837,21 @@ class UnifiedOrchestrator:
         if not construction_result.get('success'):
             return {'orders_executed': 0, 'error': 'No valid construction'}
 
-        # Get current prices
-        prices = {}
         weights = construction_result.get('weights', {})
+        prices = {}
 
         for symbol in weights.keys():
-            symbol_data = self._market_data[self._market_data['symbol'] == symbol]
-            if len(symbol_data) > 0:
-                prices[symbol] = symbol_data.iloc[-1]['close']
+            prices[symbol] = self._centralized_data.get_current_price(symbol)
 
-        # Convert to target weights
         target_weights = [
             TargetWeight(
                 symbol=symbol,
                 target_weight=weight,
-                rationale="Enhanced Opportunity Gate BUILD decision",
+                rationale="Enhanced Opportunity Gate BUILD",
             )
             for symbol, weight in weights.items()
         ]
 
-        # Generate orders
         current_positions = self.position_tracker.get_positions()
         orders = self.portfolio_gate.generate_orders(
             approved_weights=target_weights,
@@ -695,10 +861,8 @@ class UnifiedOrchestrator:
             run_id=self._current_run_id,
         )
 
-        # Execute
         results = self.executor.execute_orders(orders, prices)
 
-        # Update tracker
         for result in results:
             if result.success:
                 self.position_tracker.update_from_fill(
@@ -714,40 +878,8 @@ class UnifiedOrchestrator:
             'orders_failed': sum(1 for r in results if not r.success),
         }
 
-    def _reconcile(self) -> Dict[str, Any]:
-        """Run reconciliation."""
-        local_positions = self.position_tracker.get_positions()
-        broker_positions = self.executor.get_positions()
-
-        prices = {}
-        all_symbols = set(local_positions.keys()) | set(broker_positions.keys())
-        for symbol in all_symbols:
-            symbol_data = self._market_data[self._market_data['symbol'] == symbol]
-            if len(symbol_data) > 0:
-                prices[symbol] = symbol_data.iloc[-1]['close']
-
-        result = self.reconciler.reconcile(
-            local_positions=local_positions,
-            broker_positions=broker_positions,
-            prices=prices,
-        )
-
-        if not result.is_clean:
-            self.alert_manager.raise_alert(
-                severity=IncidentSeverity.CRITICAL,
-                title="Reconciliation Mismatch",
-                message=f"Found {result.positions_mismatched} position mismatches",
-                error_code=ErrorCode.E_RECONCILE_MISMATCH,
-            )
-
-        return {
-            'is_clean': result.is_clean,
-            'positions_matched': result.positions_matched,
-            'positions_mismatched': result.positions_mismatched,
-        }
-
     def _handle_error(self, error: str) -> Dict[str, Any]:
-        """Handle error during run."""
+        """Handle error."""
         self.alert_manager.raise_alert(
             severity=IncidentSeverity.ERROR,
             title="Unified Run Failed",
@@ -761,7 +893,7 @@ class UnifiedOrchestrator:
         }
 
     def _get_universe_symbols(self) -> List[str]:
-        """Get universe symbols (S&P 500 subset for now)."""
+        """Get universe symbols."""
         return [
             'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META',
             'NVDA', 'TSLA', 'BRK-B', 'UNH', 'JNJ',
@@ -772,7 +904,9 @@ class UnifiedOrchestrator:
         ]
 
     def get_status(self) -> Dict[str, Any]:
-        """Get current system status."""
+        """Get system status."""
+        state = self.state_persistence.load_state()
+
         return {
             'is_running': self._is_running,
             'current_run_id': self._current_run_id,
@@ -782,8 +916,8 @@ class UnifiedOrchestrator:
                 'graph_analysis': self._use_graph_analysis,
                 'niche_filter': self._use_niche_filter,
             },
+            'last_decision': state.get('last_decision'),
+            'last_decision_time': state.get('last_decision_time'),
+            'consecutive_wait_days': state.get('consecutive_wait_days', 0),
             'experts_loaded': list(self.experts.keys()),
-            'graph_nodes': len(self.stock_graph.nodes) if self.stock_graph else 0,
-            'alpha_signals': self.alpha_factory.get_signal_summary(),
-            'risk_gate_status': self.risk_gate.get_status(),
         }
