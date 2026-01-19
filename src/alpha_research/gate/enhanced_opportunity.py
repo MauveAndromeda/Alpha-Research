@@ -174,7 +174,7 @@ class EnhancedOpportunityGate:
                         stock_assessments[expert_name] = assessment
                     except Exception as e:
                         # Individual expert failure does not affect the overall process
-                        pass
+                        logger.warning(f"Expert '{expert_name}' failed to analyze {stock}: {e}")
 
                 if stock_assessments:
                     all_assessments[stock] = stock_assessments
@@ -488,8 +488,8 @@ class EnhancedOpportunityGate:
             try:
                 assessment = expert.analyze(stock, snapshot)
                 assessments[expert_name] = assessment
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Expert '{expert_name}' failed for {stock}: {e}")
 
         if not assessments:
             raise ValueError(f"Could not analyze {stock}")

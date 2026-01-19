@@ -226,8 +226,8 @@ class QuiverClient:
             parts = range_str.replace("$", "").replace(",", "").split("-")
             if len(parts) == 2:
                 return float(parts[0].strip()), float(parts[1].strip())
-        except:
-            pass
+        except (ValueError, AttributeError, TypeError) as e:
+            logger.debug(f"Failed to parse amount range '{range_str}': {e}")
         return 1000, 15000  # Default range
 
     async def get_congress_trading_summary(
