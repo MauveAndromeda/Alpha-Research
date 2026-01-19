@@ -1,0 +1,718 @@
+# Alpha Research Trading System - CONSTITUTION (North Star)
+# Schema Version: 2.0.0
+# This file defines IMMUTABLE core principles - violating any rule is FATAL
+# All other configs MUST conform to these constitutional requirements
+
+meta:
+  schema_version: "2.0.0"
+  created: "2026-01-19"
+  timezone: "America/New_York"
+  philosophy: |
+    Accuracy over activity. Conservative over aggressive.
+    Provable over plausible. Falsifiable over unfalsifiable.
+
+# =============================================================================
+# 0. NORTH STAR - HARD DEFINITIONS
+# =============================================================================
+
+north_star:
+  # Core reproducibility requirement
+  reproducibility:
+    description: "Same snapshot replay must produce identical results"
+    tolerance_pct: 1.0  # Max 1% deviation on re-run
+    enforcement: "FATAL"  # Violation terminates execution
+
+  # Alpha definition - risk-adjusted excess returns only
+  alpha_definition:
+    valid_metrics:
+      - "vol_matched_excess_return"  # Volatility-matched excess vs benchmark
+      - "capm_alpha"                  # Regression alpha (CAPM intercept)
+      - "ff3_alpha"                   # Fama-French 3-factor alpha
+    invalid_as_alpha:
+      - "raw_return"                  # WAIT/low-beta can fake this
+      - "cumulative_return"
+      - "absolute_sharpe"
+    enforcement: "All performance claims MUST use valid_metrics"
+
+  # Realistic target (not hype)
+  targets:
+    base:
+      net_alpha_range: [0.0, 0.05]  # 0-5% net-of-cost alpha
+      max_drawdown_vs_benchmark: -0.70  # Must have <70% of benchmark DD
+      description: "Base goal: modest alpha with better risk profile"
+    stretch:
+      net_alpha_min: 0.10  # 10%+ alpha
+      requirements:
+        - "All modules pass out-of-sample validation"
+        - "Deflated Sharpe > 0"
+        - "Cost stress test (2x) passed"
+        - "3 consecutive months of positive attribution"
+      description: "Stretch goal - only claim if ALL requirements met"
+
+# =============================================================================
+# 1. DATA CONSTITUTION - Point-in-Time is Non-Negotiable
+# =============================================================================
+
+data_constitution:
+  point_in_time:
+    description: |
+      ANY non-price data entering core alpha (Q/M/V) MUST have verifiable
+      available_at OR published_at timestamp. This is the SINGLE MOST IMPORTANT
+      rule for avoiding time-travel bias.
+
+    rules:
+      - name: "ENFORCE_AVAILABLE_AT"
+        applies_to: ["fundamentals", "filings", "earnings", "estimates"]
+        enforcement: "FATAL"
+        description: "Must have available_at timestamp"
+
+      - name: "ENFORCE_PUBLISHED_AT"
+        applies_to: ["news", "insider_trades", "analyst_ratings"]
+        enforcement: "FATAL"
+        description: "Must have published_at timestamp"
+
+      - name: "MISSING_TIMESTAMP_IS_VIOLATION"
+        description: |
+          If available_at or published_at is NULL/missing for required data,
+          treat as violation (neutralize factor contribution or exclude)
+        enforcement: "FATAL"
+        action_on_missing: "NEUTRALIZE_OR_EXCLUDE"
+
+      - name: "NO_FORWARD_LOOKING"
+        description: "Data asof_time must be <= decision_time"
+        enforcement: "FATAL"
+
+  # Information source layering (cost control)
+  source_layers:
+    layer_a:
+      name: "Cheap Full-Scan Data"
+      description: "Data for Tier-1 full universe scans"
+      allowed_types:
+        - "price"
+        - "volume"
+        - "market_cap"
+        - "simple_technicals"
+        - "risk_state"
+      cost_per_scan: "minimal"
+      llm_allowed: false
+
+    layer_b:
+      name: "Expensive Targeted Data"
+      description: "Data only for Top-K or triggered symbols"
+      allowed_types:
+        - "news_articles"
+        - "filing_chunks"
+        - "insider_records"
+        - "analyst_estimates"
+        - "earnings_transcripts"
+      triggers:
+        - "Symbol enters Top-K AND passes stability threshold"
+        - "Risk flag triggered"
+        - "Major event detected"
+      limits:
+        news_per_symbol: 8
+        filing_chunks_per_symbol: 10
+        insider_records_per_symbol: 50
+      llm_allowed: true  # But only for Layer B symbols
+
+# =============================================================================
+# 2. UNIVERSE CONSTITUTION - S&P500 Strict Version
+# =============================================================================
+
+universe_constitution:
+  # Two-tier universe definition
+  base_universe:
+    name: "S&P500 Base Universe"
+    description: "Official S&P500 membership as of scan date"
+    source: "sp500_constituents_daily"
+    refresh: "daily"
+    fallback_if_unavailable: "reject_all_scans"
+
+  trade_universe:
+    name: "Tradeable Subset"
+    description: "Base universe with hard liquidity/quality filters"
+    filters:
+      price:
+        min: 5.0
+        description: "No penny stocks"
+
+      adv_dollar_60d:
+        min: 50000000  # $50M
+        description: "Minimum liquidity for institutional execution"
+
+      trading_history:
+        min_days: 252
+        description: "At least 1 year of trading history"
+
+      data_quality:
+        max_missing_rate: 0.25
+        critical_fields:
+          - "close"
+          - "volume"
+          - "market_cap"
+        description: "Max 25% missing in critical fields"
+
+    enforcement: |
+      Tier-1 scans use Base Universe.
+      Trading decisions ONLY from Trade Universe.
+      Symbol in Base but not in Trade: can monitor, cannot trade.
+
+# =============================================================================
+# 3. SCANNING CONSTITUTION - Two-Tier Funnel
+# =============================================================================
+
+scanning_constitution:
+  principle: "High-frequency monitoring + Low-frequency decisions"
+
+  tier_1:
+    name: "Cheap Full-Scan"
+    description: "Scan many times daily, no LLM, quantitative only"
+    frequency: "Every 30 minutes during market hours"
+    scope: "Full Base Universe"
+
+    outputs:
+      - name: "core_score"
+        formula: "0.35*Q + 0.40*M + 0.25*V"
+        description: "Pure quantitative score"
+
+      - name: "risk_state"
+        components:
+          - "volatility_regime"
+          - "gap_status"
+          - "correlation_state"
+          - "liquidity_state"
+          - "drawdown_state"
+
+      - name: "candidate_changes"
+        track:
+          - "top_k_entries"
+          - "top_k_exits"
+          - "rank_jumps_gt_20pct"
+          - "risk_flags"
+
+    restrictions:
+      llm_calls: "FORBIDDEN"
+      cost_per_scan: "Must be <$0.01"
+      latency_target: "<30 seconds for full universe"
+
+  tier_2:
+    name: "Deep Audit"
+    description: "Expensive analysis only for triggered symbols"
+    frequency: "On trigger only"
+    scope: "Triggered symbols only"
+
+    triggers:
+      - name: "TOP_K_STABLE_ENTRY"
+        condition: "Symbol enters Top-K AND passes stability threshold"
+        description: "New potential holding"
+
+      - name: "RISK_FLAG_TRIGGERED"
+        condition: "Any risk flag (filing/news/volatility) triggered"
+        description: "Risk escalation"
+
+      - name: "EARNINGS_WINDOW"
+        condition: "Within 5 days of earnings announcement"
+        description: "Event risk"
+
+      - name: "REGULATORY_FLAG"
+        condition: "SEC investigation, delisting warning, etc."
+        description: "Regulatory risk"
+
+      - name: "PORTFOLIO_GATE_TRIGGER"
+        condition: "Portfolio-level gate triggered (MDD, VaR, correlation)"
+        description: "Portfolio-level review"
+
+    allowed_actions:
+      - "LLM evidence review"
+      - "Expert debate"
+      - "Deep fundamental analysis"
+      - "Causal factor check"
+
+    restrictions:
+      max_symbols_per_day: 50
+      llm_budget_per_symbol: "$0.50"
+
+# =============================================================================
+# 4. STABILITY CONSTITUTION - Anti-Noise Mechanism
+# =============================================================================
+
+stability_constitution:
+  # Hysteresis: prevent noise trading from frequent scans
+  hysteresis:
+    description: |
+      Symbol must be STABLE in Top-K for M consecutive scans before
+      becoming tradeable candidate. This prevents noise from causing
+      frequent scans to generate excessive trades.
+
+    parameters:
+      consecutive_scans_required: 3
+      alternative: "stable_for_2_hours"
+
+    state_machine:
+      new_entry:
+        initial_state: "WATCHLIST"
+        promotion_to: "CANDIDATE"
+        promotion_condition: "stable_in_top_k for M scans"
+
+      candidate_demotion:
+        trigger: "exits Top-K OR risk flag"
+        demote_to: "WATCHLIST"
+        cooldown_scans: 2
+
+    restrictions:
+      watchlist_cannot: ["BUILD", "ENTER_POSITION"]
+      watchlist_can: ["MONITOR", "COLLECT_EVIDENCE"]
+
+  # Trade rate limiting
+  trade_limiting:
+    description: "Prevent noise-driven overtrading"
+
+    strategic_rebalance:
+      frequency: "daily_max_1"
+      preferred: "weekly_monday"
+      window: "CLOSE_ONLY"
+      description: "Strategic position changes at most once per day"
+
+    intraday_allowed:
+      actions:
+        - "REDUCE_POSITION"  # Risk reduction OK
+        - "EXIT_POSITION"    # Risk exit OK
+        - "DELAY_ENTRY"      # Postpone entry OK
+      forbidden:
+        - "INCREASE_POSITION"  # No chasing
+        - "NEW_ENTRY"          # No impulse buys
+      description: "Intraday only for risk actions, not alpha chasing"
+
+    turnover_caps:
+      daily: 0.10   # Max 10% per day
+      weekly: 0.15  # Max 15% per week
+      monthly: 0.40 # Max 40% per month
+
+# =============================================================================
+# 5. GATE CONSTITUTION - Three Action Classes
+# =============================================================================
+
+gate_constitution:
+  principle: "Gate is the ONLY authority that outputs positions/orders"
+
+  action_classes:
+    class_a:
+      name: "Strategic Actions (Low Frequency)"
+      actions:
+        - "BUILD"
+        - "HOLD"
+        - "PERIODIC_REBALANCE"
+      frequency: "weekly_or_daily_close"
+      triggers:
+        - "core_score changes significantly"
+        - "portfolio optimization signal"
+        - "scheduled rebalance day"
+      decision_authority: "UnifiedOrchestrator via Gate"
+
+    class_b:
+      name: "Risk Actions (Can Be Higher Frequency)"
+      actions:
+        - "SCALE_DOWN"
+        - "EXIT"
+        - "FREEZE"
+        - "DELAY"
+      frequency: "immediate_when_triggered"
+      triggers:
+        mdd_level_1:
+          condition: "MDD > 8%"
+          action: "SCALE_RISK"
+          multiplier: 0.50
+
+        mdd_level_2:
+          condition: "MDD > 12%"
+          action: "SCALE_RISK_AND_NO_NEW"
+          multiplier: 0.25
+          additional: "no_new_positions"
+
+        mdd_kill:
+          condition: "MDD > 15%"
+          action: "KILL_SWITCH"
+          cooldown_days: 10
+
+        var_breach:
+          condition: "VaR95 > limit for 3 consecutive days"
+          action: "REDUCE_EXPOSURE"
+          multiplier: 0.50
+
+        correlation_high:
+          condition: "New position correlation > 0.70 with portfolio"
+          action: "REJECT_OR_REDUCE_WEIGHT"
+
+        reconcile_mismatch:
+          condition: "Position reconciliation fails"
+          action: "OPS_FREEZE"
+
+      override_authority: "Immediate, bypasses Class A scheduling"
+
+    class_c:
+      name: "Opportunity Insufficient -> WAIT"
+      description: "WAIT is a valid, confident decision - not failure"
+      triggers:
+        - condition: "qualified_candidates < 8"
+          action: "WAIT"
+
+        - condition: "uncertainty > 60%"
+          action: "WAIT"
+
+        - condition: "cost_stress_test_fails"
+          description: "cost * 2 makes strategy unprofitable"
+          action: "WAIT"
+
+        - condition: "concentration_too_high"
+          description: "sector or correlation group > limits"
+          action: "WAIT"
+
+      wait_behavior:
+        hold_cash: true
+        continue_monitoring: true
+        log_reason: true
+
+# =============================================================================
+# 6. FALSIFICATION COMMITTEE - Experts as Opposition
+# =============================================================================
+
+falsification_committee:
+  principle: |
+    Each expert's ONLY job is to KILL bad decisions.
+    Experts cannot make strategy MORE aggressive.
+    Any fatal evidence -> Gate MUST be more cautious.
+
+  roles:
+    data_prosecutor:
+      name: "Data Prosecutor"
+      job: "Find point-in-time violations, survivorship bias, info leakage"
+      can_do:
+        - "FLAG_PIT_VIOLATION"
+        - "FLAG_SURVIVORSHIP_BIAS"
+        - "FLAG_INFO_LEAKAGE"
+        - "RECOMMEND_EXCLUDE_DATA"
+      cannot_do:
+        - "BOOST_SCORE"
+        - "APPROVE_POSITION"
+      fatal_evidence_triggers: "DELAY or EXCLUDE"
+
+    overfit_hunter:
+      name: "Overfit Hunter"
+      job: "Test parameter sensitivity, multiple testing, cherry-picking"
+      can_do:
+        - "FLAG_PARAMETER_SENSITIVITY"
+        - "FLAG_MULTIPLE_TESTING"
+        - "FLAG_SAMPLE_SELECTION_BIAS"
+        - "RECOMMEND_MODULE_DEGRADATION"
+      cannot_do:
+        - "BOOST_SCORE"
+        - "INCREASE_WEIGHT"
+      checks:
+        - "Does result survive +/-20% parameter perturbation?"
+        - "Does result survive dropping 20% of sample?"
+        - "Is Deflated Sharpe > 0?"
+
+    cost_execution_officer:
+      name: "Cost/Execution Officer"
+      job: "Stress test costs, assume worst case execution"
+      can_do:
+        - "APPLY_COST_MULTIPLIER"
+        - "FLAG_ILLIQUIDITY"
+        - "RECOMMEND_REDUCE_SIZE"
+      tests:
+        cost_stress:
+          multiplier: 2.0
+          must_remain_profitable: true
+        slippage_stress:
+          assume_worst_quintile: true
+      cannot_do:
+        - "REDUCE_COST_ASSUMPTIONS"
+
+    risk_officer:
+      name: "Risk Officer"
+      job: "Stress test scenarios, tail risks"
+      can_do:
+        - "RUN_STRESS_SCENARIOS"
+        - "FLAG_TAIL_RISK"
+        - "FLAG_CORRELATION_REGIME_CHANGE"
+        - "RECOMMEND_POSITION_CAP"
+      scenarios:
+        - "vol_spike_2x"
+        - "correlation_spike_to_0.8"
+        - "sector_crash_20pct"
+        - "liquidity_drought"
+      cannot_do:
+        - "APPROVE_INCREASED_RISK"
+
+    crowding_simulator:
+      name: "Crowding/Adversary Simulator"
+      job: "Assume alpha decay, assume strategy is crowded"
+      can_do:
+        - "FLAG_CROWDING_RISK"
+        - "APPLY_ALPHA_DECAY"
+        - "RECOMMEND_CAPACITY_LIMIT"
+      tests:
+        alpha_decay:
+          decay_rate_per_month: 0.10  # Assume 10% alpha decay
+          min_months_profitable: 6
+        crowding:
+          if_similar_factor_exposure: "assume_crowded"
+      cannot_do:
+        - "ASSUME_ALPHA_PERSISTS"
+
+  voting_mechanism:
+    rule: "Any fatal evidence -> Gate MUST act conservatively"
+    fatal_evidence_actions:
+      - "DELAY"
+      - "REDUCE_CAP"
+      - "WAIT"
+      - "EXCLUDE"
+    note: "Experts have NO power to make you MORE aggressive"
+
+# =============================================================================
+# 7. TRADE CREDENTIAL - Auditable Certificate Per Trade
+# =============================================================================
+
+trade_credential:
+  description: |
+    Every trade decision MUST have an auditable certificate.
+    Certificate is the 'firing permit' - no certificate, no trade.
+
+  required_fields:
+    snapshot_signature:
+      - "universe_hash"
+      - "data_hash"
+      - "asof_time"
+      - "snapshot_id"
+
+    pit_compliance_proof:
+      - "list of all non-price data with available_at/published_at"
+      - "mark missing timestamps as NEUTRALIZED"
+      - "pit_compliant: true/false"
+
+    signal_decomposition:
+      - "core_score breakdown (Q/M/V)"
+      - "penalty breakdown (by source)"
+      - "bonus breakdown (if any)"
+      - "final_score"
+
+    cost_stress_test:
+      - "base_cost_estimate"
+      - "stressed_cost (2x)"
+      - "profitable_after_stress: true/false"
+
+    counterfactual_robustness:
+      perturbations:
+        - "cost +100%"
+        - "vol +50%"
+        - "correlation +20%"
+      decision_changes: "true/false for each"
+      all_robust: "true if decision unchanged under all perturbations"
+
+    action_whitelist_check:
+      allowed_actions:
+        - "BUILD"
+        - "HOLD"
+        - "REDUCE"
+        - "EXIT"
+        - "WAIT"
+        - "DELAY"
+      action_in_whitelist: "true/false"
+
+    failure_condition:
+      description: "How this decision will be judged FALSE in future"
+      examples:
+        - "If 20-day return < same-risk benchmark by 2%, downweight module"
+        - "If drawdown > 2x predicted, flag model"
+      has_falsifiable_condition: "true/false"
+
+  validation:
+    certificate_required: true
+    incomplete_certificate: "WAIT"
+    failed_certificate: "WAIT or REDUCE"
+    enforcement: "No certificate -> No trade"
+
+# =============================================================================
+# 8. LLM CONSTITUTION - Strict Scope and Permissions
+# =============================================================================
+
+llm_constitution:
+  principle: |
+    LLM is expensive, non-reproducible, and can hallucinate.
+    Use sparingly, only for targeted analysis, never for full scans.
+    LLM can only make you MORE CAUTIOUS, never more aggressive.
+
+  trigger_scope:
+    strict_triggers:
+      - "Symbol is Top-K stable candidate (passed hysteresis)"
+      - "Risk flag triggered on symbol"
+      - "Portfolio-level gate trigger"
+
+    forbidden_triggers:
+      - "Full universe scan"
+      - "Routine Tier-1 scan"
+      - "Curiosity or exploration"
+
+    max_symbols_per_day: 50
+    max_cost_per_day: "$25"
+
+  permissions:
+    # STRICT: LLM can ONLY make you more cautious
+    forbidden_actions:
+      - "SCORE_BONUS_LARGE"      # No large positive boosts
+      - "INCREASE_POSITION_CAP"  # Cannot increase risk
+      - "OVERRIDE_RISK_GATE"     # Cannot bypass risk controls
+      - "APPROVE_AGGRESSIVE"     # Cannot greenlight aggressive moves
+
+    # What LLM CAN do (all conservative)
+    allowed_actions:
+      - "SCORE_PENALTY"          # Reduce score
+      - "DELAY_TRADE"            # Postpone decision
+      - "REDUCE_POSITION_CAP"    # Lower max position
+      - "RAISE_UNCERTAINTY"      # Increase uncertainty estimate
+      - "FLAG_RISK"              # Flag for human review
+      - "DISABLE_MODULE"         # Turn off unreliable module
+      - "NO_OP"                  # No action (status quo)
+
+    # Conditional: Small bonus only if this is kept
+    conditional_bonus:
+      name: "SCORE_BONUS_SMALL"
+      enabled: false  # RECOMMENDED: disable for maximum consistency
+      max_bonus: 0.05
+      restriction: |
+        If enabled, can only do same-score micro-perturbation.
+        Cannot change Top-K structure or flip major rankings.
+
+  consistency_requirements:
+    temperature: 0.10
+    require_json_output: true
+    require_evidence_citation: true
+    require_confidence_score: true
+    reproducibility: "Best effort (log seed, prompt hash)"
+
+# =============================================================================
+# 9. VALIDATION CONSTITUTION - Proof Before Trust
+# =============================================================================
+
+validation_constitution:
+  # A) Pre-registration
+  pre_registration:
+    description: "Every new module/rule must be pre-registered"
+    required_fields:
+      - "hypothesis"
+      - "expected_regime_effectiveness"
+      - "expected_metric_improvement (IR, alpha, drawdown)"
+      - "failure_criteria"
+      - "registration_date"
+    enforcement: "Unregistered modules cannot contribute to live decisions"
+
+  # B) Data isolation
+  data_isolation:
+    development_set:
+      purpose: "Idea generation and initial testing"
+      usage: "Unlimited exploration"
+      size_pct: 60
+
+    validation_set:
+      purpose: "Module admission tests"
+      usage: "Limited - once per module version"
+      size_pct: 20
+
+    holdout_set:
+      purpose: "Final judgment"
+      usage: "NEVER touch until final test"
+      size_pct: 20
+      rules:
+        - "No parameter tuning on holdout"
+        - "No multiple tests on holdout"
+        - "One shot - pass or fail"
+
+  # C) Module admission criteria
+  module_admission:
+    required_tests:
+      incremental_ir:
+        description: "Net-of-cost incremental IR on validation set"
+        threshold: ">0 with p<0.05"
+
+      deflated_sharpe:
+        description: "Deflated Sharpe ratio (adjusts for multiple testing)"
+        threshold: ">0"
+
+      multi_period_stability:
+        description: "Works across multiple time windows"
+        min_periods: 3
+        min_passing: 2
+
+      counterfactual_stress:
+        description: "Survives cost/vol/correlation stress"
+        tests:
+          - "cost_2x"
+          - "vol_1.5x"
+          - "corr_+0.2"
+
+    failure_action: "Demote to AUDIT layer (monitor only, no live contribution)"
+
+# =============================================================================
+# 10. SCHEDULE CONSTITUTION - Daily Rhythm
+# =============================================================================
+
+schedule_constitution:
+  timezone: "America/New_York"
+
+  daily_scans:
+    pre_market:
+      time_et: "08:30"
+      type: "full_snapshot"
+      save: true
+      tier: 1
+
+    market_hours:
+      start_et: "09:35"
+      end_et: "15:55"
+      interval_minutes: 30
+      type: "tier_1_delta"
+      save: "delta_only"
+      note: "Tier-1 only, save changes not full state"
+
+    midday:
+      time_et: "12:00"
+      type: "full_snapshot"
+      save: true
+      tier: 1
+      optional: true
+
+    post_close:
+      time_et: "16:10"
+      type: "full_snapshot"
+      save: true
+      tier: 1
+      note: "Official daily snapshot - use for all decisions"
+
+    event_triggered:
+      triggers:
+        - "volatility_spike"
+        - "major_news"
+        - "reconcile_anomaly"
+      type: "tier_2_audit"
+      immediate: true
+
+  trading_rhythm:
+    strategic_rebalance:
+      frequency: "WEEKLY"
+      preferred_day: "MON"
+      window: "CLOSE"
+      alternative: "daily_close_if_signal_strong"
+
+    risk_actions:
+      frequency: "IMMEDIATE"
+      allowed_anytime: true
+      actions:
+        - "SCALE_DOWN"
+        - "EXIT"
+        - "DELAY"
+        - "FREEZE"
+
+    forbidden_intraday:
+      - "NEW_ENTRY"
+      - "INCREASE_POSITION"
+      - "CHASE_MOMENTUM"
