@@ -57,6 +57,23 @@ from alpha_research.validation.transaction_costs import (
     CapacityEstimator,
 )
 
+from alpha_research.validation.spa_bootstrap import (
+    SPABootstrap,
+    SPAResult,
+    SPATestResult,
+    RealityCheck,
+    FDRControl,
+    run_multiple_testing_adjustment,
+)
+
+from alpha_research.validation.alpha_verification import (
+    AlphaVerifier,
+    AlphaMetrics,
+    AlphaThresholds,
+    VerificationResult,
+    AlphaClaimStatus,
+)
+
 __all__ = [
     # Cross-Validation
     'PurgedKFold',
@@ -87,4 +104,17 @@ __all__ = [
     'SlippageModel',
     'CostAwareAlphaCalculator',
     'CapacityEstimator',
+    # SPA Bootstrap (Multiple Testing)
+    'SPABootstrap',
+    'SPAResult',
+    'SPATestResult',
+    'RealityCheck',
+    'FDRControl',
+    'run_multiple_testing_adjustment',
+    # Alpha Verification
+    'AlphaVerifier',
+    'AlphaMetrics',
+    'AlphaThresholds',
+    'VerificationResult',
+    'AlphaClaimStatus',
 ]

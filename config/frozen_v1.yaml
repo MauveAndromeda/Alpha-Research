@@ -1,0 +1,112 @@
+# Frozen Configuration v1.0
+# Created: 2026-01-21
+#
+# DO NOT MODIFY THIS FILE
+# This file captures the parameter state at the start of validation.
+# Any changes after this date invalidate previous validation results.
+#
+# To update: Create frozen_v2.yaml and re-run all validations.
+
+meta:
+  version: "1.0"
+  frozen_date: "2026-01-21"
+  frozen_by: "system"
+  git_commit: "TBD"  # Fill with actual commit hash
+  purpose: "Initial parameter freeze for walk-forward validation"
+
+# Factor weights (per constitution)
+factor_weights:
+  quality: 0.20
+  momentum: 0.20
+  value: 0.15
+  technical: 0.20  # Filter/discount only
+  event: 0.20
+  sentiment: 0.05
+  causal: 0.00  # Starts at 0, promoted via protocol
+
+# Core score formula
+core_score:
+  quality_weight: 0.35
+  momentum_weight: 0.40
+  value_weight: 0.25
+
+# Quality sub-factors
+quality_factors:
+  roe: 0.25
+  profit_margin: 0.25
+  leverage: 0.20
+  cash_flow: 0.20
+  accruals: 0.10
+
+# Momentum sub-factors
+momentum_factors:
+  return_12m_1m: 0.60
+  high_52w_proximity: 0.25
+  trend_slope: 0.15
+
+# Value sub-factors
+value_factors:
+  ebitda_ev: 0.70
+  book_price: 0.30
+
+# Risk limits
+risk_limits:
+  mdd_level_1: 0.08
+  mdd_level_2: 0.12
+  mdd_kill: 0.15
+  var95_max: 0.05
+  max_single_position: 0.05
+  max_sector_exposure: 0.25
+  max_correlated_group: 0.30
+
+# Turnover caps
+turnover_caps:
+  daily: 0.10
+  weekly: 0.15
+  monthly: 0.40
+
+# Validation parameters
+validation:
+  train_period_days: 252
+  test_period_days: 63
+  gap_days: 5
+  min_folds_positive_pct: 0.60
+  cost_stress_multiplier: 2.0
+
+# Execution parameters
+execution:
+  slippage_expected_bps: 8
+  slippage_stress_multiplier: 5.0  # Increased from 2.0 per audit
+  commission_per_share: 0.005
+  min_commission: 1.00
+
+# Universe filters
+universe:
+  min_price: 5.0
+  min_adv_dollar_60d: 50000000
+  min_trading_days: 252
+  max_missing_rate: 0.25
+
+# LLM constraints
+llm:
+  score_bonus_small_enabled: false
+  max_symbols_per_day: 50
+  max_cost_per_day: 25.0
+  temperature: 0.10
+
+# Stability parameters
+stability:
+  consecutive_scans_required: 3
+  cooldown_scans: 2
+
+# Gate thresholds
+gate:
+  build_small_threshold: 0.50
+  build_normal_threshold: 0.65
+  build_aggressive_threshold: 0.80
+  min_qualified_candidates: 8
+  max_uncertainty: 0.60
+
+# CHECKSUM: This ensures the file hasn't been tampered with
+# To verify: sha256sum config/frozen_v1.yaml
+# Expected: TBD (generate after finalizing)
