@@ -352,6 +352,26 @@ def is_alpha_10_valid(metrics: dict) -> tuple[bool, list[str]]:
 
 ---
 
+## 修复实施状态 (2026-01-22 更新)
+
+| 问题编号 | 问题描述 | 实施状态 | 实施文件 |
+|---------|---------|---------|---------|
+| P0-1 | 模块前注册机制 | ✓ 已实施 | `scripts/register_core_modules.py` |
+| P0-2 | Walk-Forward验证 | ✓ 已实施 | `scripts/run_walk_forward.py` |
+| P0-3 | SPA Bootstrap多重检验 | ✓ 已实施 | `src/alpha_research/validation/spa_bootstrap.py` |
+| P0-4 | PIT审计流水线 | ✓ 已实施 | `scripts/audit_pit.py` |
+| P1-1 | LLM仅扣分限制 | ✓ 已配置 | `config/constitution.yaml` |
+| P1-3 | 因果因子升权协议 | ✓ 已实施 | `src/alpha_research/factors/causal_promotion.py` |
+| P1-4 | Almgren-Chriss成本模型 | ✓ 已实施 | `src/alpha_research/execution/market_impact.py` |
+| - | PIT特征计算 | ✓ 已实施 | `src/alpha_research/features/pit_features.py` |
+| - | Alpha验收指标 | ✓ 已实施 | `src/alpha_research/validation/alpha_verification.py` |
+| - | CI验证流水线 | ✓ 已实施 | `.github/workflows/validation.yml` |
+
+**注意**: 以上均为基础设施实施。验证运行尚未执行，无性能结果。
+
+---
+
 **审计签名**: Claude (Opus 4.5)
 **审计日期**: 2026-01-21
-**下次审计**: 完成Week 6后
+**实施更新**: 2026-01-22
+**下次审计**: 完成验证运行后
