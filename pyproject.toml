@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alpha-research"
-version = "1.0.0"
-description = "Systematic quantitative trading system with Core factors and LLM satellites"
+version = "0.1.0-alpha"
+description = "Quantitative research framework for factor-based equity analysis (unvalidated)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -13,7 +13,7 @@ authors = [
     {name = "Alpha Research Team"}
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Financial and Insurance Industry",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",

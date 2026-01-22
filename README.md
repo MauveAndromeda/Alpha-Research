@@ -1,109 +1,185 @@
-# Alpha Research Trading System
+# Alpha Research
 
-A quantitative research framework for factor-based equity analysis. Implements institutional validation methodologies.
+A quantitative research framework for factor-based equity analysis.
 
-**Status: Research Framework (Unvalidated)**
-
----
-
-## Current State
-
-| Component | Implementation | Validation |
-|-----------|----------------|------------|
-| Factor calculation (Q/M/V) | Complete | Not validated |
-| Validation infrastructure | Complete | Tools ready, not run |
-| PIT compliance | Complete | Audit pipeline ready |
-| Walk-forward testing | Complete | No results yet |
-| SPA multiple testing | Complete | Not run |
-| Live trading | Not ready | Blocked on validation |
-
-**This repository contains research infrastructure. No alpha claims are made.**
+**Status: Pre-Validation Research Framework (v0.1.0-alpha)**
 
 ---
 
-## What This Is
+## Overview
 
-- Factor calculation modules (Quality, Momentum, Value)
-- Validation tools based on López de Prado (2018)
-- Point-in-Time compliance enforcement
-- Risk management framework
-- Module pre-registration system
+This repository contains infrastructure for systematic quantitative research. It implements validation methodologies based on academic literature but **has not been validated with real market data**.
 
-## What This Is Not
+### What This Repository Contains
 
-- A validated trading system
-- A source of proven alpha
-- Production-ready software
-- Financial advice
+| Category | Components | Status |
+|----------|------------|--------|
+| Factor Calculation | Quality, Momentum, Value | Implemented |
+| Validation Infrastructure | Walk-Forward, SPA Bootstrap, Deflated Sharpe | Implemented |
+| PIT Compliance | Timestamp enforcement, audit pipeline | Implemented |
+| Execution Modeling | Almgren-Chriss market impact | Implemented |
+| Risk Framework | Position limits, drawdown controls | Implemented |
+| LLM Integration | Expert agents, debate mechanism | Implemented |
+
+### What Has NOT Been Done
+
+- Walk-forward validation runs
+- Real market data backtesting
+- Live trading
+- Independent third-party audit
+- Performance verification
+
+**No alpha claims are made. No performance results exist.**
 
 ---
 
-## Limitations
+## Honest Assessment
 
-### No Data Edge
-Uses publicly available data only:
-- Price/volume (Yahoo Finance)
-- Fundamentals (public APIs)
-- SEC filings
+### Known Limitations
 
-### No Execution Edge
-Designed for IBKR retail execution. No direct market access, co-location, or prime brokerage.
+1. **No Data Edge**: Uses publicly available data only (Yahoo Finance, public APIs, SEC filings)
 
-### Limited Capacity
-Designed for $100k-$1M. Market impact at larger scale not modeled.
+2. **No Execution Edge**: Designed for retail execution via IBKR. No direct market access.
 
-### Unvalidated
-Walk-forward validation infrastructure exists but has not been run with real data.
+3. **Limited Capacity**: Designed for $100k-$1M. Larger scale requires different infrastructure.
+
+4. **Factor Crowding Risk**: Q/M/V factors are well-known. Alpha decay is likely.
+
+5. **LLM Uncertainty**: LLM components introduce non-determinism. Temperature is set to 0 but outputs may still vary.
+
+6. **Unvalidated**: All validation infrastructure exists but produces no results yet.
+
+### Realistic Probability Assessment
+
+Based on academic literature on factor investing and backtesting pitfalls:
+
+| Outcome | Estimated Probability |
+|---------|----------------------|
+| Significant alpha (>10%) | ~5% |
+| Modest alpha (2-5%) | ~15-20% |
+| Approximately match benchmark | ~35-40% |
+| Underperform after costs | ~35-40% |
+
+These estimates assume rigorous validation. Without validation, expected value is negative.
+
+---
+
+## Architecture
+
+```
+Alpha-Research/
+├── src/alpha_research/
+│   ├── core/               # Constitutional framework, validation system
+│   ├── factors/            # Q/M/V factor calculations, causal promotion
+│   ├── features/           # PIT-compliant feature calculation
+│   ├── validation/         # Walk-forward, SPA Bootstrap, Sharpe metrics
+│   ├── execution/          # Market impact modeling (Almgren-Chriss)
+│   ├── gate/               # Constitutional gate, cost stress testing
+│   ├── risk/               # Position limits, drawdown controls
+│   ├── llm_agents/         # Expert agents, orchestration
+│   ├── debate/             # Multi-agent debate mechanism
+│   ├── backtest/           # Backtesting engine
+│   └── causal/             # Causal inference, regime detection
+├── config/
+│   ├── constitution.yaml   # System rules and constraints
+│   ├── frozen_v1.yaml      # Frozen parameters for validation
+│   └── *.yaml              # Other configuration
+├── scripts/
+│   ├── backtest.py         # Main backtest runner
+│   ├── register_core_modules.py  # Module pre-registration
+│   ├── run_walk_forward.py       # Walk-forward validation
+│   └── audit_pit.py              # PIT compliance audit
+├── tests/                  # Unit and integration tests
+├── artifacts/              # Validation outputs (empty until run)
+└── docs/                   # Documentation and audit reports
+```
+
+### Codebase Metrics
+
+- **Python Files**: 117
+- **Lines of Code**: ~47,000
+- **Test Files**: 17
+- **Configuration Files**: 9
 
 ---
 
 ## Validation Requirements
 
-Before any performance claims can be made:
+Before any performance claims can be made, the following must be completed:
 
-### Required (P0)
+### Step 1: Module Registration
 
 ```bash
-# 1. Register modules
 python scripts/register_core_modules.py
+```
 
-# 2. Audit PIT compliance
+Registers hypotheses and failure criteria for each module before validation.
+
+### Step 2: PIT Compliance Audit
+
+```bash
 python scripts/audit_pit.py
+```
 
-# 3. Run walk-forward validation (requires real data)
+Verifies no look-ahead bias in data pipelines.
+
+### Step 3: Walk-Forward Validation
+
+```bash
 python scripts/run_walk_forward.py
 ```
 
+Runs rolling out-of-sample validation (train=252d, test=63d, gap=5d).
+
 ### Acceptance Criteria
 
-- 60%+ of walk-forward folds must have Sharpe > 0
-- Deflated Sharpe > 0 (adjusts for multiple testing)
-- No fold exceeds module's registered max drawdown
-- Must pass at 2x cost stress test
+All of the following must be met:
+
+| Metric | Threshold | Purpose |
+|--------|-----------|---------|
+| Fold Win Rate | >60% of folds Sharpe > 0 | Consistency |
+| Deflated Sharpe | > 0 | Multiple testing adjustment |
+| SPA Bootstrap p-value | < 0.05 | Family-wise error control |
+| Max Drawdown | < registered limit | Risk compliance |
+| Cost-Adjusted IR | > 0.5 | Realistic after costs |
 
 ---
 
-## Project Structure
+## Key Design Decisions
 
-```
-Alpha-Research/
-├── src/alpha_research/
-│   ├── core/           # Constitutional framework
-│   ├── factors/        # Q/M/V calculations
-│   ├── validation/     # CV, Sharpe, SPA Bootstrap
-│   ├── execution/      # Almgren-Chriss cost model
-│   ├── gate/           # Decision gates
-│   └── risk/           # Risk management
-├── config/
-│   ├── constitution.yaml    # Core rules
-│   └── frozen_v1.yaml       # Frozen parameters
-├── scripts/
-│   ├── register_core_modules.py
-│   ├── run_walk_forward.py
-│   └── audit_pit.py
-├── artifacts/          # Validation outputs
-└── tests/
-```
+### Conservative Defaults
+
+- LLM agents can only reduce scores, never increase
+- WAIT is always a valid decision
+- Causal factors start at 0% weight, require evidence to increase
+- 5x cost stress test for robustness checks
+
+### PIT Compliance
+
+All non-price data requires timestamps:
+- `available_at` for fundamentals
+- `published_at` for news
+- `filed_at` for SEC filings
+
+Violations halt execution.
+
+### Multiple Testing Adjustment
+
+- Deflated Sharpe Ratio (Bailey & López de Prado, 2014)
+- Probabilistic Sharpe Ratio
+- SPA Bootstrap (Hansen, 2005)
+
+---
+
+## Validation Methods
+
+| Method | Reference | Purpose |
+|--------|-----------|---------|
+| Purged K-Fold CV | López de Prado (2018) | Prevent information leakage |
+| Walk-Forward Analysis | Standard | True out-of-sample testing |
+| Deflated Sharpe | Bailey & López de Prado (2014) | Adjust for selection bias |
+| SPA Bootstrap | Hansen (2005) | Family-wise error control |
+| Almgren-Chriss | Almgren & Chriss (2000) | Market impact modeling |
 
 ---
 
@@ -116,6 +192,11 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+### Requirements
+
+- Python 3.10+
+- See `requirements.txt` for dependencies
+
 ## Testing
 
 ```bash
@@ -124,51 +205,50 @@ pytest tests/ -v
 
 ---
 
-## Design Principles
+## Current Development Status
 
-### Conservative Defaults
-- LLM can only reduce scores, never increase
-- WAIT is a valid decision
-- Causal factors start at 0% weight
-- 5x cost stress test for robustness
+### Implemented (Code Complete)
 
-### Falsifiability
-- Modules must have pre-registered failure criteria
-- Walk-forward validation required
-- Deflated Sharpe prevents selection bias
+- [x] Factor calculation modules (Q/M/V)
+- [x] Walk-forward validation infrastructure
+- [x] SPA Bootstrap implementation
+- [x] PIT compliance enforcement and audit
+- [x] Almgren-Chriss market impact model
+- [x] Constitutional gate with A/B/C action classes
+- [x] Causal factor promotion protocol
+- [x] Module pre-registration system
+- [x] LLM agent orchestration
+- [x] Multi-agent debate mechanism
+- [x] Risk management framework
 
-### PIT Compliance
-All non-price data requires timestamps:
-- `available_at` for fundamentals
-- `published_at` for news
-- `filed_at` for SEC filings
+### Not Implemented
 
-Violations halt execution.
+- [ ] Walk-forward validation runs with real data
+- [ ] Live trading integration
+- [ ] Real-time market data feeds
+- [ ] Production deployment infrastructure
+
+### Validation Status
+
+| Component | Code | Validation Run | Results |
+|-----------|------|----------------|---------|
+| Quality Factor | Complete | Not run | None |
+| Momentum Factor | Complete | Not run | None |
+| Value Factor | Complete | Not run | None |
+| Combined Portfolio | Complete | Not run | None |
+| Stress Tests | Complete | Not run | None |
 
 ---
 
-## Validation Methods
+## Methodology Audit
 
-| Method | Source | Purpose |
-|--------|--------|---------|
-| Purged K-Fold | López de Prado (2018) | Prevent information leakage |
-| Deflated Sharpe | Bailey & López de Prado (2014) | Adjust for multiple testing |
-| SPA Bootstrap | Hansen (2005) | Family-wise error control |
-| Walk-Forward | Standard | True out-of-sample testing |
-| Almgren-Chriss | Almgren & Chriss (2000) | Market impact modeling |
+A comprehensive methodology audit was conducted on 2026-01-21. Key findings:
 
----
+- **P0 Issues (Critical)**: All addressed with infrastructure
+- **P1 Issues (High Risk)**: Mitigation implemented
+- **P2 Issues (Medium Risk)**: Documented
 
-## Realistic Expectations
-
-Based on academic literature:
-
-| Outcome | Probability | Notes |
-|---------|-------------|-------|
-| 10%+ alpha | Low (~5%) | Requires unique edge |
-| 2-5% alpha | Possible (~15-20%) | With good implementation |
-| Match benchmark | Likely (~35-40%) | After costs |
-| Underperform | Likely (~35-40%) | Costs erode returns |
+See `docs/RESEARCH_METHODOLOGY_AUDIT_2026-01-21.md` for full report.
 
 ---
 
@@ -188,4 +268,6 @@ MIT License - Use at your own risk.
 
 ## Disclaimer
 
-This software is for educational and research purposes only. Not financial advice. No representation is made regarding profitability. Trading involves substantial risk of loss. Past performance does not indicate future results.
+This software is for educational and research purposes only. It is not financial advice. No representation is made regarding profitability or suitability for any purpose. Trading involves substantial risk of loss. Past performance, if any existed, would not indicate future results.
+
+**This repository contains unvalidated research code. Do not use for actual trading without independent verification.**
