@@ -326,7 +326,7 @@ class OrderExecutor:
         filepath = self._orders_dir / f"{result.order.order_id}.json"
 
         data = {
-            'order': result.order.dict(),
+            'order': result.order.model_dump(),
             'success': result.success,
             'fill_price': result.fill_price,
             'fill_quantity': result.fill_quantity,

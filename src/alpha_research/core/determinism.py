@@ -239,8 +239,11 @@ def stable_hash(
         canonical = data.sort_index().to_json(date_format='iso')
     elif isinstance(data, np.ndarray):
         canonical = json.dumps(data.tolist(), sort_keys=sort_keys)
+    elif hasattr(data, 'model_dump'):
+        # Pydantic V2 model
+        canonical = json.dumps(data.model_dump(), sort_keys=sort_keys, default=str)
     elif hasattr(data, 'dict'):
-        # Pydantic model or dataclass
+        # Pydantic V1 model or dataclass
         canonical = json.dumps(data.dict(), sort_keys=sort_keys, default=str)
     else:
         canonical = json.dumps(data, sort_keys=sort_keys, default=str)

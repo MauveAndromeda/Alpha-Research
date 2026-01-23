@@ -33,6 +33,9 @@ dev = [
     "ruff>=0.1.0",
 ]
 
+[project.scripts]
+alpha-research = "alpha_research.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

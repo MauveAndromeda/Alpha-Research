@@ -566,6 +566,7 @@ def compute_pit_features(
     market_data: pd.DataFrame,
     as_of_date: date,
     symbols: Optional[List[str]] = None,
+    min_history_days: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Convenience function to compute PIT features.
@@ -574,11 +575,12 @@ def compute_pit_features(
         market_data: Historical market data
         as_of_date: Compute features as of this date
         symbols: Specific symbols (optional)
+        min_history_days: Minimum days of history required (default: 253)
 
     Returns:
         DataFrame with features
     """
-    calculator = PITFeatureCalculator()
+    calculator = PITFeatureCalculator(min_history_days=min_history_days)
     result = calculator.compute_features(
         market_data=market_data,
         as_of_date=as_of_date,

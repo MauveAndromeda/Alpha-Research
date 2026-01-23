@@ -159,8 +159,13 @@ class PITDataset:
             events=pit_events,
         )
 
-    def save(self, output_dir: Path) -> Path:
-        """Save dataset to disk."""
+    def save(self, output_dir: Path, format: str = "auto") -> Path:
+        """Save dataset to disk.
+
+        Args:
+            output_dir: Directory to save dataset
+            format: Storage format - 'parquet', 'csv', or 'auto' (tries parquet, falls back to csv)
+        """
         output_dir = Path(output_dir)
         dataset_dir = output_dir / self.manifest.dataset_id
         dataset_dir.mkdir(parents=True, exist_ok=True)
@@ -170,17 +175,57 @@ class PITDataset:
         with open(manifest_path, 'w') as f:
             f.write(self.manifest.to_json())
 
-        # Save data as parquet
-        self.prices.to_parquet(dataset_dir / "prices.parquet", index=False)
+        # Determine storage format
+        use_parquet = format == "parquet" or (format == "auto" and self._parquet_available())
+        ext = "parquet" if use_parquet else "csv"
+
+        # Save data
+        self._save_dataframe(self.prices, dataset_dir / f"prices.{ext}", use_parquet)
 
         if self.fundamentals is not None:
-            self.fundamentals.to_parquet(dataset_dir / "fundamentals.parquet", index=False)
+            self._save_dataframe(self.fundamentals, dataset_dir / f"fundamentals.{ext}", use_parquet)
 
         if self.events is not None:
-            self.events.to_parquet(dataset_dir / "events.parquet", index=False)
+            self._save_dataframe(self.events, dataset_dir / f"events.{ext}", use_parquet)
 
-        logger.info(f"Saved dataset to {dataset_dir}")
+        # Save format indicator
+        (dataset_dir / f".format_{ext}").touch()
+
+        logger.info(f"Saved dataset to {dataset_dir} (format: {ext})")
         return dataset_dir
+
+    @staticmethod
+    def _parquet_available() -> bool:
+        """Check if parquet engine is available."""
+        try:
+            import pyarrow
+            return True
+        except ImportError:
+            try:
+                import fastparquet
+                return True
+            except ImportError:
+                return False
+
+    @staticmethod
+    def _save_dataframe(df: pd.DataFrame, path: Path, use_parquet: bool) -> None:
+        """Save a DataFrame to disk."""
+        if use_parquet:
+            df.to_parquet(path, index=False)
+        else:
+            df.to_csv(path, index=False)
+
+    @staticmethod
+    def _load_dataframe(path_base: Path) -> Optional[pd.DataFrame]:
+        """Load a DataFrame from disk, detecting format automatically."""
+        parquet_path = path_base.with_suffix(".parquet")
+        csv_path = path_base.with_suffix(".csv")
+
+        if parquet_path.exists():
+            return pd.read_parquet(parquet_path)
+        elif csv_path.exists():
+            return pd.read_csv(csv_path)
+        return None
 
     @classmethod
     def load(cls, dataset_dir: Path) -> "PITDataset":
@@ -191,18 +236,13 @@ class PITDataset:
         with open(dataset_dir / "manifest.json") as f:
             manifest = DataManifest.from_json(f.read())
 
-        # Load data
-        prices = pd.read_parquet(dataset_dir / "prices.parquet")
+        # Load data (auto-detect format)
+        prices = cls._load_dataframe(dataset_dir / "prices")
+        if prices is None:
+            raise FileNotFoundError(f"No prices data found in {dataset_dir}")
 
-        fundamentals = None
-        fundamentals_path = dataset_dir / "fundamentals.parquet"
-        if fundamentals_path.exists():
-            fundamentals = pd.read_parquet(fundamentals_path)
-
-        events = None
-        events_path = dataset_dir / "events.parquet"
-        if events_path.exists():
-            events = pd.read_parquet(events_path)
+        fundamentals = cls._load_dataframe(dataset_dir / "fundamentals")
+        events = cls._load_dataframe(dataset_dir / "events")
 
         return cls(
             manifest=manifest,
@@ -565,7 +605,7 @@ class PITDatasetBuilder:
         records = []
         for symbol in symbols:
             # Generate quarterly data
-            quarters = pd.date_range(start=start_date, end=end_date, freq='Q')
+            quarters = pd.date_range(start=start_date, end=end_date, freq='QE')
             for q in quarters:
                 # available_at is typically 30-45 days after quarter end
                 available_at = q + timedelta(days=np.random.randint(30, 45))

@@ -101,7 +101,7 @@ class SnapshotManager:
         )
 
         # Compute overall hash
-        snapshot.content_hash = compute_snapshot_hash(snapshot.dict())
+        snapshot.content_hash = compute_snapshot_hash(snapshot.model_dump())
 
         return snapshot
 
@@ -132,7 +132,7 @@ class SnapshotManager:
 
         # Save metadata
         with open(snapshot_dir / "snapshot.json", 'w') as f:
-            json.dump(snapshot.dict(), f, indent=2, default=str)
+            json.dump(snapshot.model_dump(), f, indent=2, default=str)
 
         # Save data files
         universe.to_parquet(snapshot_dir / "universe.parquet")
@@ -140,7 +140,7 @@ class SnapshotManager:
         fundamental_data.to_parquet(snapshot_dir / "fundamental_data.parquet")
 
         # Save evidence
-        evidence_data = [e.dict() for e in evidence_list]
+        evidence_data = [e.model_dump() for e in evidence_list]
         with open(snapshot_dir / "evidence.jsonl", 'w') as f:
             for evidence in evidence_data:
                 f.write(json.dumps(evidence, default=str) + "\n")
@@ -292,7 +292,7 @@ class SnapshotManager:
         """Compute hash of evidence list."""
         # Sort by evidence_id for determinism
         sorted_evidence = sorted(evidence_list, key=lambda e: e.evidence_id)
-        data = [e.dict() for e in sorted_evidence]
+        data = [e.model_dump() for e in sorted_evidence]
         return compute_hash(data, algorithm="sha256")
 
     def _load_evidence(self, filepath: Path) -> List[Evidence]:
@@ -321,7 +321,7 @@ class RunResultManager:
         """Save a run result."""
         result_file = self.results_dir / f"{result.run_id}.json"
         with open(result_file, 'w') as f:
-            json.dump(result.dict(), f, indent=2, default=str)
+            json.dump(result.model_dump(), f, indent=2, default=str)
         return result_file
 
     def load_result(self, run_id: str) -> RunResult:

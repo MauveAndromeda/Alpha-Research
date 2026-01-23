@@ -192,7 +192,7 @@ class ProposalValidator:
 
             if is_valid:
                 validated = ValidatedProposal(
-                    **proposal.dict(),
+                    **proposal.model_dump(),
                     original_score=proposal.score,
                     adjusted_score=proposal.score,
                     budget_applied=False,

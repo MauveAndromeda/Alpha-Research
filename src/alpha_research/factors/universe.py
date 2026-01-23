@@ -112,8 +112,8 @@ class UniverseBuilder:
             )
 
             # Compute content hash
-            record.content_hash = compute_hash(record.dict())
-            records.append(record.dict())
+            record.content_hash = compute_hash(record.model_dump())
+            records.append(record.model_dump())
 
         df = pd.DataFrame(records)
 

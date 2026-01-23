@@ -99,7 +99,7 @@ class PortfolioGate:
         warnings = []
 
         # Convert to working format
-        weights_df = pd.DataFrame([w.dict() for w in proposed_weights])
+        weights_df = pd.DataFrame([w.model_dump() for w in proposed_weights])
 
         # Step 1: Check holdings count
         if len(weights_df) > self.max_holdings:

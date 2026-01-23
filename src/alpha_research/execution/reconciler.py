@@ -193,7 +193,7 @@ class Reconciler:
         filepath = self._reconcile_dir / f"reconcile_{date_str}.json"
 
         with open(filepath, 'w') as f:
-            json.dump(result.dict(), f, indent=2, default=str)
+            json.dump(result.model_dump(), f, indent=2, default=str)
 
     def load_history(
         self,

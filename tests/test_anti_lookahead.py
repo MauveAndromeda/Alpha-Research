@@ -169,8 +169,8 @@ class TestTimestampEnforcement:
 
         # Fundamental data WITHOUT available_at
         bad_fundamental = pd.DataFrame({
-            'symbol': 'AAPL',
-            'revenue': 100e9,
+            'symbol': ['AAPL'],
+            'revenue': [100e9],
             # Missing available_at!
         })
 
@@ -196,15 +196,15 @@ class TestTimestampEnforcement:
 
         # Fundamental data with FUTURE available_at
         future_fundamental = pd.DataFrame({
-            'symbol': 'AAPL',
-            'revenue': 100e9,
-            'available_at': datetime(2023, 7, 1),  # After as_of_date
+            'symbol': ['AAPL'],
+            'revenue': [100e9],
+            'available_at': [datetime(2023, 7, 1)],  # After as_of_date
         })
 
         enforcer = DataAlignmentEnforcer(strict_mode=True)
 
         # Align as of June 15
-        result = enforcer.align_datasets(
+        aligned_market, aligned_fundamental, aligned_features = enforcer.align_datasets(
             market_data=market_data,
             fundamental_data=future_fundamental,
             features=pd.DataFrame(),
@@ -212,7 +212,7 @@ class TestTimestampEnforcement:
         )
 
         # Future data should be filtered out
-        assert len(result.fundamental_data) == 0, (
+        assert len(aligned_fundamental) == 0, (
             "Future fundamental data should be excluded"
         )
 
@@ -231,11 +231,18 @@ class TestRedTeamScenarios:
 
         This is the most common form of backtest cheating.
         """
-        # The constitution forbids this at config level
+        # The constitution forbids both signal_delay_days=0 AND same_close
+        # Test signal_delay first (fails first in validation order)
+        with pytest.raises(ValueError, match="signal_delay_days must be >= 1"):
+            BacktestEngine(
+                signal_delay_days=0,  # Use today's data - FORBIDDEN
+            )
+
+        # Test same_close execution separately (with valid signal delay)
         with pytest.raises(ValueError, match="FORBIDDEN"):
             BacktestEngine(
-                signal_delay_days=0,  # Use today's data
-                execution_price="same_close",  # Trade at today's close
+                signal_delay_days=1,  # Valid delay
+                execution_price="same_close",  # Trade at today's close - FORBIDDEN
             )
 
     def test_future_event_not_included_in_features(self):

@@ -224,6 +224,7 @@ class TestConvenienceFunctions:
         features = compute_pit_features(
             market_data=market_data,
             as_of_date=date(2023, 7, 1),
+            min_history_days=50,  # Enough for test data (~125 trading days Jan-Jun)
         )
 
         assert len(features) == 1
@@ -240,9 +241,9 @@ class TestConvenienceFunctions:
         })
 
         fundamental_data = pd.DataFrame({
-            'symbol': 'AAPL',
-            'revenue': 100e9,
-            'available_at': datetime(2023, 5, 1),
+            'symbol': ['AAPL'],
+            'revenue': [100e9],
+            'available_at': [datetime(2023, 5, 1)],
         })
 
         aligned_market, aligned_fund = align_data_for_backtest(
