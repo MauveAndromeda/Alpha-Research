@@ -158,6 +158,7 @@ class BacktestEngine:
         # Anti-lookahead parameters (per Constitution trade_timing section)
         signal_delay_days: int = 1,
         execution_price: str = "next_open",
+        strict_pit_mode: bool = True,
     ):
         """
         Initialize backtest engine.
@@ -175,6 +176,7 @@ class BacktestEngine:
                               Signal at t-1 close, execute at t open/close
             execution_price: Price used for execution ('next_open', 'next_close', 'next_vwap')
                             FORBIDDEN: 'same_close', 'same_open' (lookahead bias)
+            strict_pit_mode: If True, raise error on missing timestamps (default True)
         """
         # Validate anti-lookahead parameters (Constitutional requirement)
         if signal_delay_days < 1:
@@ -203,6 +205,7 @@ class BacktestEngine:
         self.target_holdings = target_holdings
         self.signal_delay_days = signal_delay_days
         self.execution_price = execution_price
+        self.strict_pit_mode = strict_pit_mode
 
         # Components
         self.core_calculator = CoreScoreCalculator()
@@ -320,14 +323,36 @@ class BacktestEngine:
         return self._compute_results(start_date, end_date)
 
     def _get_pit_fundamental(self, fundamental_data: pd.DataFrame, as_of: date) -> pd.DataFrame:
-        """Get point-in-time fundamental data."""
-        if 'asof_time' in fundamental_data.columns:
-            # Filter to data available as of the date
-            mask = fundamental_data['asof_time'].apply(
-                lambda x: x.date() <= as_of if hasattr(x, 'date') else True
-            )
-            return fundamental_data[mask]
-        return fundamental_data
+        """Get point-in-time fundamental data.
+
+        CRITICAL: Enforces PIT compliance by requiring timestamp column.
+        """
+        if fundamental_data is None or len(fundamental_data) == 0:
+            return fundamental_data
+
+        # Check for timestamp column (asof_time or available_at)
+        timestamp_col = None
+        for col in ['asof_time', 'available_at']:
+            if col in fundamental_data.columns:
+                timestamp_col = col
+                break
+
+        if timestamp_col is None:
+            if self.strict_pit_mode:
+                raise ValueError(
+                    "Fundamental data missing timestamp column ('asof_time' or 'available_at'). "
+                    "This is required for PIT compliance. Either add timestamps or set strict_pit_mode=False."
+                )
+            # Non-strict mode: return all data with warning (for testing only)
+            import logging
+            logging.warning("Fundamental data has no timestamp - PIT compliance not enforced")
+            return fundamental_data
+
+        # Filter to data available as of the date (strict < for PIT)
+        mask = fundamental_data[timestamp_col].apply(
+            lambda x: x.date() < as_of if hasattr(x, 'date') else x < as_of
+        )
+        return fundamental_data[mask]
 
     def _get_current_prices(self, market_data: pd.DataFrame, current_date: date) -> Dict[str, float]:
         """Get current prices for all symbols."""

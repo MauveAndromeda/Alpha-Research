@@ -2,184 +2,107 @@
 
 A quantitative research framework for factor-based equity analysis.
 
-**Status: Pre-Validation Research Framework (v0.1.0-alpha)**
+**Status: Unvalidated Research Infrastructure (v0.1.0-alpha)**
 
 ---
 
-## Overview
+## What This Is
 
-This repository contains infrastructure for systematic quantitative research. It implements validation methodologies based on academic literature but **has not been validated with real market data**.
+This repository is **research infrastructure** for systematic quantitative investing. It provides tools to test hypotheses about factor-based strategies with rigorous statistical validation.
 
-### What This Repository Contains
+**This is NOT:**
+- A trading system
+- A proven strategy
+- A source of investment advice
 
-| Category | Components | Status |
-|----------|------------|--------|
-| Factor Calculation | Quality, Momentum, Value | Implemented |
-| Validation Infrastructure | Walk-Forward, SPA Bootstrap, Deflated Sharpe | Implemented |
-| PIT Compliance | Timestamp enforcement, audit pipeline | Implemented |
-| Execution Modeling | Almgren-Chriss market impact | Implemented |
-| Risk Framework | Position limits, drawdown controls | Implemented |
-| LLM Integration | Expert agents, debate mechanism | Implemented |
+**Research Target:** 10% annualized excess return over S&P 500 (net of costs)
 
-### What Has NOT Been Done
-
-- Walk-forward validation runs
-- Real market data backtesting
-- Live trading
-- Independent third-party audit
-- Performance verification
-
-**No alpha claims are made. No performance results exist.**
+**Current Evidence for Target:** None. No validation runs have been executed.
 
 ---
 
 ## Honest Assessment
 
-### Known Limitations
+### Why 10% Alpha is Unlikely
 
-1. **No Data Edge**: Uses publicly available data only (Yahoo Finance, public APIs, SEC filings)
+Based on academic literature (Harvey et al. 2016, McLean & Pontiff 2016):
 
-2. **No Execution Edge**: Designed for retail execution via IBKR. No direct market access.
+| Reality Check | Implication |
+|---------------|-------------|
+| Most published factors fail out-of-sample | ~50% of factors lose significance post-publication |
+| Factor crowding accelerates decay | Q/M/V are well-known, alpha erodes quickly |
+| Transaction costs matter | Many "profitable" strategies become unprofitable after realistic costs |
+| Multiple testing bias | Without rigorous correction, apparent alpha is often noise |
 
-3. **Limited Capacity**: Designed for $100k-$1M. Larger scale requires different infrastructure.
+### Realistic Probability Estimates
 
-4. **Factor Crowding Risk**: Q/M/V factors are well-known. Alpha decay is likely.
-
-5. **LLM Uncertainty**: LLM components introduce non-determinism. Temperature is set to 0 but outputs may still vary.
-
-6. **Unvalidated**: All validation infrastructure exists but produces no results yet.
-
-### Realistic Probability Assessment
-
-Based on academic literature on factor investing and backtesting pitfalls:
-
-| Outcome | Estimated Probability |
-|---------|----------------------|
-| Significant alpha (>10%) | ~5% |
-| Modest alpha (2-5%) | ~15-20% |
-| Approximately match benchmark | ~35-40% |
+| Outcome | Probability |
+|---------|-------------|
+| Achieve target (>10% excess) | ~5% |
+| Modest excess (2-5%) | ~15-20% |
+| Match benchmark (±2%) | ~35-40% |
 | Underperform after costs | ~35-40% |
 
-These estimates assume rigorous validation. Without validation, expected value is negative.
+**Expected value without validation: Negative.**
+
+### Known Limitations
+
+1. **No Data Edge** - Public data only (Yahoo Finance, SEC EDGAR). Institutions have better data.
+
+2. **No Execution Edge** - Retail execution assumptions. No DMA, no co-location.
+
+3. **Limited Capacity** - Designed for $100K-$1M. Strategies may not scale.
+
+4. **Factor Crowding** - Quality/Momentum/Value are public factors. Competition is intense.
+
+5. **LLM Non-Determinism** - Even with temperature=0, LLM outputs vary. Not suitable for production signals.
+
+6. **Unvalidated** - All infrastructure exists, zero validation results.
 
 ---
 
-## Architecture
+## What the Framework Provides
 
-```
-Alpha-Research/
-├── src/alpha_research/
-│   ├── core/               # Constitutional framework, validation system
-│   ├── factors/            # Q/M/V factor calculations, causal promotion
-│   ├── features/           # PIT-compliant feature calculation
-│   ├── validation/         # Walk-forward, SPA Bootstrap, Sharpe metrics
-│   ├── execution/          # Market impact modeling (Almgren-Chriss)
-│   ├── gate/               # Constitutional gate, cost stress testing
-│   ├── risk/               # Position limits, drawdown controls
-│   ├── llm_agents/         # Expert agents, orchestration
-│   ├── debate/             # Multi-agent debate mechanism
-│   ├── backtest/           # Backtesting engine
-│   └── causal/             # Causal inference, regime detection
-├── config/
-│   ├── constitution.yaml   # System rules and constraints
-│   ├── frozen_v1.yaml      # Frozen parameters for validation
-│   └── *.yaml              # Other configuration
-├── scripts/
-│   ├── backtest.py         # Main backtest runner
-│   ├── register_core_modules.py  # Module pre-registration
-│   ├── run_walk_forward.py       # Walk-forward validation
-│   └── audit_pit.py              # PIT compliance audit
-├── tests/                  # Unit and integration tests
-├── artifacts/              # Validation outputs (empty until run)
-└── docs/                   # Documentation and audit reports
-```
+### Infrastructure (Implemented)
 
-### Codebase Metrics
+| Component | Purpose | Status |
+|-----------|---------|--------|
+| PIT Dataset Builder | Point-in-time compliant data with provenance | Complete |
+| Walk-Forward Validation | Rolling OOS testing (train=252d, test=63d, gap=5d) | Complete |
+| Multiple Testing Correction | Deflated Sharpe, PSR, SPA Bootstrap | Complete |
+| Cost Modeling | Almgren-Chriss market impact | Complete |
+| Anti-Lookahead Enforcement | Signal delay, execution price validation | Complete |
+| Hypothesis Pre-Registration | Freeze parameters before validation | Complete |
 
-- **Python Files**: 117
-- **Lines of Code**: ~47,000
-- **Test Files**: 17
-- **Configuration Files**: 9
+### What Has NOT Been Done
+
+- [ ] Walk-forward validation with real data
+- [ ] Any backtest results
+- [ ] Live trading
+- [ ] Independent audit
+- [ ] Performance verification
 
 ---
 
-## Validation Requirements
+## Research Methodology
 
-Before any performance claims can be made, the following must be completed:
+### Acceptance Criteria (All Must Pass)
 
-### Step 1: Module Registration
-
-```bash
-python scripts/register_core_modules.py
-```
-
-Registers hypotheses and failure criteria for each module before validation.
-
-### Step 2: PIT Compliance Audit
-
-```bash
-python scripts/audit_pit.py
-```
-
-Verifies no look-ahead bias in data pipelines.
-
-### Step 3: Walk-Forward Validation
-
-```bash
-python scripts/run_walk_forward.py
-```
-
-Runs rolling out-of-sample validation (train=252d, test=63d, gap=5d).
-
-### Acceptance Criteria
-
-All of the following must be met:
-
-| Metric | Threshold | Purpose |
-|--------|-----------|---------|
+| Metric | Threshold | Reference |
+|--------|-----------|-----------|
 | Fold Win Rate | >60% of folds Sharpe > 0 | Consistency |
-| Deflated Sharpe | > 0 | Multiple testing adjustment |
-| SPA Bootstrap p-value | < 0.05 | Family-wise error control |
-| Max Drawdown | < registered limit | Risk compliance |
-| Cost-Adjusted IR | > 0.5 | Realistic after costs |
+| Deflated Sharpe | > 0 | Bailey & López de Prado (2014) |
+| SPA Bootstrap p-value | < 0.05 | Hansen (2005) |
+| Max Drawdown | < 15% | Risk limit |
+| Cost-Adjusted IR | > 0.5 | Net of 5x stress costs |
 
----
+### Anti-Overfitting Measures
 
-## Key Design Decisions
-
-### Conservative Defaults
-
-- LLM agents can only reduce scores, never increase
-- WAIT is always a valid decision
-- Causal factors start at 0% weight, require evidence to increase
-- 5x cost stress test for robustness checks
-
-### PIT Compliance
-
-All non-price data requires timestamps:
-- `available_at` for fundamentals
-- `published_at` for news
-- `filed_at` for SEC filings
-
-Violations halt execution.
-
-### Multiple Testing Adjustment
-
-- Deflated Sharpe Ratio (Bailey & López de Prado, 2014)
-- Probabilistic Sharpe Ratio
-- SPA Bootstrap (Hansen, 2005)
-
----
-
-## Validation Methods
-
-| Method | Reference | Purpose |
-|--------|-----------|---------|
-| Purged K-Fold CV | López de Prado (2018) | Prevent information leakage |
-| Walk-Forward Analysis | Standard | True out-of-sample testing |
-| Deflated Sharpe | Bailey & López de Prado (2014) | Adjust for selection bias |
-| SPA Bootstrap | Hansen (2005) | Family-wise error control |
-| Almgren-Chriss | Almgren & Chriss (2000) | Market impact modeling |
+1. **Pre-Registration** - Hypotheses frozen before validation
+2. **Walk-Forward** - No in-sample optimization
+3. **Multiple Testing** - Family-wise error control via SPA
+4. **Cost Stress** - 5x transaction cost multiplier
+5. **PIT Enforcement** - Automated lookahead detection
 
 ---
 
@@ -188,91 +111,54 @@ Violations halt execution.
 ```bash
 git clone https://github.com/MauveAndromeda/Alpha-Research.git
 cd Alpha-Research
-pip install -r requirements.txt
 pip install -e .
 ```
 
-### Requirements
-
-- Python 3.10+
-- See `requirements.txt` for dependencies
+Requirements: Python 3.10+
 
 ## CLI Usage
 
-The framework provides a command-line interface for common operations:
-
 ```bash
-# Show system status and configuration
+# System status
 alpha-research status
 
-# Build a PIT-compliant dataset
+# Build dataset (synthetic)
 alpha-research build-dataset --universe sp500_sample --start 2022-01-01 --end 2023-12-31
 
-# Run walk-forward validation with synthetic data
+# Run validation (synthetic data)
 alpha-research validate --strategy momentum --synthetic
 
-# Run PIT compliance audit
-alpha-research audit --output-dir artifacts/pit_audits
-```
-
-For full options:
-```bash
-alpha-research --help
-alpha-research <command> --help
+# PIT audit
+alpha-research audit
 ```
 
 ## Testing
 
 ```bash
 pytest tests/ -v
+# 278 tests, all passing
 ```
 
 ---
 
-## Current Development Status
+## Architecture
 
-### Implemented (Code Complete)
-
-- [x] Factor calculation modules (Q/M/V)
-- [x] Walk-forward validation infrastructure
-- [x] SPA Bootstrap implementation
-- [x] PIT compliance enforcement and audit
-- [x] Almgren-Chriss market impact model
-- [x] Constitutional gate with A/B/C action classes
-- [x] Causal factor promotion protocol
-- [x] Module pre-registration system
-- [x] LLM agent orchestration
-- [x] Multi-agent debate mechanism
-- [x] Risk management framework
-
-### Not Implemented
-
-- [ ] Walk-forward validation runs with real data
-- [ ] Live trading integration
-- [ ] Real-time market data feeds
-- [ ] Production deployment infrastructure
-
-### Validation Status
-
-| Component | Code | Validation Run | Results |
-|-----------|------|----------------|---------|
-| Quality Factor | Complete | Not run | None |
-| Momentum Factor | Complete | Not run | None |
-| Value Factor | Complete | Not run | None |
-| Combined Portfolio | Complete | Not run | None |
-| Stress Tests | Complete | Not run | None |
-
----
-
-## Methodology Audit
-
-A comprehensive methodology audit was conducted on 2026-01-21. Key findings:
-
-- **P0 Issues (Critical)**: All addressed with infrastructure
-- **P1 Issues (High Risk)**: Mitigation implemented
-- **P2 Issues (Medium Risk)**: Documented
-
-See `docs/RESEARCH_METHODOLOGY_AUDIT_2026-01-21.md` for full report.
+```
+Alpha-Research/
+├── src/alpha_research/
+│   ├── data/           # PIT Dataset Builder, manifests
+│   ├── features/       # PIT-compliant feature calculation
+│   ├── validation/     # Walk-forward, DSR, PSR, SPA
+│   ├── backtest/       # Engine with anti-lookahead
+│   ├── execution/      # Almgren-Chriss impact model
+│   └── cli.py          # Command-line interface
+├── scripts/
+│   ├── run_walk_forward.py
+│   └── audit_pit.py
+├── config/
+│   └── constitution.yaml   # System constraints
+└── tests/                  # 278 tests
+```
 
 ---
 
@@ -282,7 +168,8 @@ See `docs/RESEARCH_METHODOLOGY_AUDIT_2026-01-21.md` for full report.
 - Bailey, D. & López de Prado, M. (2014). "The Deflated Sharpe Ratio"
 - Hansen, P.R. (2005). "A Test for Superior Predictive Ability"
 - Almgren, R. & Chriss, N. (2000). "Optimal Execution of Portfolio Transactions"
-- Fama, E. & French, K. (1993). "Common Risk Factors in Stock Returns"
+- Harvey, C. et al. (2016). "...and the Cross-Section of Expected Returns"
+- McLean, R.D. & Pontiff, J. (2016). "Does Academic Research Destroy Stock Return Predictability?"
 
 ---
 
@@ -292,6 +179,15 @@ MIT License - Use at your own risk.
 
 ## Disclaimer
 
-This software is for educational and research purposes only. It is not financial advice. No representation is made regarding profitability or suitability for any purpose. Trading involves substantial risk of loss. Past performance, if any existed, would not indicate future results.
+**This is research code, not a trading system.**
 
-**This repository contains unvalidated research code. Do not use for actual trading without independent verification.**
+- No investment advice is provided
+- No performance claims are made
+- No warranty of any kind
+- Past performance (if any existed) would not predict future results
+
+**Do not use for actual trading without:**
+1. Independent code audit
+2. Validation with real data
+3. Understanding of all risks
+4. Professional financial advice
