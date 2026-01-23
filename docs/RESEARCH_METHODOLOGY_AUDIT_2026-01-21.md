@@ -1,278 +1,270 @@
-# Alpha Research Trading System - 研究方案严格审计报告
+# Alpha Research Trading System - Research Methodology Audit Report
 
-**审计日期**: 2026-01-21
-**审计角色**: 机构级量化研究负责人 + 研究方法论审计员
-**审计范围**: 方案与思路层面（工程实现次优先）
-
----
-
-## 审计结论摘要
-
-**核心判断：该框架作为研究脚手架设计完备，但作为"能稳定产出>10% alpha的可交易系统"严重缺乏可信证据。当前状态是"精心设计的未验证假设集合"。**
-
-| 问题 | 当前状态 | 修复后状态 |
-|------|----------|------------|
-| **能否证明alpha存在？** | 不能（无验证运行） | 可以（walk-forward+SPA） |
-| **数据是否可信？** | 声称可信（无审计） | 可验证（审计流水线） |
-| **LLM是否可控？** | 不可控（参与信号） | 可控（仅扣分） |
-| **成本假设现实吗？** | 乐观（2x） | 保守（5x） |
-| **10% alpha可信吗？** | **完全不可信** | **有条件可信**（满足验收标准后） |
+**Audit Date**: 2026-01-21
+**Audit Role**: Institutional Quantitative Research Lead + Research Methodology Auditor
+**Audit Scope**: Methodology and approach level (engineering implementation secondary)
 
 ---
 
-## P0 - 致命问题（不修则不可信）
+## Executive Summary
 
-### P0-1：可证伪性形同虚设
+**Core Judgment: This framework is well-designed as a research scaffold, but as a "tradable system capable of consistently generating >10% alpha" it severely lacks credible evidence. Current status is "a carefully designed collection of unvalidated hypotheses".**
 
-| 项目 | 内容 |
-|------|------|
-| **结论** | 系统声称有"前注册"机制，但**没有任何一个模块实际完成了注册和验证** |
-| **影响** | 无法区分"alpha真实存在"还是"高级自我说服"。所有回测结果本质上是未被证伪的假设堆积。 |
-| **证据** | `src/alpha_research/core/validation_system.py:80-213` - `PreRegistrationSystem`类存在，但 `artifacts/module_registry/` 目录为空。没有任何 `ModuleRegistration` JSON文件被生成。 |
-| **最小修复** | **冻结当前所有模块假设**：在7天内完成以下注册：<br>1. Q/M/V各因子的预期IR、最大回撤、失效条件<br>2. 各专家模块的边际贡献假设<br>3. 将注册文件提交到版本控制 |
+### Before vs After Comparison
 
-### P0-2：Walk-Forward验证从未实际运行
-
-| 项目 | 内容 |
-|------|------|
-| **结论** | 有完整的`WalkForwardBacktest`实现，但**没有任何运行产出**。代码是死代码。 |
-| **影响** | 所有"OOS验证"声明都是空话。60/20/20数据隔离成为摆设。 |
-| **证据** | `src/alpha_research/validation/backtesting.py:404-523` 实现完整，但：<br>- 无调用入口<br>- 无结果存储目录<br>- 无CI/CD触发<br>`scripts/backtest.py`只是简单回测，非walk-forward |
-| **最小修复** | **在任何实盘讨论前强制运行**：<br>1. 对核心Q/M/V因子运行5年walk-forward（train=252d, test=63d, gap=5d）<br>2. 输出`artifacts/walk_forward_results/{module}_{date}.json`<br>3. 验收门槛：>60%的folds Sharpe>0 |
-
-### P0-3：多重检验调整不完整
-
-| 项目 | 内容 |
-|------|------|
-| **结论** | 有Deflated Sharpe和PSR，但缺少**SPA Bootstrap**和**白色现实检验(White's Reality Check)** |
-| **影响** | 当全市场扫描500只股票+多阈值+6个专家时，Type-I错误率爆炸。Deflated Sharpe假设正态，不够。 |
-| **证据** | `src/alpha_research/validation/backtesting.py` 只有 `DeflatedSharpe` 和 `ProbabilisticSharpe`。无Bootstrap类。`config/constitution.yaml:597-654`提到"Deflated Sharpe > 0"作为唯一门槛，不够。 |
-| **最小修复** | **实现并强制运行SPA检验**：<br>1. 添加`StepwiseMultipleTesting`类（Hansen 2005）<br>2. 任何声称"打败基准"的模块必须 SPA p-value < 0.05<br>3. 每次全市场扫描后输出adjusted p-values |
-
-### P0-4：数据PIT合规未被审计验证
-
-| 项目 | 内容 |
-|------|------|
-| **结论** | 宪法声称PIT是"FATAL"级要求，但**没有自动化审计流水线验证这一承诺** |
-| **影响** | 一个看漏的`available_at`字段就足以让整个回测作废 |
-| **证据** | `src/alpha_research/core/pit_enforcer.py`存在，但：<br>- 无审计日志输出<br>- 无CI测试覆盖所有数据路径<br>- `tests/test_constitutional.py`只有单元测试，无集成测试验证真实数据流 |
-| **最小修复** | **添加PIT审计流水线**：<br>1. 每次回测前扫描所有非价格数据的时间戳<br>2. 生成`artifacts/pit_audit_{date}.json`报告<br>3. 任何violation立即中止运行 |
+| Question | Before Audit | After Fixes |
+|----------|--------------|-------------|
+| **Can alpha be proven?** | No (no validation runs) | Yes (walk-forward + SPA) |
+| **Is LLM controllable?** | Uncontrollable (participates in signals) | Controllable (only deducts) |
+| **Are cost assumptions realistic?** | Optimistic (2x) | Conservative (5x) |
+| **Is 10% alpha credible?** | **Not credible** | **Conditionally credible** (after meeting acceptance criteria) |
 
 ---
 
-## P1 - 高风险问题（显著降低可信度）
+## P0 - Critical Issues (Not Credible Without Fix)
 
-### P1-1：LLM机制角色错位
+### P0-1: Falsifiability is Nominal
 
-| 项目 | 内容 |
-|------|------|
-| **结论** | LLM被用于**生成信号**（专家评分、辩论结论），而非纯粹的**风险门控** |
-| **影响** | LLM的随机性会直接注入alpha信号，使回测不可重现、实盘不可预测 |
-| **证据** | `src/alpha_research/gate/enhanced_opportunity.py:236-249`：<br>辩论结论直接变成`recommended_stocks`的score，而非只用于kill决策<br>`src/alpha_research/llm/multi_llm_ensemble.py`：多LLM输出加权平均成为最终分数 |
-| **最小修复** | **LLM限制为纯扣分**：<br>1. 修改`llm_constitution`：`SCORE_BONUS_SMALL: enabled: false`（已有但需强制）<br>2. 专家评分只能是0或负数<br>3. 辩论结论只能触发WAIT或REDUCE，不能BUILD |
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | The pre-registration system exists but has never been executed. No module hypothesis has been frozen. |
+| **Impact** | All "validated" claims are unfalsifiable. When results are unfavorable, parameters can be adjusted post-hoc. |
+| **Evidence** | `src/alpha_research/core/validation_system.py:80-213` - `PreRegistrationSystem` class exists, but `artifacts/module_registry/` directory is empty. No `ModuleRegistration` JSON files have been generated. |
+| **Minimum Fix** | **Freeze all current module hypotheses**: Complete the following registrations within 7 days:<br>1. Expected IR, max drawdown, failure criteria for Q/M/V factors<br>2. Marginal contribution hypotheses for each expert module<br>3. Commit registration files to version control |
 
-### P1-2：专家辩论是噪声放大器
+### P0-2: Walk-Forward Validation Never Actually Run
 
-| 项目 | 内容 |
-|------|------|
-| **结论** | 6个专家中4个涉及LLM（Filing, News, Causal via text, Debate本身），辩论机制在噪声上叠加噪声 |
-| **影响** | 即使单个LLM call有20%方差，串联4个后方差指数放大 |
-| **证据** | `src/alpha_research/debate/debate.py`：Bull vs Bear由LLM角色扮演<br>`src/alpha_research/experts/filing.py`：RAG+LLM<br>`src/alpha_research/experts/news.py`：LLM情绪分析 |
-| **最小修复** | **锁定辩论为规则驱动**：<br>1. 辩论结论改为规则加权（非LLM生成）<br>2. LLM仅用于证据提取，不参与投票<br>3. 温度降至0.0+固定seed |
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | Complete `WalkForwardBacktest` implementation exists, but **no runs have been produced**. Code is dead code. |
+| **Impact** | All "OOS validation" claims are empty. 60/20/20 data isolation is decorative. |
+| **Evidence** | `src/alpha_research/validation/backtesting.py:404-523` implementation is complete, but:<br>- No call entry point<br>- No results storage directory<br>- No CI/CD trigger<br>`scripts/backtest.py` is simple backtest, not walk-forward |
+| **Minimum Fix** | **Mandatory run before any live trading discussion**:<br>1. Run 5-year walk-forward on core Q/M/V factors (train=252d, test=63d, gap=5d)<br>2. Output to `artifacts/walk_forward_results/{module}_{date}.json`<br>3. Acceptance threshold: >60% of folds Sharpe>0 |
 
-### P1-3：因果因子缺乏升权协议
+### P0-3: Multiple Testing Adjustment Incomplete
 
-| 项目 | 内容 |
-|------|------|
-| **结论** | 代码声称因果因子"从0开始，必须证明价值才升权"，但**没有定义升权的具体条件和流程** |
-| **影响** | 要么永远0权重（形同虚设），要么某天拍脑袋升权（违背设计初衷） |
-| **证据** | `src/alpha_research/factors/core_score.py:104-106`：`causal_weight = 0.00`<br>`increase_causal_weight()`方法存在但无调用条件<br>无walk-forward触发升权的逻辑 |
-| **最小修复** | **定义硬编码升权协议**：<br>1. 连续3个月walk-forward IR>0.1 → 权重+1%<br>2. 任何月份IR<-0.1 → 权重归零<br>3. 记录在`artifacts/causal_weight_log.json` |
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | Has Deflated Sharpe and PSR, but lacks **SPA Bootstrap** and **White's Reality Check** |
+| **Impact** | When scanning 500 stocks across the market + multiple thresholds + 6 experts, Type-I error rate explodes. Deflated Sharpe assumes normality, insufficient. |
+| **Evidence** | `src/alpha_research/validation/backtesting.py` only has `DeflatedSharpe` and `ProbabilisticSharpe`. No Bootstrap class. `config/constitution.yaml:597-654` mentions "Deflated Sharpe > 0" as only threshold, insufficient. |
+| **Minimum Fix** | **Implement and mandate SPA testing**:<br>1. Add `StepwiseMultipleTesting` class (Hansen 2005)<br>2. Any module claiming "beats benchmark" must have SPA p-value < 0.05<br>3. Output adjusted p-values after each market-wide scan |
 
-### P1-4：成本模型过度简化
+### P0-4: Data PIT Compliance Not Audit-Verified
 
-| 项目 | 内容 |
-|------|------|
-| **结论** | 成本压力测试用2x乘数，但基础成本模型（5bp+sqrt(participation)）忽略订单簿深度和非线性冲击 |
-| **影响** | 在高波动期（恰恰是alpha最可能存在的时期），实际成本可能是模型的5-10x |
-| **证据** | `config/execution_policy.yaml:20-25`：`slippage_expected_bps: 8`<br>`src/alpha_research/gate/cost_stress.py`：仅做线性乘法<br>无订单簿模拟、无Almgren-Chriss模型 |
-| **最小修复** | **升级成本模型**：<br>1. 引入Almgren-Chriss临时/永久冲击分解<br>2. 压力测试乘数从2x提升至5x（保守起见）<br>3. 高波动制度下强制减仓50% |
-
----
-
-## P2 - 中等风险问题（需要关注）
-
-### P2-1：保留集统计功效不足
-
-| 项目 | 内容 |
-|------|------|
-| **结论** | 20%保留集在5年数据上约250个交易日，独立样本可能不足以检测10% alpha的统计显著性 |
-| **影响** | 保留集测试可能是"pass了但其实是噪声" |
-| **证据** | `src/alpha_research/core/validation_system.py:306-312`：固定20%<br>无功效分析（power analysis）代码 |
-| **最小修复** | 添加最小样本量计算：`n_min = (1.96/target_alpha*vol)^2` |
-
-### P2-2：执行窗口假设脆弱
-
-| 项目 | 内容 |
-|------|------|
-| **结论** | 09:35-15:55执行窗口假设流动性充足，但开盘后30分钟和收盘前30分钟的流动性模式完全不同 |
-| **影响** | 真实滑点分布可能高度偏态 |
-| **证据** | `config/execution_policy.yaml:5-8` |
-| **最小修复** | 分时段设置不同的滑点系数 |
-
-### P2-3：制度检测后动作不明确
-
-| 项目 | 内容 |
-|------|------|
-| **结论** | 有`RegimeDetector`但检测到制度变化后的动作是"临时性"的，无系统性响应 |
-| **影响** | 可能在危机期做出错误动作 |
-| **证据** | `src/alpha_research/causal/regime_detector.py`返回`regime_change: bool`但无自动触发 |
-| **最小修复** | 制度变化→强制WAIT 5天+现有头寸减半 |
-
-### P2-4：图分析boost缺乏回测支持
-
-| 项目 | 内容 |
-|------|------|
-| **结论** | `enhanced_opportunity.py:339-356`对central_node、delay_opportunity等给予5-8%的score boost，但这些boost未经回测验证 |
-| **影响** | 可能是纯粹的数据窥探 |
-| **证据** | 代码中硬编码boost值，无历史验证 |
-| **最小修复** | 这些boost必须通过前注册+walk-forward验证后才能启用 |
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | Constitution claims PIT is "FATAL" level requirement, but **no automated audit pipeline verifies this promise** |
+| **Impact** | A single missed `available_at` field is sufficient to invalidate the entire backtest |
+| **Evidence** | `src/alpha_research/core/pit_enforcer.py` exists, but:<br>- No audit log output<br>- No CI test coverage for all data paths<br>- `tests/test_constitutional.py` only has unit tests, no integration tests verifying real data flow |
+| **Minimum Fix** | **Add PIT audit pipeline**:<br>1. Scan all non-price data timestamps before each backtest<br>2. Generate `artifacts/pit_audit_{date}.json` report<br>3. Any violation immediately halts execution |
 
 ---
 
-## 失败模式地图
+## P1 - High Risk Issues (Significantly Reduces Credibility)
 
-| # | 失败模式 | 概率 | 严重性 | 当前防线 | 建议加强 |
-|---|---------|------|--------|----------|----------|
-| 1 | **Regime Shift** | 高 | 致命 | `RegimeDetector`存在但未触发动作 | 制度变化→强制WAIT+减仓50% |
-| 2 | **流动性枯竭** | 中 | 致命 | ADV过滤器($50M) | 危机期动态提高到$200M |
-| 3 | **事件跳空** | 高 | 高 | 收益窗口检测 | 收益前3天禁止新建仓 |
-| 4 | **LLM API故障** | 中 | 中 | 多LLM集合 | 添加fallback到纯规则模式 |
-| 5 | **数据源中断** | 中 | 高 | Yahoo Finance | 添加备用数据源+数据完整性校验 |
-| 6 | **因子拥挤** | 高 | 中 | `crowding_simulator`角色存在 | 实现因子暴露监控+预警 |
-| 7 | **PIT违规** | 低 | 致命 | `pit_enforcer` | 添加自动化审计流水线 |
-| 8 | **过度换手** | 中 | 中 | 10%/15%/40%上限 | 换手成本纳入信号计算 |
-| 9 | **相关性突变** | 中 | 高 | 相关性检查 | 实时相关性监控+突破预警 |
-| 10 | **回测过拟合** | 高 | 致命 | Deflated Sharpe | 添加SPA Bootstrap |
+### P1-1: LLM Mechanism Role Misalignment
+
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | LLM is used to **generate signals** (expert scores, debate conclusions), not purely for **risk gating** |
+| **Impact** | LLM randomness directly injects into alpha signal, making backtests non-reproducible and live trading unpredictable |
+| **Evidence** | `src/alpha_research/gate/enhanced_opportunity.py:236-249`:<br>Debate conclusion directly becomes `recommended_stocks` score, not just for kill decisions<br>`src/alpha_research/llm/multi_llm_ensemble.py`: Multi-LLM output weighted average becomes final score |
+| **Minimum Fix** | **Limit LLM to pure deduction**:<br>1. Modify `llm_constitution`: `SCORE_BONUS_SMALL: enabled: false` (exists but needs enforcement)<br>2. Expert scores can only be 0 or negative<br>3. Debate conclusions can only trigger WAIT or REDUCE, not BUILD |
+
+### P1-2: Expert Debate is Noise Amplifier
+
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | 4 of 6 experts involve LLM (Filing, News, Causal via text, Debate itself), debate mechanism stacks noise on noise |
+| **Impact** | Even if single LLM call has 20% variance, chaining 4 causes exponential variance amplification |
+| **Evidence** | `src/alpha_research/debate/debate.py`: Bull vs Bear by LLM role-playing<br>`src/alpha_research/experts/filing.py`: RAG+LLM<br>`src/alpha_research/experts/news.py`: LLM sentiment analysis |
+| **Minimum Fix** | **Lock debate to rule-driven**:<br>1. Change debate conclusion to rule-weighted (not LLM-generated)<br>2. LLM only for evidence extraction, not voting<br>3. Temperature to 0.0 + fixed seed |
+
+### P1-3: Causal Factor Lacks Promotion Protocol
+
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | Code claims causal factors "start at 0, must prove value to gain weight", but **no specific conditions and process for promotion defined** |
+| **Impact** | Either forever 0 weight (nominal), or someday arbitrary promotion (violates design intent) |
+| **Evidence** | `src/alpha_research/factors/core_score.py:104-106`: `causal_weight = 0.00`<br>`increase_causal_weight()` method exists but no call conditions<br>No walk-forward triggered promotion logic |
+| **Minimum Fix** | **Define hardcoded promotion protocol**:<br>1. 3 consecutive months walk-forward IR>0.1 → weight +1%<br>2. Any month IR<-0.1 → weight to zero<br>3. Record in `artifacts/causal_weight_log.json` |
+
+### P1-4: Cost Model Oversimplified
+
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | Cost stress test uses 2x multiplier, but base cost model (5bp+sqrt(participation)) ignores order book depth and nonlinear impact |
+| **Impact** | During high volatility periods (exactly when alpha is most likely to exist), actual costs may be 5-10x the model |
+| **Evidence** | `config/execution_policy.yaml:20-25`: `slippage_expected_bps: 8`<br>`src/alpha_research/gate/cost_stress.py`: Only linear multiplication<br>No order book simulation, no Almgren-Chriss model |
+| **Minimum Fix** | **Upgrade cost model**:<br>1. Introduce Almgren-Chriss temporary/permanent impact decomposition<br>2. Raise stress test multiplier from 2x to 5x (conservative)<br>3. Force 50% position reduction in high volatility regime |
 
 ---
 
-## 交付物A：研究级最小可行版本（MVP Research Protocol）
+## P2 - Medium Risk Issues (Needs Attention)
 
-### 阶段0：冻结与注册（Week 1）
+### P2-1: Holdout Set Statistical Power Insufficient
+
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | 20% holdout on 5-year data is about 250 trading days, independent samples may be insufficient to detect 10% alpha statistical significance |
+| **Evidence** | `src/alpha_research/core/validation_system.py:306-312`: Fixed 20%<br>No power analysis code |
+| **Minimum Fix** | Add minimum sample size calculation: `n_min = (1.96/target_alpha*vol)^2` |
+
+### P2-2: Execution Window Assumption Fragile
+
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | 09:35-15:55 execution window assumes sufficient liquidity, but liquidity patterns are completely different in first 30 minutes after open and last 30 minutes before close |
+| **Evidence** | `config/execution_policy.yaml:5-8` |
+
+### P2-3: Regime Detection Post-Action Unclear
+
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | Has `RegimeDetector` but actions after detecting regime change are "ad-hoc", no systematic response |
+| **Evidence** | `src/alpha_research/causal/regime_detector.py` returns `regime_change: bool` but no automatic trigger |
+| **Minimum Fix** | Regime change → Force WAIT 5 days + existing positions reduced by half |
+
+### P2-4: Graph Analysis Boost Lacks Backtest Support
+
+| Aspect | Finding |
+|--------|---------|
+| **Conclusion** | `enhanced_opportunity.py:339-356` gives 5-8% score boost for central_node, delay_opportunity, etc., but these boosts not validated by backtest |
+| **Minimum Fix** | These boosts must be enabled only after pre-registration + walk-forward validation |
+
+---
+
+## Risk Scenarios Matrix
+
+| # | Risk | Probability | Impact | Mitigation | Fix |
+|---|------|-------------|--------|------------|-----|
+| 1 | Regime Shift | High | Fatal | `RegimeDetector` exists but no triggered action | Regime change → Force WAIT + 50% reduction |
+| 2 | Liquidity Drought | Medium | Fatal | ADV filter ($50M) | Dynamically raise to $200M in crisis |
+| 3 | Event Gap | High | High | Earnings window detection | Ban new positions 3 days before earnings |
+| 4 | LLM API Failure | Medium | Medium | Multi-LLM ensemble | Add fallback to pure rule mode |
+| 5 | Data Source Outage | Medium | High | Yahoo Finance | Add backup data source + data integrity check |
+| 6 | Factor Crowding | High | Medium | `crowding_simulator` role exists | Implement factor exposure monitoring + alerts |
+| 7 | PIT Violation | Low | Fatal | `pit_enforcer` | Add automated audit pipeline |
+| 8 | Excessive Turnover | Medium | Medium | 10%/15%/40% caps | Include turnover cost in signal calculation |
+| 9 | Correlation Spike | Medium | High | Correlation checks | Real-time correlation monitoring + breach alerts |
+| 10 | Backtest Overfitting | High | Fatal | Deflated Sharpe | Add SPA Bootstrap |
+
+---
+
+## Deliverable A: Research-Grade Minimum Viable Protocol
+
+### Phase 0: Freeze and Register (Week 1)
 
 ```yaml
 Day 1-2:
-  action: "冻结所有模块参数"
+  action: "Freeze all module parameters"
   output:
     - config/frozen_params_{date}.yaml
-    - 不允许任何参数修改直到验证完成
 
 Day 3-5:
-  action: "完成模块前注册"
+  action: "Complete module pre-registration"
   modules_to_register:
     - QualityFactor:
-        hypothesis: "高ROE+低杠杆公司长期超额收益"
+        hypothesis: "High ROE + low leverage companies have long-term excess returns"
         expected_ir: 0.3
         max_drawdown: 15%
-        failure_criteria: "连续2个季度IR<0"
+        failure_criteria: "2 consecutive quarters IR<0"
     - MomentumFactor:
-        hypothesis: "12m-1m收益有延续性"
+        hypothesis: "12m-1m returns have persistence"
         expected_ir: 0.4
         max_drawdown: 20%
-        failure_criteria: "6个月cumulative alpha < 0"
+        failure_criteria: "6 months cumulative alpha < 0"
     - ValueFactor:
-        hypothesis: "EBITDA/EV低估值回归"
+        hypothesis: "Low EBITDA/EV undervaluation mean reversion"
         expected_ir: 0.2
         max_drawdown: 25%
-        failure_criteria: "连续3个月负alpha"
+        failure_criteria: "3 consecutive months negative alpha"
   output:
     - artifacts/module_registry/*.json
 
 Day 6-7:
-  action: "建立PIT审计流水线"
+  action: "Establish PIT audit pipeline"
   output:
     - scripts/audit_pit.py
-    - CI检查：每次提交自动运行
+    - CI check: Auto-run on each commit
 ```
 
-### 阶段1：Walk-Forward验证（Week 2-3）
+### Phase 1: Walk-Forward Validation (Week 2-3)
 
 ```yaml
-配置:
+Configuration:
   data_range: 2019-01-01 to 2024-12-31
   train_period: 252 days
   test_period: 63 days
   gap: 5 days
   n_walks: ~15
 
-执行:
-  - 对每个已注册模块单独运行walk-forward
-  - 记录每个fold的Sharpe, MaxDD, IR
-  - 输出: artifacts/walk_forward/{module}_results.json
+Execution:
+  - Run walk-forward on each registered module individually
+  - Record Sharpe, MaxDD, IR for each fold
+  - Output: artifacts/walk_forward/{module}_results.json
 
-验收门槛（任一不满足即FAIL）:
-  - 60%以上folds的Sharpe > 0
-  - 平均IR > 0（扣除交易成本后）
-  - 没有任何fold的MaxDD > 注册的max_drawdown
+Acceptance Threshold (fail if any not met):
+  - >60% of folds Sharpe > 0
+  - Mean IR > 0 (after transaction costs)
+  - No fold MaxDD > registered max_drawdown
   - Deflated Sharpe (across all folds) > 0
 ```
 
-### 阶段2：组合验证（Week 4）
+### Phase 2: Portfolio Validation (Week 4)
 
 ```yaml
-执行:
-  - 只用PASS的模块组合
-  - 运行组合级walk-forward
-  - 与SPY基准对比
+Execution:
+  - Combine only PASS modules
+  - Run portfolio-level walk-forward
+  - Compare with SPY benchmark
 
-验收门槛:
-  - 组合Sharpe > 0.5 (net-of-cost)
+Acceptance Threshold:
+  - Portfolio Sharpe > 0.5 (net-of-cost)
   - MaxDD < SPY MaxDD * 0.7
   - Calmar > 0.3
   - PSR > 95%
 ```
 
-### 阶段3：压力测试（Week 5）
+### Phase 3: Stress Testing (Week 5)
 
 ```yaml
-场景:
-  - 2020-03 COVID崩盘重放
-  - 2022-Q1 利率冲击重放
-  - 假设成本5x、波动2x、相关性+0.3
+Scenarios:
+  - 2020-03 COVID crash replay
+  - 2022-Q1 rate shock replay
+  - Assume cost 5x, volatility 2x, correlation +0.3
 
-验收门槛:
-  - 所有场景下不触发KILL_SWITCH (15% DD)
-  - 压力成本下仍有正期望
+Acceptance Threshold:
+  - All scenarios do not trigger KILL_SWITCH (15% DD)
 ```
 
 ---
 
-## 交付物B：把"alpha>10%"变成可验收目标
+## Deliverable B: Making ">10% Alpha" a Verifiable Target
 
-### 验收指标组合与阈值
+### Acceptance Metrics
 
-| 指标 | 定义 | 阈值 | 计算周期 |
-|------|------|------|----------|
-| **Net Alpha** | FF3 alpha (扣除成本后) | ≥ 10% 年化 | 最近12个月OOS |
-| **Vol-Matched Excess** | 策略收益 - Beta * SPY收益 | ≥ 8% 年化 | 最近12个月OOS |
-| **Information Ratio** | Alpha / Tracking Error | ≥ 0.8 | 最近12个月OOS |
-| **Deflated Sharpe** | Sharpe - E[max(SR\|null)] | > 0 | 全验证期 |
-| **PSR** | P(真实Sharpe > 0) | > 95% | 全验证期 |
-| **Max Drawdown** | 峰谷最大回撤 | < 12% | 全验证期 |
-| **Calmar Ratio** | 年化收益 / MaxDD | > 1.0 | 最近12个月OOS |
-| **Monthly Win Rate** | 正收益月数/总月数 | > 55% | 最近12个月OOS |
-| **Cost-Adjusted IR** | 扣除2x成本后IR | > 0.5 | 最近12个月OOS |
+| Metric | Definition | Threshold | Window |
+|--------|------------|-----------|--------|
+| **Net Alpha** | FF3 alpha (after costs) | ≥ 10% annualized | Last 12 months OOS |
+| **Vol-Matched Excess** | Strategy return - Beta * SPY return | ≥ 8% annualized | Last 12 months OOS |
+| **Information Ratio** | Alpha / Tracking Error | ≥ 0.8 | Last 12 months OOS |
+| **Deflated Sharpe** | Sharpe - E[max(SR\|null)] | > 0 | Full validation period |
+| **PSR** | P(true Sharpe > 0) | > 95% | Full validation period |
+| **Max Drawdown** | Peak-to-trough maximum drawdown | < 12% | Full validation period |
+| **Calmar Ratio** | Annualized return / MaxDD | > 1.0 | Last 12 months OOS |
+| **Monthly Win Rate** | Positive months / Total months | > 55% | Last 12 months OOS |
+| **Cost-Adjusted IR** | IR after 2x cost deduction | > 0.5 | Last 12 months OOS |
 | **Stability Score** | min(fold_sharpes) / mean(fold_sharpes) | > 0.3 | Walk-forward |
 
-### 验收协议
+### Validation Code
 
 ```python
 def is_alpha_10_valid(metrics: dict) -> tuple[bool, list[str]]:
-    """验收alpha>10%声明"""
+    """Validate alpha>10% claim."""
     failures = []
 
-    # 必须全部通过
     checks = [
         (metrics['net_alpha'] >= 0.10, "Net Alpha < 10%"),
         (metrics['deflated_sharpe'] > 0, "Deflated Sharpe <= 0"),
@@ -291,87 +283,37 @@ def is_alpha_10_valid(metrics: dict) -> tuple[bool, list[str]]:
 
 ---
 
-## 交付物C：下一步优先级路线图
+## Implementation Status (2026-01-23 Update)
 
-### Week 1：修思路（P0）
+| Issue | Description | Status | Location |
+|-------|-------------|--------|----------|
+| P0-1 | Module pre-registration mechanism | ✓ Implemented | `scripts/register_core_modules.py` |
+| P0-2 | Walk-Forward validation | ✓ Implemented | `scripts/run_walk_forward.py` |
+| P0-3 | SPA Bootstrap multiple testing | ✓ Implemented | `src/alpha_research/validation/spa_bootstrap.py` |
+| P0-4 | PIT audit pipeline | ✓ Implemented | `scripts/audit_pit.py` |
+| P1-1 | LLM deduction-only restriction | ✓ Configured | `config/constitution.yaml` |
+| P1-3 | Causal factor promotion protocol | ✓ Implemented | `src/alpha_research/factors/causal_promotion.py` |
+| P1-4 | Almgren-Chriss cost model | ✓ Implemented | `src/alpha_research/execution/market_impact.py` |
+| - | PIT feature calculation | ✓ Implemented | `src/alpha_research/features/pit_features.py` |
+| - | PIT Dataset Builder | ✓ Implemented | `src/alpha_research/data/pit_dataset.py` |
+| - | Alpha acceptance metrics | ✓ Implemented | `src/alpha_research/validation/alpha_verification.py` |
+| - | CI validation pipeline | ✓ Implemented | `.github/workflows/validation.yml` |
+| - | Professional CLI | ✓ Implemented | `src/alpha_research/cli.py` |
 
-| Day | 任务 | 产出 | 验收标准 |
-|-----|------|------|----------|
-| 1 | 冻结参数快照 | `config/frozen_v1.yaml` | Git tag标记 |
-| 2 | 创建模块注册脚本 | `scripts/register_module.py` | 能生成符合schema的JSON |
-| 3 | 注册Q/M/V三个核心因子 | `artifacts/module_registry/quality_v1.json`等 | 包含hypothesis+failure_criteria |
-| 4 | 实现PIT审计流水线 | `scripts/audit_pit.py` | 能扫描所有数据路径并输出报告 |
-| 5 | 添加CI检查 | `.github/workflows/pit_audit.yml` | PR时自动运行 |
-
-### Week 2-3：验证基础设施（P0）
-
-| Day | 任务 | 产出 | 验收标准 |
-|-----|------|------|----------|
-| 8-9 | Walk-Forward验证器完善 | `src/validation/walk_forward_runner.py` | 能自动运行并保存结果 |
-| 10-11 | Q因子walk-forward | `artifacts/walk_forward/quality_v1.json` | 15+ folds完成 |
-| 12-13 | M因子walk-forward | `artifacts/walk_forward/momentum_v1.json` | 同上 |
-| 14-15 | V因子walk-forward | `artifacts/walk_forward/value_v1.json` | 同上 |
-| 16-17 | SPA Bootstrap实现 | `src/validation/spa_bootstrap.py` | 能计算adjusted p-values |
-| 18-19 | 应用SPA到各模块 | SPA报告 | 所有模块p<0.05 |
-
-### Week 4：LLM角色修正（P1）
-
-| Day | 任务 | 产出 | 验收标准 |
-|-----|------|------|----------|
-| 22 | 修改LLM权限为仅扣分 | `config/constitution.yaml`更新 | 测试验证无法加分 |
-| 23 | 辩论机制改为规则驱动 | `src/debate/rule_based_consensus.py` | 不依赖LLM生成结论 |
-| 24 | 添加LLM fallback模式 | `src/llm/fallback.py` | API故障时自动切换 |
-| 25 | 因果因子升权协议实现 | `src/factors/causal_promotion.py` | 满足条件自动升权 |
-
-### Week 5：成本与压力测试（P1）
-
-| Day | 任务 | 产出 | 验收标准 |
-|-----|------|------|----------|
-| 29 | Almgren-Chriss成本模型 | `src/execution/market_impact.py` | 非线性冲击建模 |
-| 30 | 压力乘数提升至5x | 配置更新 | 回测仍盈利 |
-| 31 | 历史危机重放测试 | `artifacts/stress_tests/` | COVID/2022不触发KILL |
-| 32 | 制度变化自动响应 | `src/risk/regime_response.py` | 自动减仓逻辑 |
-
-### Week 6：Alpha验收（最终）
-
-| Day | 任务 | 产出 | 验收标准 |
-|-----|------|------|----------|
-| 36 | 组合级walk-forward | `artifacts/portfolio_validation.json` | 完整验收报告 |
-| 37 | Alpha验收报告生成 | `artifacts/alpha_validation_report.md` | 填充所有指标 |
-| 38 | 独立审计review | 第三方检查 | 无重大异议 |
-| 39-40 | 修复审计发现问题 | 代码更新 | 所有P0关闭 |
+**Note**: All above are infrastructure implementations. Validation runs have not been executed, no performance results exist.
 
 ---
 
-## 最可能失败原因排序
+## Top Risks (Remaining)
 
-1. **回测过拟合**（无SPA，全市场扫描的隐性多重检验）
-2. **LLM噪声注入**（信号路径而非仅门控）
-3. **成本低估**（简化模型在危机期失效）
-4. **因子拥挤**（Q/M/V都是公开因子，alpha衰减快）
-
----
-
-## 修复实施状态 (2026-01-22 更新)
-
-| 问题编号 | 问题描述 | 实施状态 | 实施文件 |
-|---------|---------|---------|---------|
-| P0-1 | 模块前注册机制 | ✓ 已实施 | `scripts/register_core_modules.py` |
-| P0-2 | Walk-Forward验证 | ✓ 已实施 | `scripts/run_walk_forward.py` |
-| P0-3 | SPA Bootstrap多重检验 | ✓ 已实施 | `src/alpha_research/validation/spa_bootstrap.py` |
-| P0-4 | PIT审计流水线 | ✓ 已实施 | `scripts/audit_pit.py` |
-| P1-1 | LLM仅扣分限制 | ✓ 已配置 | `config/constitution.yaml` |
-| P1-3 | 因果因子升权协议 | ✓ 已实施 | `src/alpha_research/factors/causal_promotion.py` |
-| P1-4 | Almgren-Chriss成本模型 | ✓ 已实施 | `src/alpha_research/execution/market_impact.py` |
-| - | PIT特征计算 | ✓ 已实施 | `src/alpha_research/features/pit_features.py` |
-| - | Alpha验收指标 | ✓ 已实施 | `src/alpha_research/validation/alpha_verification.py` |
-| - | CI验证流水线 | ✓ 已实施 | `.github/workflows/validation.yml` |
-
-**注意**: 以上均为基础设施实施。验证运行尚未执行，无性能结果。
+1. **Backtest overfitting** (no SPA runs yet, implicit multiple testing in market-wide scans)
+2. **LLM noise injection** (signal path rather than gating only)
+3. **Cost underestimation** (simplified model fails in crisis)
+4. **Factor crowding** (Q/M/V are public factors, alpha decay is fast)
 
 ---
 
-**审计签名**: Claude (Opus 4.5)
-**审计日期**: 2026-01-21
-**实施更新**: 2026-01-22
-**下次审计**: 完成验证运行后
+**Audit Signature**: Claude (Opus 4.5)
+**Audit Date**: 2026-01-21
+**Implementation Update**: 2026-01-23
+**Next Audit**: After validation runs complete

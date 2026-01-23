@@ -26,7 +26,7 @@ class NewsExpert(ExpertBase):
 
     # Event types and their typical impacts
     EVENT_IMPACTS = {
-        # 正面事件
+        # Positive events
         "earnings_beat": 0.4,
         "guidance_raise": 0.5,
         "dividend_increase": 0.3,
@@ -38,7 +38,7 @@ class NewsExpert(ExpertBase):
         "patent_approval": 0.2,
         "ceo_buy": 0.35,
 
-        # 负面事件
+        # Negative events
         "earnings_miss": -0.5,
         "guidance_cut": -0.6,
         "dividend_cut": -0.5,

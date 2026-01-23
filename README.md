@@ -197,6 +197,30 @@ pip install -e .
 - Python 3.10+
 - See `requirements.txt` for dependencies
 
+## CLI Usage
+
+The framework provides a command-line interface for common operations:
+
+```bash
+# Show system status and configuration
+alpha-research status
+
+# Build a PIT-compliant dataset
+alpha-research build-dataset --universe sp500_sample --start 2022-01-01 --end 2023-12-31
+
+# Run walk-forward validation with synthetic data
+alpha-research validate --strategy momentum --synthetic
+
+# Run PIT compliance audit
+alpha-research audit --output-dir artifacts/pit_audits
+```
+
+For full options:
+```bash
+alpha-research --help
+alpha-research <command> --help
+```
+
 ## Testing
 
 ```bash
