@@ -13,7 +13,7 @@ Per Constitution Section 10:
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Callable
 import pytz

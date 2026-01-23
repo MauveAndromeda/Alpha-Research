@@ -82,6 +82,53 @@ data_constitution:
         description: "Data asof_time must be <= decision_time"
         enforcement: "FATAL"
 
+  # =========================================================================
+  # TRADE TIMING - Anti-Lookahead Signal/Execution Rules (CRITICAL)
+  # =========================================================================
+  # This section prevents the most common form of backtest cheating:
+  # using t's data to trade at t's price (same-bar lookahead)
+  trade_timing:
+    description: |
+      CRITICAL: Signal and execution timing must be strictly separated.
+      This is NON-NEGOTIABLE - violating this invalidates all backtest results.
+
+    signal_data_cutoff:
+      description: |
+        Signals can ONLY use data available BEFORE the decision point.
+        For daily strategies: use t-1 close (previous day's close)
+      rule: "signal uses data from [earliest, t-1 close]"
+      enforcement: "FATAL"
+
+    signal_delay:
+      description: |
+        Minimum delay between signal generation and execution.
+        Prevents using "just happened" information to trade immediately.
+      default_days: 1
+      enforcement: "FATAL"
+      examples:
+        - "Signal computed at t-1 close -> Execute at t open/close"
+        - "Signal computed at t close -> Execute at t+1 open/close"
+
+    execution_price:
+      description: |
+        Which price to use for execution in backtest.
+        Default: next day's open (t+1 open) for signals computed at t close.
+      allowed_values:
+        - "next_open"   # t+1 open - most conservative, recommended
+        - "next_close"  # t+1 close - still valid, higher capacity
+        - "next_vwap"   # t+1 VWAP - realistic for larger orders
+      default: "next_open"
+      forbidden_values:
+        - "same_close"  # NEVER use same day close as signal - this is cheating
+        - "same_open"   # NEVER if signal uses any t data
+      enforcement: "FATAL"
+
+    implementation_requirements:
+      - "Backtest engine MUST enforce signal_delay >= 1 day"
+      - "Backtest engine MUST use execution_price from config"
+      - "PIT feature calculator MUST exclude as_of_date from data"
+      - "Red team test MUST verify no same-bar lookahead"
+
   # Information source layering (cost control)
   source_layers:
     layer_a:

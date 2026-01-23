@@ -23,72 +23,62 @@ Key Research Foundations:
 - TradingAgents (UCLA/MIT): Multi-agent collaboration framework
 """
 
-__version__ = "2.0.0"  # Major version bump for causal architecture
+__version__ = "0.1.0-alpha"  # Pre-validation status
 __author__ = "Alpha Research Team"
 
-from alpha_research.utils.config import load_config, get_config
-from alpha_research.utils.enums import (
-    ActionType,
-    EvidenceType,
-    NewsFlag,
-    FilingFlag,
-    InsiderFlag,
-    IncidentSeverity,
-    ErrorCode,
-    ProposalRejectReason,
-)
+# Lazy imports to avoid "import explosion" and circular dependency issues
+# Users should import specific modules explicitly:
+#   from alpha_research.core import stable_hash
+#   from alpha_research.factors import QualityFactor
 
-# Core infrastructure
-from alpha_research.core import (
-    stable_sort,
-    stable_hash,
-    DeterministicRandom,
-    SystemStateManager,
-    RunLedger,
-    LLMBudgetEnforcer,
-    ReplayHarness,
-)
+def __getattr__(name):
+    """Lazy import for backward compatibility."""
+    # Config utilities (lightweight, always available)
+    if name in ('load_config', 'get_config'):
+        from alpha_research.utils.config import load_config, get_config
+        return load_config if name == 'load_config' else get_config
 
-# Causal discovery (new in 2.0)
-from alpha_research.causal import (
-    TransferEntropyCalculator,
-    CausalGraph,
-    CausalGraphBuilder,
-    CausalFactorEngine,
-    CausalRegimeDetector,
-)
+    # Enums (lightweight)
+    if name in ('ActionType', 'EvidenceType', 'NewsFlag', 'FilingFlag',
+                'InsiderFlag', 'IncidentSeverity', 'ErrorCode', 'ProposalRejectReason'):
+        from alpha_research.utils import enums
+        return getattr(enums, name)
 
-# Factors
-from alpha_research.factors import (
-    CoreScoreCalculator,
-    QualityFactor,
-    MomentumFactor,
-    ValueFactor,
-    UniverseBuilder,
-)
+    # Core infrastructure
+    if name in ('stable_sort', 'stable_hash', 'DeterministicRandom',
+                'SystemStateManager', 'RunLedger', 'LLMBudgetEnforcer', 'ReplayHarness'):
+        from alpha_research import core
+        return getattr(core, name)
 
-# Gate - Decision Authority System (new in 2.0)
-from alpha_research.gate import (
-    GateState,
-    GateStateMachine,
-    GateDecision,
-    OpportunityAgent,
-    OpportunityAssessment,
-    LLMCommittee,
-    CommitteeReport,
-    Snapshot,
-    SnapshotBuilder,
-    CostStressTester,
-    StressTestResult,
-)
+    # Causal discovery
+    if name in ('TransferEntropyCalculator', 'CausalGraph', 'CausalGraphBuilder',
+                'CausalFactorEngine', 'CausalRegimeDetector'):
+        from alpha_research import causal
+        return getattr(causal, name)
+
+    # Factors
+    if name in ('CoreScoreCalculator', 'QualityFactor', 'MomentumFactor',
+                'ValueFactor', 'UniverseBuilder'):
+        from alpha_research import factors
+        return getattr(factors, name)
+
+    # Gate - Decision Authority
+    if name in ('GateState', 'GateStateMachine', 'GateDecision', 'OpportunityAgent',
+                'OpportunityAssessment', 'LLMCommittee', 'CommitteeReport',
+                'Snapshot', 'SnapshotBuilder', 'CostStressTester', 'StressTestResult'):
+        from alpha_research import gate
+        return getattr(gate, name)
+
+    raise AttributeError(f"module 'alpha_research' has no attribute '{name}'")
+
 
 __all__ = [
     # Version
     "__version__",
-    # Config
+    # Config (use explicit import: from alpha_research.utils.config import ...)
     "load_config",
     "get_config",
-    # Enums
+    # Enums (use explicit import: from alpha_research.utils.enums import ...)
     "ActionType",
     "EvidenceType",
     "NewsFlag",
@@ -97,7 +87,7 @@ __all__ = [
     "IncidentSeverity",
     "ErrorCode",
     "ProposalRejectReason",
-    # Core infrastructure
+    # Core infrastructure (use explicit import: from alpha_research.core import ...)
     "stable_sort",
     "stable_hash",
     "DeterministicRandom",
@@ -105,19 +95,19 @@ __all__ = [
     "RunLedger",
     "LLMBudgetEnforcer",
     "ReplayHarness",
-    # Causal discovery
+    # Causal discovery (use explicit import: from alpha_research.causal import ...)
     "TransferEntropyCalculator",
     "CausalGraph",
     "CausalGraphBuilder",
     "CausalFactorEngine",
     "CausalRegimeDetector",
-    # Factors
+    # Factors (use explicit import: from alpha_research.factors import ...)
     "CoreScoreCalculator",
     "QualityFactor",
     "MomentumFactor",
     "ValueFactor",
     "UniverseBuilder",
-    # Gate - Decision Authority
+    # Gate - Decision Authority (use explicit import: from alpha_research.gate import ...)
     "GateState",
     "GateStateMachine",
     "GateDecision",
