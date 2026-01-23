@@ -155,6 +155,9 @@ class BacktestEngine:
         rebalance_frequency: str = "monthly",
         max_position_weight: float = 0.05,
         target_holdings: int = 25,
+        # Anti-lookahead parameters (per Constitution trade_timing section)
+        signal_delay_days: int = 1,
+        execution_price: str = "next_open",
     ):
         """
         Initialize backtest engine.
@@ -168,7 +171,28 @@ class BacktestEngine:
             rebalance_frequency: 'daily', 'weekly', or 'monthly'
             max_position_weight: Maximum weight per position
             target_holdings: Target number of holdings
+            signal_delay_days: Days between signal and execution (>= 1, default 1)
+                              Signal at t-1 close, execute at t open/close
+            execution_price: Price used for execution ('next_open', 'next_close', 'next_vwap')
+                            FORBIDDEN: 'same_close', 'same_open' (lookahead bias)
         """
+        # Validate anti-lookahead parameters (Constitutional requirement)
+        if signal_delay_days < 1:
+            raise ValueError(
+                "signal_delay_days must be >= 1 to prevent lookahead bias. "
+                "Per Constitution: signals must use t-1 data, execute at t."
+            )
+        if execution_price in ('same_close', 'same_open'):
+            raise ValueError(
+                f"execution_price='{execution_price}' is FORBIDDEN - causes lookahead bias. "
+                "Per Constitution: use 'next_open', 'next_close', or 'next_vwap'."
+            )
+        if execution_price not in ('next_open', 'next_close', 'next_vwap'):
+            raise ValueError(
+                f"execution_price='{execution_price}' not recognized. "
+                "Allowed: 'next_open', 'next_close', 'next_vwap'."
+            )
+
         self.initial_capital = initial_capital
         self.commission_per_share = commission_per_share
         self.min_commission = min_commission
@@ -177,6 +201,8 @@ class BacktestEngine:
         self.rebalance_frequency = rebalance_frequency
         self.max_position_weight = max_position_weight
         self.target_holdings = target_holdings
+        self.signal_delay_days = signal_delay_days
+        self.execution_price = execution_price
 
         # Components
         self.core_calculator = CoreScoreCalculator()
@@ -236,12 +262,17 @@ class BacktestEngine:
         cumulative_return = 0.0
 
         for current_date in trading_days:
-            # Get data available as of this date (point-in-time)
-            available_market = market_data[market_data['date'] <= current_date]
-            available_fundamental = self._get_pit_fundamental(fundamental_data, current_date)
+            # CRITICAL: Anti-lookahead enforcement per Constitution trade_timing
+            # Signal uses data STRICTLY BEFORE current_date (t-1 close, not t)
+            # This prevents same-bar lookahead bias
+            signal_data_cutoff = current_date - timedelta(days=self.signal_delay_days)
+            available_market = market_data[market_data['date'] < current_date]
+            available_fundamental = self._get_pit_fundamental(fundamental_data, signal_data_cutoff)
 
-            # Get current prices
-            current_prices = self._get_current_prices(available_market, current_date)
+            # Get execution prices based on execution_price setting
+            # next_open: use current_date's open (signal from t-1, execute at t open)
+            # next_close: use current_date's close (signal from t-1, execute at t close)
+            current_prices = self._get_execution_prices(market_data, current_date, self.execution_price)
 
             # Check if rebalance day
             if current_date in rebalance_dates:
@@ -311,6 +342,63 @@ class BacktestEngine:
 
             if len(symbol_data) > 0:
                 prices[symbol] = symbol_data.iloc[-1]['close']
+
+        return prices
+
+    def _get_execution_prices(
+        self,
+        market_data: pd.DataFrame,
+        execution_date: date,
+        price_type: str,
+    ) -> Dict[str, float]:
+        """
+        Get execution prices for a specific date.
+
+        Per Constitution trade_timing:
+        - Signal computed at t-1, execution at t
+        - execution_date is the day we actually trade
+
+        Args:
+            market_data: Full market data (includes future for execution lookup)
+            execution_date: Date of execution (t)
+            price_type: 'next_open', 'next_close', or 'next_vwap'
+
+        Returns:
+            Dict of symbol -> execution price
+        """
+        prices = {}
+
+        # Map price_type to column name
+        price_col_map = {
+            'next_open': 'open',
+            'next_close': 'close',
+            'next_vwap': 'vwap',  # May not exist, fallback to close
+        }
+
+        target_col = price_col_map.get(price_type, 'close')
+
+        for symbol in market_data['symbol'].unique():
+            symbol_data = market_data[
+                (market_data['symbol'] == symbol) &
+                (market_data['date'] == execution_date)
+            ]
+
+            if len(symbol_data) > 0:
+                row = symbol_data.iloc[0]
+                # Try target column, fallback to close if not available
+                if target_col in row and pd.notna(row[target_col]):
+                    prices[symbol] = row[target_col]
+                elif 'close' in row:
+                    prices[symbol] = row['close']
+            else:
+                # No data for execution date - use last available close
+                # This handles holidays / missing data gracefully
+                prev_data = market_data[
+                    (market_data['symbol'] == symbol) &
+                    (market_data['date'] < execution_date)
+                ].sort_values('date')
+                if len(prev_data) > 0:
+                    prices[symbol] = prev_data.iloc[-1]['close']
 
         return prices
 

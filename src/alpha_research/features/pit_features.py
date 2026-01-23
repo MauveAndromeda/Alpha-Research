@@ -86,16 +86,21 @@ class PITFeatureCalculator:
 
     def __init__(
         self,
-        min_history_days: int = 252,
+        min_history_days: Optional[int] = None,
         strict_mode: bool = True,
     ):
         """
         Initialize PIT feature calculator.
 
         Args:
-            min_history_days: Minimum days of history required
+            min_history_days: Minimum days of history required. If None,
+                              defaults to max(DEFAULT_LOOKBACKS) + 1 = 253.
+                              Set to smaller value for shorter backtests.
             strict_mode: If True, raise errors on PIT violations
         """
+        # Default: max lookback + 1 (to have at least one observation for longest feature)
+        if min_history_days is None:
+            min_history_days = max(self.DEFAULT_LOOKBACKS.values()) + 1
         self.min_history_days = min_history_days
         self.strict_mode = strict_mode
         self._computation_log: List[Dict] = []

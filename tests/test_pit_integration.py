@@ -232,10 +232,11 @@ class TestConvenienceFunctions:
 
     def test_align_data_for_backtest(self):
         """Test align_data_for_backtest convenience function."""
+        dates = pd.date_range('2023-01-01', '2023-12-31', freq='B')
         market_data = pd.DataFrame({
             'symbol': 'AAPL',
-            'date': pd.date_range('2023-01-01', '2023-12-31', freq='B'),
-            'close': np.random.uniform(100, 200, 261),
+            'date': dates,
+            'close': np.random.uniform(100, 200, len(dates)),
         })
 
         fundamental_data = pd.DataFrame({
