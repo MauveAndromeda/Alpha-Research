@@ -8,12 +8,17 @@ Implements:
 3. Risk parity position sizing
 4. ML ensemble with anti-overfitting safeguards
 
+Uses REAL fundamental data from Yahoo Finance.
+
 Author: Alpha Research Team
 """
 
 import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+from datetime import date
+import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -66,14 +71,108 @@ SECTOR_MAPPING = {
 @dataclass
 class FactorWeights:
     """Factor weights for the multi-factor model."""
-    momentum: float = 0.30
+    momentum: float = 0.25
     value: float = 0.25
     quality: float = 0.25
-    low_vol: float = 0.20
+    low_vol: float = 0.25
 
 
 # =============================================================================
-# Factor Calculations
+# Fundamental Data Cache
+# =============================================================================
+
+_FUNDAMENTAL_CACHE: Dict[str, Dict] = {}
+_CACHE_FILE = Path("artifacts/fundamental_cache.json")
+
+
+def load_fundamental_cache():
+    """Load fundamental data cache from disk."""
+    global _FUNDAMENTAL_CACHE
+    if _CACHE_FILE.exists():
+        try:
+            with open(_CACHE_FILE, 'r') as f:
+                _FUNDAMENTAL_CACHE = json.load(f)
+            logger.info(f"Loaded fundamental cache: {len(_FUNDAMENTAL_CACHE)} symbols")
+        except Exception as e:
+            logger.warning(f"Failed to load cache: {e}")
+            _FUNDAMENTAL_CACHE = {}
+
+
+def save_fundamental_cache():
+    """Save fundamental data cache to disk."""
+    _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(_CACHE_FILE, 'w') as f:
+            json.dump(_FUNDAMENTAL_CACHE, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to save cache: {e}")
+
+
+def get_fundamental_data(symbols: List[str]) -> Dict[str, Dict]:
+    """
+    Get fundamental data from Yahoo Finance.
+
+    Returns dict of {symbol: {pe, pb, dividend_yield, roe, profit_margin, ...}}
+    """
+    global _FUNDAMENTAL_CACHE
+
+    # Load cache if empty
+    if not _FUNDAMENTAL_CACHE:
+        load_fundamental_cache()
+
+    # Find symbols not in cache
+    missing = [s for s in symbols if s not in _FUNDAMENTAL_CACHE]
+
+    if missing:
+        logger.info(f"Fetching fundamental data for {len(missing)} symbols...")
+        try:
+            import yfinance as yf
+
+            for symbol in missing:
+                try:
+                    ticker = yf.Ticker(symbol)
+                    info = ticker.info
+
+                    _FUNDAMENTAL_CACHE[symbol] = {
+                        # Value metrics
+                        'pe_trailing': info.get('trailingPE'),
+                        'pe_forward': info.get('forwardPE'),
+                        'pb': info.get('priceToBook'),
+                        'ps': info.get('priceToSalesTrailing12Months'),
+                        'ev_ebitda': info.get('enterpriseToEbitda'),
+                        'dividend_yield': info.get('dividendYield', 0) or 0,
+
+                        # Quality metrics
+                        'roe': info.get('returnOnEquity'),
+                        'roa': info.get('returnOnAssets'),
+                        'profit_margin': info.get('profitMargins'),
+                        'operating_margin': info.get('operatingMargins'),
+                        'debt_to_equity': info.get('debtToEquity'),
+                        'current_ratio': info.get('currentRatio'),
+                        'revenue_growth': info.get('revenueGrowth'),
+                        'earnings_growth': info.get('earningsGrowth'),
+
+                        # Other
+                        'market_cap': info.get('marketCap'),
+                        'beta': info.get('beta'),
+                        'sector': info.get('sector', SECTOR_MAPPING.get(symbol, 'Other')),
+                    }
+                except Exception as e:
+                    logger.warning(f"  {symbol}: Failed to get fundamentals - {e}")
+                    _FUNDAMENTAL_CACHE[symbol] = {}
+
+            # Save cache after fetching
+            save_fundamental_cache()
+
+        except ImportError:
+            logger.error("yfinance not installed")
+            return {}
+
+    return {s: _FUNDAMENTAL_CACHE.get(s, {}) for s in symbols}
+
+
+# =============================================================================
+# Factor Calculations with REAL Data
 # =============================================================================
 
 def compute_momentum_factor(
@@ -121,35 +220,59 @@ def compute_momentum_factor(
 def compute_value_factor(
     prices: pd.DataFrame,
     as_of_date,
+    fundamental_data: Dict[str, Dict] = None,
 ) -> pd.DataFrame:
     """
-    Compute value factor using earnings yield proxy.
+    Compute value factor using REAL fundamental data.
 
-    Uses 1-year return as inverse proxy (low return = potentially undervalued).
-    In production, use actual fundamental data (P/E, P/B, EV/EBITDA).
+    Composite of:
+    - Earnings Yield (1/PE)
+    - Book-to-Price (1/PB)
+    - Dividend Yield
+
+    Higher = more value (cheaper stocks)
     """
-    pit_prices = prices[prices['trade_date'] < as_of_date].copy()
+    symbols = prices['symbol'].unique().tolist()
+
+    # Get fundamental data if not provided
+    if fundamental_data is None:
+        fundamental_data = get_fundamental_data(symbols)
 
     results = []
-    for symbol in pit_prices['symbol'].unique():
-        sym_data = pit_prices[pit_prices['symbol'] == symbol].sort_values('trade_date')
+    for symbol in symbols:
+        fund = fundamental_data.get(symbol, {})
 
-        if len(sym_data) < 252:
+        # Earnings Yield = 1/PE (higher = cheaper)
+        pe = fund.get('pe_trailing') or fund.get('pe_forward')
+        earnings_yield = 1.0 / pe if pe and pe > 0 else None
+
+        # Book-to-Price = 1/PB (higher = cheaper)
+        pb = fund.get('pb')
+        book_to_price = 1.0 / pb if pb and pb > 0 else None
+
+        # Dividend Yield (higher = more income)
+        div_yield = fund.get('dividend_yield', 0) or 0
+
+        # Skip if no data
+        if earnings_yield is None and book_to_price is None:
             continue
 
-        # Use inverse of momentum as value proxy (contrarian)
-        # In reality, you'd use fundamental ratios
-        recent = sym_data.tail(252)
-        price_start = recent.iloc[0]['close']
-        price_end = recent.iloc[-1]['close']
+        # Composite value score (average of available metrics)
+        scores = []
+        if earnings_yield is not None:
+            scores.append(earnings_yield)
+        if book_to_price is not None:
+            scores.append(book_to_price)
+        scores.append(div_yield)
 
-        # Inverse return (lower momentum = higher value score)
-        one_year_return = (price_end / price_start) - 1
-        value_proxy = -one_year_return  # Contrarian
+        value_raw = np.mean(scores) if scores else 0
 
         results.append({
             'symbol': symbol,
-            'value_raw': value_proxy,
+            'value_raw': value_raw,
+            'earnings_yield': earnings_yield,
+            'book_to_price': book_to_price,
+            'dividend_yield': div_yield,
         })
 
     if not results:
@@ -163,36 +286,65 @@ def compute_value_factor(
 def compute_quality_factor(
     prices: pd.DataFrame,
     as_of_date,
+    fundamental_data: Dict[str, Dict] = None,
 ) -> pd.DataFrame:
     """
-    Compute quality factor using price stability as proxy.
+    Compute quality factor using REAL fundamental data.
 
-    In production, use ROE, profit margins, debt ratios.
-    Here we use Sharpe ratio of returns as quality proxy.
+    Composite of:
+    - ROE (profitability)
+    - Profit Margin (efficiency)
+    - Low Debt/Equity (financial health)
+    - Earnings Growth (momentum in fundamentals)
+
+    Higher = higher quality
     """
-    pit_prices = prices[prices['trade_date'] < as_of_date].copy()
+    symbols = prices['symbol'].unique().tolist()
+
+    if fundamental_data is None:
+        fundamental_data = get_fundamental_data(symbols)
 
     results = []
-    for symbol in pit_prices['symbol'].unique():
-        sym_data = pit_prices[pit_prices['symbol'] == symbol].sort_values('trade_date')
+    for symbol in symbols:
+        fund = fundamental_data.get(symbol, {})
 
-        if len(sym_data) < 252:
+        # ROE (higher = better)
+        roe = fund.get('roe')
+
+        # Profit Margin (higher = better)
+        profit_margin = fund.get('profit_margin')
+
+        # Low Debt/Equity (lower = better, so we invert)
+        debt_equity = fund.get('debt_to_equity')
+        low_leverage = 1.0 / (1 + debt_equity) if debt_equity and debt_equity >= 0 else None
+
+        # Earnings Growth (higher = better)
+        earnings_growth = fund.get('earnings_growth')
+
+        # Skip if no data
+        if roe is None and profit_margin is None:
             continue
 
-        recent = sym_data.tail(252)
-        returns = recent['close'].pct_change().dropna()
+        # Composite quality score
+        scores = []
+        if roe is not None:
+            scores.append(roe)
+        if profit_margin is not None:
+            scores.append(profit_margin)
+        if low_leverage is not None:
+            scores.append(low_leverage)
+        if earnings_growth is not None:
+            scores.append(earnings_growth)
 
-        if len(returns) < 50:
-            continue
-
-        # Sharpe ratio as quality proxy
-        mean_ret = returns.mean() * 252
-        vol = returns.std() * np.sqrt(252)
-        sharpe = mean_ret / vol if vol > 0 else 0
+        quality_raw = np.mean(scores) if scores else 0
 
         results.append({
             'symbol': symbol,
-            'quality_raw': sharpe,
+            'quality_raw': quality_raw,
+            'roe': roe,
+            'profit_margin': profit_margin,
+            'low_leverage': low_leverage,
+            'earnings_growth': earnings_growth,
         })
 
     if not results:
@@ -255,6 +407,7 @@ def compute_multi_factor_signal(
     prices: pd.DataFrame,
     as_of_date,
     weights: FactorWeights = None,
+    fundamental_data: Dict[str, Dict] = None,
 ) -> pd.DataFrame:
     """
     Compute combined multi-factor signal.
@@ -264,10 +417,16 @@ def compute_multi_factor_signal(
     if weights is None:
         weights = FactorWeights()
 
+    symbols = prices['symbol'].unique().tolist()
+
+    # Get fundamental data once
+    if fundamental_data is None:
+        fundamental_data = get_fundamental_data(symbols)
+
     # Compute individual factors
     momentum_df = compute_momentum_factor(prices, as_of_date)
-    value_df = compute_value_factor(prices, as_of_date)
-    quality_df = compute_quality_factor(prices, as_of_date)
+    value_df = compute_value_factor(prices, as_of_date, fundamental_data)
+    quality_df = compute_quality_factor(prices, as_of_date, fundamental_data)
     low_vol_df = compute_low_vol_factor(prices, as_of_date)
 
     if momentum_df.empty:
@@ -532,6 +691,7 @@ def run_enhanced_strategy(
     use_risk_parity: bool = True,
     top_n: int = 10,
     target_vol: float = 0.10,
+    fundamental_data: Dict[str, Dict] = None,
 ) -> Tuple[Dict[str, float], pd.DataFrame]:
     """
     Run the full enhanced strategy pipeline.
@@ -540,7 +700,7 @@ def run_enhanced_strategy(
         Tuple of (portfolio_weights, signals_df)
     """
     # Step 1: Compute multi-factor signal
-    signals = compute_multi_factor_signal(prices, as_of_date, weights)
+    signals = compute_multi_factor_signal(prices, as_of_date, weights, fundamental_data)
 
     if signals.empty:
         return {}, pd.DataFrame()
@@ -556,7 +716,7 @@ def run_enhanced_strategy(
         # Equal weight
         rank_col = 'neutral_rank' if 'neutral_rank' in signals.columns else 'rank'
         top = signals.nsmallest(top_n, rank_col)
-        weight = 1.0 / len(top)
+        weight = 1.0 / len(top) if len(top) > 0 else 0
         portfolio = {row['symbol']: weight for _, row in top.iterrows()}
 
     return portfolio, signals

@@ -35,6 +35,7 @@ from enhanced_strategy import (
     apply_industry_neutral,
     compute_risk_parity_weights,
     run_enhanced_strategy,
+    get_fundamental_data,
 )
 
 # Setup logging
@@ -172,6 +173,7 @@ def get_portfolio_weights(
     as_of_date: date,
     strategy_config: Dict,
     config: Dict,
+    fundamental_data: Dict = None,
 ) -> Dict[str, float]:
     """Get portfolio weights for a given strategy."""
 
@@ -185,7 +187,7 @@ def get_portfolio_weights(
         weight = 1.0 / len(top) if len(top) > 0 else 0
         return {row['symbol']: weight for _, row in top.iterrows()}
 
-    # Multi-factor strategy
+    # Multi-factor strategy with real fundamental data
     weights, signals = run_enhanced_strategy(
         prices=prices,
         as_of_date=as_of_date,
@@ -193,6 +195,7 @@ def get_portfolio_weights(
         use_risk_parity=strategy_config['use_risk_parity'],
         top_n=config['top_n'],
         target_vol=config['target_vol'],
+        fundamental_data=fundamental_data,
     )
 
     return weights
@@ -241,6 +244,7 @@ def run_fold(
     benchmark: pd.DataFrame,
     strategy_config: Dict,
     config: Dict,
+    fundamental_data: Dict = None,
 ) -> Optional[Dict]:
     """Run a single fold."""
     test_start = fold['test_start']
@@ -265,6 +269,7 @@ def run_fold(
             as_of_date=current_date,
             strategy_config=strategy_config,
             config=config,
+            fundamental_data=fundamental_data,
         )
 
         # Calculate returns
@@ -401,6 +406,7 @@ def run_strategy_validation(
     benchmark: pd.DataFrame,
     folds: List[Dict],
     config: Dict,
+    fundamental_data: Dict = None,
 ) -> Dict:
     """Run validation for a single strategy."""
     logger.info(f"\n{'='*60}")
@@ -409,7 +415,7 @@ def run_strategy_validation(
 
     fold_results = []
     for fold in folds:
-        result = run_fold(fold, prices, benchmark, strategy_config, config)
+        result = run_fold(fold, prices, benchmark, strategy_config, config, fundamental_data)
         if result:
             fold_results.append(result)
             logger.info(f"  Fold {fold['fold_id']}: Sharpe={result['sharpe']:.3f}, Excess={result['excess_return']*100:.2f}%")
@@ -474,23 +480,34 @@ def run_strategy_validation(
 def run_full_comparison(config: Dict) -> Dict:
     """Run comparison across all strategies."""
     logger.info("=" * 60)
-    logger.info("ENHANCED STRATEGY VALIDATION")
+    logger.info("ENHANCED STRATEGY VALIDATION (with REAL Fundamental Data)")
     logger.info("=" * 60)
 
-    # Download data
-    logger.info("\n[1/3] Downloading data...")
+    # Download price data
+    logger.info("\n[1/4] Downloading price data...")
     prices = download_data(config['symbols'], config['start_date'], config['end_date'])
     benchmark = download_benchmark(config['benchmark'], config['start_date'], config['end_date'])
 
+    # Fetch fundamental data (P/E, P/B, ROE, etc.)
+    logger.info("\n[2/4] Fetching fundamental data...")
+    fundamental_data = get_fundamental_data(config['symbols'])
+    logger.info(f"  Fetched fundamentals for {len(fundamental_data)} symbols")
+
+    # Show sample of fundamental data
+    sample_symbol = config['symbols'][0]
+    if sample_symbol in fundamental_data:
+        sample = fundamental_data[sample_symbol]
+        logger.info(f"  Sample ({sample_symbol}): PE={sample.get('pe_trailing')}, PB={sample.get('pb')}, ROE={sample.get('roe')}")
+
     # Generate folds
-    logger.info("\n[2/3] Generating walk-forward folds...")
+    logger.info("\n[3/4] Generating walk-forward folds...")
     start_date = date.fromisoformat(config['start_date'])
     end_date = date.fromisoformat(config['end_date'])
     folds = generate_folds(start_date, end_date, config['train_days'], config['test_days'], config['gap_days'])
     logger.info(f"  Generated {len(folds)} folds")
 
     # Run each strategy
-    logger.info("\n[3/3] Running strategy comparison...")
+    logger.info("\n[4/4] Running strategy comparison...")
     results = {}
 
     for strategy_name, strategy_config in STRATEGIES.items():
@@ -501,6 +518,7 @@ def run_full_comparison(config: Dict) -> Dict:
             benchmark,
             folds,
             config,
+            fundamental_data,
         )
         if result:
             results[strategy_name] = result
@@ -515,6 +533,7 @@ def run_full_comparison(config: Dict) -> Dict:
             'gap_days': config['gap_days'],
             'top_n': config['top_n'],
             'cost_bps': config['cost_bps'],
+            'uses_real_fundamentals': True,
         },
         'strategies': results,
     }
