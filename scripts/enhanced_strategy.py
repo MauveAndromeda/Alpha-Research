@@ -978,3 +978,62 @@ def run_enhanced_strategy_v2(
     }
 
     return portfolio, signals, regime
+
+
+def run_enhanced_strategy_v3(
+    prices: pd.DataFrame,
+    as_of_date,
+    weights: FactorWeights = None,
+    use_industry_neutral: bool = True,
+    top_n: int = 10,
+    fundamental_data: Dict[str, Dict] = None,
+) -> Tuple[Dict[str, float], pd.DataFrame, Dict]:
+    """
+    Enhanced strategy v3 with MILD regime filter.
+
+    Less aggressive exposure reduction - only reduces in bear + high vol.
+    """
+    # Detect market regime
+    regime = detect_market_regime(prices, as_of_date)
+
+    # MILD exposure map - only reduce in worst conditions
+    mild_exposure_map = {
+        ('bull', 'low'): 1.0,
+        ('bull', 'normal'): 1.0,
+        ('bull', 'high'): 0.9,      # Only slight reduction
+        ('neutral', 'low'): 1.0,
+        ('neutral', 'normal'): 0.9,
+        ('neutral', 'high'): 0.7,
+        ('bear', 'low'): 0.8,
+        ('bear', 'normal'): 0.6,
+        ('bear', 'high'): 0.3,      # Still reduce in crisis
+    }
+
+    exposure = mild_exposure_map.get(
+        (regime['trend'], regime['volatility']),
+        0.9
+    )
+    regime['exposure'] = exposure
+
+    # Compute multi-factor signal
+    signals = compute_multi_factor_signal(prices, as_of_date, weights, fundamental_data)
+
+    if signals.empty:
+        return {}, pd.DataFrame(), regime
+
+    # Apply industry-neutral
+    if use_industry_neutral:
+        signals = apply_industry_neutral(signals)
+
+    # Equal weight portfolio
+    rank_col = 'neutral_rank' if 'neutral_rank' in signals.columns else 'rank'
+    top = signals.nsmallest(top_n, rank_col)
+    base_weight = 1.0 / len(top) if len(top) > 0 else 0
+
+    # Apply exposure scaling
+    portfolio = {
+        row['symbol']: base_weight * exposure
+        for _, row in top.iterrows()
+    }
+
+    return portfolio, signals, regime

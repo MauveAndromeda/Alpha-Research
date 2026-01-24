@@ -36,6 +36,7 @@ from enhanced_strategy import (
     compute_risk_parity_weights,
     run_enhanced_strategy,
     run_enhanced_strategy_v2,
+    run_enhanced_strategy_v3,
     get_fundamental_data,
     detect_market_regime,
 )
@@ -87,6 +88,7 @@ STRATEGIES = {
         'use_industry_neutral': False,
         'use_risk_parity': False,
         'use_regime_filter': False,
+        'regime_version': None,
     },
     'multifactor_neutral': {
         'description': 'Multi-Factor + Industry Neutral',
@@ -94,13 +96,23 @@ STRATEGIES = {
         'use_industry_neutral': True,
         'use_risk_parity': False,
         'use_regime_filter': False,
+        'regime_version': None,
     },
     'mf_neutral_regime': {
-        'description': 'MF + Neutral + Regime Filter',
+        'description': 'MF + Neutral + Regime (Aggressive)',
         'use_multifactor': True,
         'use_industry_neutral': True,
         'use_risk_parity': False,
         'use_regime_filter': True,
+        'regime_version': 'v2',
+    },
+    'mf_neutral_regime_mild': {
+        'description': 'MF + Neutral + Regime (Mild)',
+        'use_multifactor': True,
+        'use_industry_neutral': True,
+        'use_risk_parity': False,
+        'use_regime_filter': True,
+        'regime_version': 'v3',
     },
 }
 
@@ -186,21 +198,32 @@ def get_portfolio_weights(
         weight = 1.0 / len(top) if len(top) > 0 else 0
         return {row['symbol']: weight for _, row in top.iterrows()}
 
-    # Check if using regime filter (v2 strategy)
+    # Check if using regime filter
     use_regime = strategy_config.get('use_regime_filter', False)
+    regime_version = strategy_config.get('regime_version', 'v2')
 
     if use_regime:
-        # Use v2 strategy with regime filter
-        weights, signals, regime = run_enhanced_strategy_v2(
-            prices=prices,
-            as_of_date=as_of_date,
-            use_industry_neutral=strategy_config['use_industry_neutral'],
-            use_regime_filter=True,
-            top_n=config['top_n'],
-            fundamental_data=fundamental_data,
-        )
+        if regime_version == 'v3':
+            # Use v3 strategy with MILD regime filter
+            weights, signals, regime = run_enhanced_strategy_v3(
+                prices=prices,
+                as_of_date=as_of_date,
+                use_industry_neutral=strategy_config['use_industry_neutral'],
+                top_n=config['top_n'],
+                fundamental_data=fundamental_data,
+            )
+        else:
+            # Use v2 strategy with aggressive regime filter
+            weights, signals, regime = run_enhanced_strategy_v2(
+                prices=prices,
+                as_of_date=as_of_date,
+                use_industry_neutral=strategy_config['use_industry_neutral'],
+                use_regime_filter=True,
+                top_n=config['top_n'],
+                fundamental_data=fundamental_data,
+            )
     else:
-        # Original strategy
+        # Original strategy (no regime filter)
         weights, signals = run_enhanced_strategy(
             prices=prices,
             as_of_date=as_of_date,
