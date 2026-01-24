@@ -21,9 +21,9 @@ if requirements_path.exists():
 
 setup(
     name="alpha-research",
-    version="1.0.0",
+    version="0.2.0",
     author="Alpha Research Team",
-    description="Systematic quantitative trading system with Core factors and LLM satellites",
+    description="Quantitative research framework for factor-based equity analysis with rigorous validation",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/MauveAndromeda/Alpha-Research",
@@ -54,8 +54,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "alpha-run-daily=scripts.run_daily:main",
-            "alpha-backtest=scripts.backtest:main",
+            "alpha-validate=scripts.validate_enhanced:main",
         ],
     },
 )
