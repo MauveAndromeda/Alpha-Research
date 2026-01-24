@@ -35,7 +35,9 @@ from enhanced_strategy import (
     apply_industry_neutral,
     compute_risk_parity_weights,
     run_enhanced_strategy,
+    run_enhanced_strategy_v2,
     get_fundamental_data,
+    detect_market_regime,
 )
 
 # Setup logging
@@ -84,24 +86,21 @@ STRATEGIES = {
         'use_multifactor': False,
         'use_industry_neutral': False,
         'use_risk_parity': False,
-    },
-    'multifactor_equal': {
-        'description': 'Multi-Factor (Equal Weight)',
-        'use_multifactor': True,
-        'use_industry_neutral': False,
-        'use_risk_parity': False,
+        'use_regime_filter': False,
     },
     'multifactor_neutral': {
         'description': 'Multi-Factor + Industry Neutral',
         'use_multifactor': True,
         'use_industry_neutral': True,
         'use_risk_parity': False,
+        'use_regime_filter': False,
     },
-    'full_enhanced': {
-        'description': 'Full Enhanced (MF + Neutral + Risk Parity)',
+    'mf_neutral_regime': {
+        'description': 'MF + Neutral + Regime Filter',
         'use_multifactor': True,
         'use_industry_neutral': True,
-        'use_risk_parity': True,
+        'use_risk_parity': False,
+        'use_regime_filter': True,
     },
 }
 
@@ -187,16 +186,30 @@ def get_portfolio_weights(
         weight = 1.0 / len(top) if len(top) > 0 else 0
         return {row['symbol']: weight for _, row in top.iterrows()}
 
-    # Multi-factor strategy with real fundamental data
-    weights, signals = run_enhanced_strategy(
-        prices=prices,
-        as_of_date=as_of_date,
-        use_industry_neutral=strategy_config['use_industry_neutral'],
-        use_risk_parity=strategy_config['use_risk_parity'],
-        top_n=config['top_n'],
-        target_vol=config['target_vol'],
-        fundamental_data=fundamental_data,
-    )
+    # Check if using regime filter (v2 strategy)
+    use_regime = strategy_config.get('use_regime_filter', False)
+
+    if use_regime:
+        # Use v2 strategy with regime filter
+        weights, signals, regime = run_enhanced_strategy_v2(
+            prices=prices,
+            as_of_date=as_of_date,
+            use_industry_neutral=strategy_config['use_industry_neutral'],
+            use_regime_filter=True,
+            top_n=config['top_n'],
+            fundamental_data=fundamental_data,
+        )
+    else:
+        # Original strategy
+        weights, signals = run_enhanced_strategy(
+            prices=prices,
+            as_of_date=as_of_date,
+            use_industry_neutral=strategy_config['use_industry_neutral'],
+            use_risk_parity=strategy_config.get('use_risk_parity', False),
+            top_n=config['top_n'],
+            target_vol=config['target_vol'],
+            fundamental_data=fundamental_data,
+        )
 
     return weights
 

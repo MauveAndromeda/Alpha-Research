@@ -771,3 +771,210 @@ def compare_strategies(
     strategies['full_enhanced'] = full_weights
 
     return strategies
+
+
+# =============================================================================
+# Market Regime Detection
+# =============================================================================
+
+def detect_market_regime(
+    prices: pd.DataFrame,
+    as_of_date,
+    lookback_short: int = 50,
+    lookback_long: int = 200,
+) -> Dict[str, any]:
+    """
+    Detect market regime using trend and volatility indicators.
+
+    Returns:
+        Dict with regime info: trend ('bull', 'bear', 'neutral'),
+        volatility level, and recommended exposure.
+    """
+    # Get benchmark/market data (use average of all stocks as proxy)
+    pit_prices = prices[prices['trade_date'] < as_of_date].copy()
+
+    if len(pit_prices) < lookback_long:
+        return {'trend': 'neutral', 'volatility': 'normal', 'exposure': 1.0}
+
+    # Compute market average price
+    daily_avg = pit_prices.groupby('trade_date')['close'].mean().sort_index()
+
+    if len(daily_avg) < lookback_long:
+        return {'trend': 'neutral', 'volatility': 'normal', 'exposure': 1.0}
+
+    # Moving averages
+    ma_short = daily_avg.tail(lookback_short).mean()
+    ma_long = daily_avg.tail(lookback_long).mean()
+    current_price = daily_avg.iloc[-1]
+
+    # Trend detection
+    if current_price > ma_short > ma_long:
+        trend = 'bull'
+    elif current_price < ma_short < ma_long:
+        trend = 'bear'
+    else:
+        trend = 'neutral'
+
+    # Volatility detection
+    returns = daily_avg.pct_change().dropna()
+    recent_vol = returns.tail(20).std() * np.sqrt(252)
+    hist_vol = returns.tail(252).std() * np.sqrt(252)
+
+    if recent_vol > hist_vol * 1.5:
+        vol_regime = 'high'
+    elif recent_vol < hist_vol * 0.7:
+        vol_regime = 'low'
+    else:
+        vol_regime = 'normal'
+
+    # Recommended exposure based on regime
+    exposure_map = {
+        ('bull', 'low'): 1.2,      # Full exposure, can lever slightly
+        ('bull', 'normal'): 1.0,   # Normal exposure
+        ('bull', 'high'): 0.7,     # Reduce due to high vol
+        ('neutral', 'low'): 0.8,
+        ('neutral', 'normal'): 0.7,
+        ('neutral', 'high'): 0.5,
+        ('bear', 'low'): 0.5,
+        ('bear', 'normal'): 0.3,   # Significant reduction
+        ('bear', 'high'): 0.0,     # Go to cash
+    }
+
+    exposure = exposure_map.get((trend, vol_regime), 0.7)
+
+    return {
+        'trend': trend,
+        'volatility': vol_regime,
+        'exposure': exposure,
+        'ma_short': ma_short,
+        'ma_long': ma_long,
+        'recent_vol': recent_vol,
+    }
+
+
+# =============================================================================
+# Trailing Stop-Loss
+# =============================================================================
+
+class TrailingStopManager:
+    """
+    Manages trailing stop-loss for positions.
+
+    Tracks high water mark for each position and triggers exit
+    when price drops below stop threshold.
+    """
+
+    def __init__(self, stop_pct: float = 0.15):
+        """
+        Args:
+            stop_pct: Trailing stop percentage (0.15 = 15% from high)
+        """
+        self.stop_pct = stop_pct
+        self.high_water_marks: Dict[str, float] = {}
+        self.entry_prices: Dict[str, float] = {}
+
+    def update_positions(
+        self,
+        current_prices: Dict[str, float],
+        current_weights: Dict[str, float],
+    ) -> Dict[str, float]:
+        """
+        Update positions and apply trailing stops.
+
+        Returns: Updated weights (0 for stopped-out positions)
+        """
+        new_weights = {}
+
+        for symbol, weight in current_weights.items():
+            if weight <= 0:
+                continue
+
+            current_price = current_prices.get(symbol)
+            if current_price is None:
+                new_weights[symbol] = weight
+                continue
+
+            # Update high water mark
+            if symbol not in self.high_water_marks:
+                self.high_water_marks[symbol] = current_price
+                self.entry_prices[symbol] = current_price
+            else:
+                self.high_water_marks[symbol] = max(
+                    self.high_water_marks[symbol],
+                    current_price
+                )
+
+            # Check stop-loss
+            hwm = self.high_water_marks[symbol]
+            stop_price = hwm * (1 - self.stop_pct)
+
+            if current_price < stop_price:
+                # Stopped out - remove position
+                new_weights[symbol] = 0
+                # Reset tracking
+                del self.high_water_marks[symbol]
+                del self.entry_prices[symbol]
+            else:
+                new_weights[symbol] = weight
+
+        # Renormalize weights if any stops triggered
+        total = sum(new_weights.values())
+        if total > 0 and total < 0.99:
+            # Don't renormalize - keep cash from stopped positions
+            pass
+
+        return new_weights
+
+    def reset(self):
+        """Reset all tracking."""
+        self.high_water_marks = {}
+        self.entry_prices = {}
+
+
+# =============================================================================
+# Enhanced Strategy with Risk Management
+# =============================================================================
+
+def run_enhanced_strategy_v2(
+    prices: pd.DataFrame,
+    as_of_date,
+    weights: FactorWeights = None,
+    use_industry_neutral: bool = True,
+    use_regime_filter: bool = True,
+    top_n: int = 10,
+    fundamental_data: Dict[str, Dict] = None,
+) -> Tuple[Dict[str, float], pd.DataFrame, Dict]:
+    """
+    Enhanced strategy v2 with regime filter (no risk parity).
+
+    Returns:
+        Tuple of (portfolio_weights, signals_df, regime_info)
+    """
+    # Step 1: Detect market regime
+    regime = {'exposure': 1.0, 'trend': 'neutral', 'volatility': 'normal'}
+    if use_regime_filter:
+        regime = detect_market_regime(prices, as_of_date)
+
+    # Step 2: Compute multi-factor signal
+    signals = compute_multi_factor_signal(prices, as_of_date, weights, fundamental_data)
+
+    if signals.empty:
+        return {}, pd.DataFrame(), regime
+
+    # Step 3: Apply industry-neutral
+    if use_industry_neutral:
+        signals = apply_industry_neutral(signals)
+
+    # Step 4: Equal weight portfolio (no risk parity - it hurt performance)
+    rank_col = 'neutral_rank' if 'neutral_rank' in signals.columns else 'rank'
+    top = signals.nsmallest(top_n, rank_col)
+    base_weight = 1.0 / len(top) if len(top) > 0 else 0
+
+    # Step 5: Apply regime-based exposure scaling
+    exposure = regime['exposure']
+    portfolio = {
+        row['symbol']: base_weight * exposure
+        for _, row in top.iterrows()
+    }
+
+    return portfolio, signals, regime
