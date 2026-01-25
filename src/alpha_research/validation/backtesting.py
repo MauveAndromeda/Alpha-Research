@@ -254,12 +254,21 @@ class DeflatedSharpe:
         if n_trials <= 1:
             return observed_sharpe, 1.0, 0.5
 
-        # Sharpe standard error
-        sharpe_std = np.sqrt(
-            (1 + 0.5 * observed_sharpe ** 2 -
-             skew * observed_sharpe +
-             (kurt - 3) / 4 * observed_sharpe ** 2) / (n_observations - 1)
-        )
+        # Sharpe standard error (with numerical stability)
+        # Formula: sqrt((1 + 0.5*SR^2 - skew*SR + (kurt-3)/4*SR^2) / (n-1))
+        variance_term = (
+            1 + 0.5 * observed_sharpe ** 2 -
+            skew * observed_sharpe +
+            (kurt - 3) / 4 * observed_sharpe ** 2
+        ) / (n_observations - 1)
+
+        # Handle numerical instability: if variance term is negative or too small,
+        # use a simpler approximation
+        if variance_term <= 0 or np.isnan(variance_term):
+            # Fallback to simpler formula: sigma_SR ≈ 1/sqrt(n)
+            sharpe_std = 1.0 / np.sqrt(n_observations)
+        else:
+            sharpe_std = np.sqrt(variance_term)
 
         # Expected max under null
         expected_max = DeflatedSharpe.expected_max_sharpe(n_trials, sharpe_std)
@@ -278,8 +287,11 @@ class DeflatedSharpe:
         deflation_factor = deflated / observed_sharpe if observed_sharpe > 0 else 0.0
 
         # P-value: probability of observing this Sharpe under null
-        z_score = (observed_sharpe - expected_max) / sharpe_std
-        p_value = 1 - stats.norm.cdf(z_score)
+        if sharpe_std > 0:
+            z_score = (observed_sharpe - expected_max) / sharpe_std
+            p_value = 1 - stats.norm.cdf(z_score)
+        else:
+            p_value = 0.0 if observed_sharpe > expected_max else 1.0
 
         return deflated, deflation_factor, p_value
 
