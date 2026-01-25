@@ -2,10 +2,30 @@
 
 A quantitative research framework for factor-based equity analysis with rigorous statistical validation.
 
-**Status: Research Only (v0.5.0) - NOT Production Ready**
+**Status: Research Only (v0.5.1) - NOT Production Ready**
 
 > **CRITICAL**: This is research code with known limitations. NOT validated for live trading.
 > Read [Limitations & Honest Assessment](#limitations--honest-assessment) before any use.
+
+---
+
+## Development Branches
+
+| Branch | Version | Sharpe | Max DD | Description |
+|--------|---------|--------|--------|-------------|
+| [`v0.7-sharpe-optimization`](../../tree/claude/v0.6-sharpe-optimization-8hqCl) | **v0.7** | **0.97** | **16.6%** | Low risk: vol targeting, trend overlay |
+| [`v0.5-audit-baseline`](../../tree/claude/v0.5-audit-baseline-8hqCl) | v0.5 | 0.99 | 35.2% | Stable baseline with audit infrastructure |
+| `review-quant-framework` (this) | v0.5.1 | 0.99 | 35.2% | Main development branch |
+
+**Recommended**: Use `v0.7-sharpe-optimization` branch for latest features with best risk-adjusted returns.
+
+```bash
+# Switch to v0.7 branch
+git checkout claude/v0.6-sharpe-optimization-8hqCl
+
+# Run v0.7 backtest
+python scripts/run_validate_v07.py --start 2015-01-01 --end 2024-12-31
+```
 
 ---
 
@@ -28,6 +48,17 @@ A quantitative research framework for factor-based equity analysis with rigorous
 
 **Key Insight**: Sharpe ~1.0 over 10 years is academically credible and realistic.
 The Information Ratio of 1.04 indicates consistent outperformance vs SPY.
+
+### v0.7 Branch Results (Lower Risk)
+
+| Metric | v0.7 | v0.5 | Change |
+|--------|------|------|--------|
+| **Sharpe** | 0.97 | 0.99 | -2% |
+| **Max Drawdown** | 16.6% | 35.2% | **-53%** |
+| **Volatility** | 13.4% | 19.0% | **-29%** |
+| **Calmar** | 0.79 | 0.53 | **+49%** |
+
+v0.7 trades 3% annual return for 53% lower max drawdown.
 
 ### Short-Term Backtest (2023-2024, 2 Years) - Bull Market Period
 
