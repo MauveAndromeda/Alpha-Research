@@ -76,7 +76,61 @@ value:
       direction: "higher_is_better"
       weight: 0.30
 
-# Core Score Aggregation
+# Low Volatility Factor (LV) - NEW in v0.6
+low_volatility:
+  weight_in_core: 0.15
+  sub_factors:
+    realized_vol_60d:
+      description: "60-day realized volatility (inverted)"
+      lookback_days: 60
+      direction: "lower_is_better"
+      weight: 0.40
+    beta_252d:
+      description: "252-day market beta (inverted)"
+      lookback_days: 252
+      direction: "lower_is_better"
+      weight: 0.30
+    downside_vol:
+      description: "Downside semi-deviation"
+      lookback_days: 60
+      direction: "lower_is_better"
+      weight: 0.20
+    idio_vol:
+      description: "Idiosyncratic volatility"
+      lookback_days: 60
+      direction: "lower_is_better"
+      weight: 0.10
+
+# Core Score Aggregation (v0.6 - with dynamic weights)
 core_aggregation:
-  formula: "0.35*Q + 0.40*M + 0.25*V"
+  # Base formula (adjusted in real-time by regime detector)
+  base_formula: "0.30*Q + 0.35*M + 0.20*V + 0.15*LV"
   normalize_final: true
+
+  # Dynamic weight regimes
+  regime_weights:
+    bull:
+      quality: 0.25
+      momentum: 0.40
+      value: 0.20
+      low_volatility: 0.15
+    bear:
+      quality: 0.40
+      momentum: 0.15
+      value: 0.25
+      low_volatility: 0.20
+    high_vol:
+      quality: 0.40
+      momentum: 0.15
+      value: 0.20
+      low_volatility: 0.25
+    low_vol:
+      quality: 0.25
+      momentum: 0.40
+      value: 0.20
+      low_volatility: 0.15
+    neutral:
+      quality: 0.30
+      momentum: 0.35
+      value: 0.20
+      low_volatility: 0.15

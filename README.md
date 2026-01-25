@@ -2,10 +2,55 @@
 
 A quantitative research framework for factor-based equity analysis with rigorous statistical validation.
 
-**Status: Research Only (v0.5.0) - NOT Production Ready**
+**Status: Research Only (v0.6.0) - NOT Production Ready**
 
 > **CRITICAL**: This is research code with known limitations. NOT validated for live trading.
 > Read [Limitations & Honest Assessment](#limitations--honest-assessment) before any use.
+
+---
+
+## v0.6.0 New Features (2026-01-25)
+
+### Three Key Improvements for Higher Sharpe
+
+1. **Market Regime Detection** (`src/alpha_research/market/regime.py`)
+   - Detects: BULL, BEAR, HIGH_VOL, LOW_VOL, NEUTRAL
+   - Uses: SMA200 trend + realized volatility (VIX proxy)
+   - Adjusts position sizing and cash buffer by regime
+
+2. **Dynamic Factor Weights**
+   - Factor weights adapt to market conditions:
+
+   | Regime | Quality | Momentum | Value | Low Vol |
+   |--------|---------|----------|-------|---------|
+   | BULL | 25% | 40% | 20% | 15% |
+   | BEAR | 40% | 15% | 25% | 20% |
+   | HIGH_VOL | 40% | 15% | 20% | 25% |
+   | LOW_VOL | 25% | 40% | 20% | 15% |
+
+3. **Low Volatility Factor** (`src/alpha_research/factors/low_volatility.py`)
+   - Components: 60d realized vol, 252d beta, downside deviation, idiosyncratic vol
+   - Exploits the low-volatility anomaly for better risk-adjusted returns
+   - All components inverted (lower vol = higher score)
+
+### v0.6 Validation Script
+
+```bash
+# Run 10-year backtest with regime-aware strategy
+python scripts/run_validate_v06.py --start 2015-01-01 --end 2024-12-31
+
+# Compare: with regime vs baseline (no regime)
+python scripts/run_validate_v06.py --start 2015-01-01 --end 2024-12-31 --no-regime
+```
+
+### Expected Improvements
+
+Based on academic research, these improvements target:
+- **Sharpe improvement**: +0.15 to +0.35 (from ~1.0 to ~1.15-1.35)
+- **Lower volatility**: -10% to -20% (from ~19% to ~15-17%)
+- **Reduced drawdown**: -15% to -25% in bear markets
+
+Note: Run with real market data for accurate results. Simulated data shows defensive characteristics (lower vol, lower drawdown) but underestimates factor premia.
 
 ---
 
@@ -124,9 +169,12 @@ Alpha-Research/
 │   │   ├── momentum.py           # MomentumFactor (12-1 return + 52w high + trend)
 │   │   ├── value.py              # ValueFactor (EBITDA/EV + Book/Price + E/P)
 │   │   ├── quality.py            # QualityFactor (ROE + Margins + Leverage + CF)
+│   │   ├── low_volatility.py     # LowVolatilityFactor (v0.6 - vol anomaly)
 │   │   ├── core_score.py         # CoreScoreCalculator (combines all factors)
 │   │   ├── base.py               # sector_neutralize, winsorize, zscore
 │   │   └── causal_promotion.py   # CausalWeightPromoter (weight promotion protocol)
+│   ├── market/                   # NEW in v0.6
+│   │   └── regime.py             # MarketRegimeDetector (BULL/BEAR/HIGH_VOL/LOW_VOL)
 │   ├── validation/
 │   │   ├── spa_bootstrap.py      # SPABootstrap (Hansen 2005), FDRControl
 │   │   ├── backtesting.py        # DeflatedSharpe, ProbabilisticSharpe
@@ -463,6 +511,7 @@ MIT License - Use at your own risk.
 
 | Version | Date | Changes | Audit Status |
 |---------|------|---------|--------------|
+| v0.6.0 | 2026-01-25 | Market regime detection, dynamic factor weights, low volatility factor | DEVELOPMENT |
 | v0.5.0 | 2026-01-25 | Added audit infrastructure (Trial Ledger, Snapshots, Result Cards), fail-fast synthetic | AUDITED |
 | v0.4.0 | 2026-01-25 | Added parameter docs, comprehensive warnings | TRANSPARENT |
 | v0.3.0 | 2026-01-25 | Real fundamental data, metrics table | VALIDATED |
