@@ -17,6 +17,29 @@ This repository is **research infrastructure** for systematic quantitative inves
 
 ---
 
+## Two Validation Approaches
+
+| Approach | Script | Uses Framework | Status |
+|----------|--------|----------------|--------|
+| **Framework Validation** | `run_framework_validation.py` | ✅ 100% `src/alpha_research/` | **RECOMMENDED** |
+| Simplified Validation | `run_enhanced_validation.py` | ❌ Standalone scripts | Legacy |
+
+### Run Framework Validation (Recommended)
+
+```bash
+python run_framework_validation.py
+```
+
+This uses 100% of the `src/alpha_research/` framework:
+- `factors/momentum.py` → **MomentumFactor** (12-1 return + 52w high + trend slope)
+- `factors/value.py` → **ValueFactor** (EBITDA/EV + Book/Price)
+- `factors/quality.py` → **QualityFactor** (ROE + Margins + Leverage + Cash Flow + Accruals)
+- `factors/base.py` → **sector_neutralize** (industry-neutral transformation)
+- `validation/spa_bootstrap.py` → **SPABootstrap** (Hansen 2005)
+- `validation/backtesting.py` → **DeflatedSharpe**, **ProbabilisticSharpe** (Bailey & López de Prado)
+
+---
+
 ## Validation Results (2026-01-24)
 
 ### Strategy Comparison (5 Years, 50 S&P 500 Stocks)
@@ -299,43 +322,56 @@ sharpe = mean(excess_returns) / std(excess_returns) * sqrt(252)
 ```
 Alpha-Research/
 ├── scripts/
-│   ├── enhanced_strategy.py   # [CURRENT] Multi-factor + regime filter strategy
-│   ├── validate_enhanced.py   # [CURRENT] Walk-forward validation (4 strategies)
-│   ├── validate_real_data.py  # [LEGACY] Baseline momentum only
-│   ├── run_walk_forward.py    # [LEGACY] Older validation runner
+│   ├── validate_framework.py  # [NEW] Uses 100% src/alpha_research/ framework
+│   ├── enhanced_strategy.py   # [SIMPLIFIED] Standalone multi-factor strategy
+│   ├── validate_enhanced.py   # [SIMPLIFIED] Standalone walk-forward validation
 │   ├── alternative_data.py    # Sentiment API clients (Finnhub, Reddit, SEC)
 │   └── audit_pit.py           # Point-in-time compliance auditor
-├── src/alpha_research/
-│   ├── factors/               # Factor implementations (momentum, value, quality)
-│   ├── validation/            # Statistical tests (DSR, SPA Bootstrap)
+├── src/alpha_research/        # ★ CORE FRAMEWORK ★
+│   ├── factors/
+│   │   ├── momentum.py        # MomentumFactor class
+│   │   ├── value.py           # ValueFactor class
+│   │   ├── quality.py         # QualityFactor class
+│   │   ├── core_score.py      # CoreScoreCalculator
+│   │   └── base.py            # sector_neutralize, winsorize, zscore
+│   ├── validation/
+│   │   ├── spa_bootstrap.py   # SPABootstrap, RealityCheck, FDRControl
+│   │   └── backtesting.py     # WalkForwardBacktest, DeflatedSharpe, PSR
 │   ├── data/                  # Data providers and PIT dataset builder
-│   └── backtest/              # Backtesting engine
-├── run_enhanced_validation.py # [CURRENT] One-click validation runner
+│   ├── core/                  # Constitutional orchestrator, PIT enforcer
+│   └── causal/                # Transfer entropy, causal discovery
+├── run_framework_validation.py  # [RECOMMENDED] Uses full framework
+├── run_enhanced_validation.py   # [SIMPLIFIED] Standalone validation
 ├── config/                    # Configuration files (constitution, risk limits)
 ├── tests/                     # Unit and integration tests
 └── artifacts/                 # Validation results output
 ```
 
-### How the Results Were Generated
+### Framework Validation (Recommended)
 
-The validation results shown in this README were generated using:
+```bash
+python run_framework_validation.py
+```
+
+Uses 100% of `src/alpha_research/`:
+
+| Component | File | Class/Function |
+|-----------|------|----------------|
+| Momentum Factor | `factors/momentum.py` | `MomentumFactor.calculate()` |
+| Value Factor | `factors/value.py` | `ValueFactor.calculate()` |
+| Quality Factor | `factors/quality.py` | `QualityFactor.calculate()` |
+| Sector Neutralize | `factors/base.py` | `sector_neutralize()` |
+| SPA Bootstrap | `validation/spa_bootstrap.py` | `SPABootstrap.test()` |
+| Deflated Sharpe | `validation/backtesting.py` | `DeflatedSharpe.calculate()` |
+| Probabilistic Sharpe | `validation/backtesting.py` | `ProbabilisticSharpe.calculate()` |
+
+### Simplified Validation (Legacy)
 
 ```bash
 python run_enhanced_validation.py
 ```
 
-This calls `scripts/validate_enhanced.py` which:
-1. Downloads price data via `yfinance` (Yahoo Finance API)
-2. Fetches current fundamentals via `get_fundamental_data()`
-3. Runs 4 strategy variants through walk-forward validation (29 folds)
-4. Computes SPA Bootstrap (1000 iterations) and Deflated Sharpe
-5. Outputs to `artifacts/enhanced_validation/`
-
-**Source code traceability:**
-- Strategy logic: `scripts/enhanced_strategy.py:run_enhanced_strategy()` (line 686)
-- Validation: `scripts/validate_enhanced.py:run_strategy_validation()` (line 438)
-- SPA test: `scripts/validate_enhanced.py:compute_spa_bootstrap()` (line 398)
-- Deflated Sharpe: `scripts/validate_enhanced.py:compute_deflated_sharpe()` (line 381)
+Uses standalone scripts that don't import from `src/alpha_research/`
 
 ---
 
