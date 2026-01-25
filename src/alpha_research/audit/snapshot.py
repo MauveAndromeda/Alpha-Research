@@ -7,6 +7,7 @@ are NOT reproducible. This module:
 1. Saves data snapshots with hash manifests
 2. Enables offline mode for reproducible runs
 3. Validates that reproduced results match original
+4. BLOCKS ALL NETWORK REQUESTS in offline mode
 """
 
 import hashlib
@@ -18,6 +19,77 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+
+
+# =============================================================================
+# OFFLINE MODE ENFORCEMENT
+# =============================================================================
+
+_OFFLINE_MODE_ACTIVE = False
+
+
+class OfflineModeViolation(Exception):
+    """Raised when network access is attempted in offline mode."""
+    pass
+
+
+def enforce_offline_mode():
+    """
+    Enable strict offline mode - blocks ALL network requests.
+
+    This patches urllib and requests to raise exceptions on any network call.
+    """
+    global _OFFLINE_MODE_ACTIVE
+    _OFFLINE_MODE_ACTIVE = True
+
+    # Patch urllib
+    try:
+        import urllib.request
+        original_urlopen = urllib.request.urlopen
+
+        def blocked_urlopen(*args, **kwargs):
+            raise OfflineModeViolation(
+                "OFFLINE MODE: Network request blocked. "
+                "Use snapshot data instead of fetching."
+            )
+        urllib.request.urlopen = blocked_urlopen
+    except Exception:
+        pass
+
+    # Patch requests
+    try:
+        import requests
+        original_get = requests.get
+        original_post = requests.post
+        original_request = requests.request
+
+        def blocked_get(*args, **kwargs):
+            raise OfflineModeViolation("OFFLINE MODE: requests.get blocked")
+
+        def blocked_post(*args, **kwargs):
+            raise OfflineModeViolation("OFFLINE MODE: requests.post blocked")
+
+        def blocked_request(*args, **kwargs):
+            raise OfflineModeViolation("OFFLINE MODE: requests.request blocked")
+
+        requests.get = blocked_get
+        requests.post = blocked_post
+        requests.request = blocked_request
+    except ImportError:
+        pass
+
+
+def is_offline_mode() -> bool:
+    """Check if offline mode is active."""
+    return _OFFLINE_MODE_ACTIVE
+
+
+def require_online():
+    """Raise error if in offline mode (for functions that need network)."""
+    if _OFFLINE_MODE_ACTIVE:
+        raise OfflineModeViolation(
+            "This operation requires network access but offline mode is active."
+        )
 
 
 @dataclass

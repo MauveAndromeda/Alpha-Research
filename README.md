@@ -142,10 +142,34 @@ Alpha-Research/
 ### Prerequisites
 
 ```bash
-pip install yfinance pandas numpy scipy scikit-learn
+pip install yfinance pandas numpy scipy scikit-learn pyarrow
 ```
 
-### Run Full Framework Validation
+### Option 1: Audit-Grade Validation (Recommended)
+
+**In Codespace or with network access:**
+
+```bash
+# Step 1: Run online validation (fetches real data, creates snapshot)
+python scripts/run_validate_realdata.py \
+    --start 2023-01-01 --end 2024-12-31 \
+    --benchmark SPY --cost-bps 10
+
+# Step 2: Verify reproducibility (offline, uses snapshot)
+python scripts/run_validate_realdata.py \
+    --snapshot-id <snapshot_id_from_step1> \
+    --offline
+
+# Quick smoke test (2-3 tickers, short period)
+python scripts/run_validate_realdata.py --smoke-test
+```
+
+**Outputs:**
+- `artifacts/result_card.json` - Standardized results with compliance level
+- `artifacts/trials_log.jsonl` - Trial ledger for n_trials tracking
+- `artifacts/data_snapshots/<id>/` - Reproducible data snapshot
+
+### Option 2: Full Framework Validation
 
 ```bash
 python scripts/validate_full_framework.py
@@ -423,6 +447,7 @@ The framework now includes proper audit infrastructure:
 
 | Component | File | Purpose |
 |-----------|------|---------|
+| **Validation Script** | `scripts/run_validate_realdata.py` | Main audit-grade validation entrypoint |
 | **Trial Ledger** | `src/alpha_research/audit/trial_ledger.py` | Tracks ALL experiments for proper n_trials |
 | **Snapshot System** | `src/alpha_research/audit/snapshot.py` | Ensures reproducibility with hash verification |
 | **Result Cards** | `src/alpha_research/audit/result_card.py` | Standardized output format for audit compliance |
@@ -436,9 +461,29 @@ The framework now includes proper audit infrastructure:
 | `research` | Real data but estimated PIT timestamps | NO - Research only |
 | `contaminated` | Any synthetic data used | NO - Invalid |
 
+### Anti-P-Hacking: Trial Ledger
+
+**CRITICAL**: `n_trials` for DeflatedSharpe MUST come from the trial ledger, not manual specification.
+
+```python
+# n_trials is automatically computed from ledger
+n_trials = get_n_trials_from_ledger(ledger_path, strategy_set, period_start, period_end)
+
+# Manual n_trials is NOT ALLOWED - will cause audit failure
+```
+
+### Metric Definitions (Sharpe vs IR)
+
+| Metric | Definition | Label |
+|--------|------------|-------|
+| **Sharpe Ratio** | (Return - Rf) / Volatility | `sharpe_ratio_vs_rf` |
+| **Information Ratio** | (Return - Benchmark) / Tracking Error | `information_ratio_vs_bench` |
+
+**CRITICAL**: Benchmark-relative metrics MUST be labeled as Information Ratio, NOT Sharpe.
+
 ### Synthetic Data Policy
 
-**Default: FAIL-FAST** - The framework now raises `SyntheticDataError` instead of silently using synthetic data.
+**Default: FAIL-FAST** - The framework raises `SyntheticDataError` instead of silently using synthetic data.
 
 ```python
 # This will FAIL if network unavailable (correct behavior)
@@ -446,4 +491,14 @@ fetcher = FundamentalDataFetcher()  # fail_on_synthetic=True by default
 
 # Only for development/testing, NEVER for validation:
 fetcher = FundamentalDataFetcher(fail_on_synthetic=False)  # NOT RECOMMENDED
+```
+
+### Offline Mode
+
+**HARD BLOCK** - Offline mode blocks ALL network requests at the library level.
+
+```python
+# In run_validate_realdata.py
+python scripts/run_validate_realdata.py --snapshot-id snap_xxx --offline
+# Any network call will raise OfflineModeViolation
 ```
