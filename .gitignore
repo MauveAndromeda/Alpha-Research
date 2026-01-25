@@ -38,8 +38,9 @@ ENV/
 .coverage
 htmlcov/
 
-# Artifacts
+# Artifacts (ignore generated files, but keep validation results)
 artifacts/
+!artifacts/validation/
 *.log
 
 # OS
