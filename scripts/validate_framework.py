@@ -131,8 +131,9 @@ def fetch_price_data(symbols: List[str], start: str, end: str) -> pd.DataFrame:
             logger.warning(f"Failed to fetch {symbol}: {e}")
 
     combined = pd.concat(all_data, ignore_index=True)
-    combined = combined.rename(columns={'date': 'trade_date'})
-    combined['trade_date'] = pd.to_datetime(combined['trade_date']).dt.tz_localize(None)
+    # Use 'date' column name to match framework expectations
+    combined = combined.rename(columns={'date': 'date'})  # Already named 'date' after lowercasing
+    combined['date'] = pd.to_datetime(combined['date']).dt.tz_localize(None)
 
     logger.info(f"  Fetched {len(combined)} rows for {combined['symbol'].nunique()} symbols")
     return combined
@@ -224,7 +225,7 @@ class FrameworkStrategy:
         """Compute factor scores using framework factors."""
 
         # Filter data to as_of_date (PIT compliance)
-        pit_market = market_data[market_data['trade_date'] < as_of_date].copy()
+        pit_market = market_data[market_data['date'] < as_of_date].copy()
 
         if len(pit_market) == 0:
             return pd.DataFrame()
@@ -325,7 +326,7 @@ def run_framework_walk_forward(
     )
 
     # Get unique dates
-    dates = sorted(market_data['trade_date'].unique())
+    dates = sorted(market_data['date'].unique())
 
     train_period = config['walk_forward']['train_period']
     test_period = config['walk_forward']['test_period']
@@ -369,12 +370,12 @@ def run_framework_walk_forward(
 
         # Calculate returns during test period
         test_data = market_data[
-            (market_data['trade_date'] >= test_start_date) &
-            (market_data['trade_date'] <= test_end_date)
+            (market_data['date'] >= test_start_date) &
+            (market_data['date'] <= test_end_date)
         ]
 
         # Pivot to get returns
-        test_pivot = test_data.pivot(index='trade_date', columns='symbol', values='close')
+        test_pivot = test_data.pivot(index='date', columns='symbol', values='close')
         test_returns = test_pivot.pct_change().dropna()
 
         # Portfolio returns
@@ -389,9 +390,9 @@ def run_framework_walk_forward(
 
         # Benchmark returns
         bench_data = benchmark_data[
-            (benchmark_data['trade_date'] >= test_start_date) &
-            (benchmark_data['trade_date'] <= test_end_date)
-        ].set_index('trade_date')['close']
+            (benchmark_data['date'] >= test_start_date) &
+            (benchmark_data['date'] <= test_end_date)
+        ].set_index('date')['close']
         bench_returns = bench_data.pct_change().dropna()
 
         # Align
