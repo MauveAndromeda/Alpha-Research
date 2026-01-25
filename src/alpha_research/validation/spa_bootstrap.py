@@ -113,7 +113,9 @@ class SPABootstrap:
         t_stats = means / stds
 
         # Raw p-values (one-sided: strategy > benchmark)
-        raw_p_values = 1 - stats.t.cdf(t_stats, df=n_obs - 1)
+        # Convert to numpy array for consistency
+        t_stats_arr = t_stats.values if hasattr(t_stats, 'values') else np.array([t_stats])
+        raw_p_values = 1 - stats.t.cdf(t_stats_arr, df=n_obs - 1)
 
         # Block size for bootstrap
         if self.block_size is None:
@@ -125,7 +127,7 @@ class SPABootstrap:
 
         # Compute adjusted p-values
         adjusted_p_values = self._compute_adjusted_p_values(
-            t_stats.values, bootstrap_max_stats
+            t_stats_arr, bootstrap_max_stats
         )
 
         # Build results
@@ -133,8 +135,8 @@ class SPABootstrap:
         for i, name in enumerate(strategy_names):
             results.append(SPAResult(
                 strategy_name=name,
-                raw_statistic=t_stats.iloc[i],
-                raw_p_value=raw_p_values.iloc[i],
+                raw_statistic=float(t_stats_arr[i]),
+                raw_p_value=float(raw_p_values[i]),
                 adjusted_p_value=adjusted_p_values[i],
                 is_significant=adjusted_p_values[i] < self.alpha,
             ))
