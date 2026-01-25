@@ -915,7 +915,7 @@ def run_validation(
         print("=" * 70)
         print("Running offline reproduction from snapshot...")
 
-        # Run offline reproduction
+        # Run offline reproduction - use SAME output_dir to find snapshot
         repro_result = run_validation(
             start_date=start_date,
             end_date=end_date,
@@ -924,7 +924,7 @@ def run_validation(
             cost_bps=cost_bps,
             strategy_set=strategy_set,
             fail_on_synthetic=fail_on_synthetic,
-            output_dir=output_dir / "repro",
+            output_dir=output_dir,  # Use same dir to find snapshot
             snapshot_id=snapshot_id,
             offline=True,
             verify_repro=False,  # Don't recurse
