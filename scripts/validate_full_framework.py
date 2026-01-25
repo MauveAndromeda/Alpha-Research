@@ -551,6 +551,55 @@ def run_full_validation():
         status = "SIGNIFICANT" if r.is_significant else "not significant"
         print(f"    {r.strategy_name}: raw_p={r.raw_p_value:.4f}, adj_p={r.adjusted_p_value:.4f} [{status}]")
 
+    # Calculate comprehensive metrics for each strategy
+    print("\n  Comprehensive Strategy Metrics:")
+    print("  " + "-" * 80)
+    print(f"  {'Strategy':<15} {'Return':<10} {'Vol':<8} {'Sharpe':<8} {'MaxDD':<10} {'Calmar':<8} {'Sortino':<8}")
+    print("  " + "-" * 80)
+
+    strategy_metrics = {}
+    for strat_name in strategy_returns.columns:
+        rets = strategy_returns[strat_name]
+        n = len(rets)
+        n_years = n / 252
+
+        # Total and annualized return
+        total_ret = (1 + rets).prod() - 1
+        ann_ret = (1 + total_ret) ** (1 / n_years) - 1 if n_years > 0 else 0
+
+        # Volatility
+        ann_vol = rets.std() * np.sqrt(252)
+
+        # Sharpe
+        strat_sharpe = (rets.mean() / rets.std()) * np.sqrt(252) if rets.std() > 0 else 0
+
+        # Max Drawdown
+        cumulative = (1 + rets).cumprod()
+        running_max = cumulative.cummax()
+        drawdown = (cumulative - running_max) / running_max
+        max_dd = abs(drawdown.min())
+
+        # Calmar Ratio
+        calmar = ann_ret / max_dd if max_dd > 0 else 0
+
+        # Sortino Ratio
+        downside_std = rets[rets < 0].std() * np.sqrt(252)
+        sortino = ann_ret / downside_std if downside_std > 0 else 0
+
+        strategy_metrics[strat_name] = {
+            'total_return': total_ret,
+            'annualized_return': ann_ret,
+            'volatility': ann_vol,
+            'sharpe': strat_sharpe,
+            'max_drawdown': max_dd,
+            'calmar': calmar,
+            'sortino': sortino,
+        }
+
+        print(f"  {strat_name:<15} {ann_ret:>8.1%} {ann_vol:>7.1%} {strat_sharpe:>7.2f} {max_dd:>9.1%} {calmar:>7.2f} {sortino:>7.2f}")
+
+    print("  " + "-" * 80)
+
     # Deflated Sharpe
     best_strategy = strategy_returns[spa_result.best_strategy]
     sharpe = best_strategy.mean() / best_strategy.std() * np.sqrt(252)
@@ -563,12 +612,26 @@ def run_full_validation():
     )
     psr, psr_p = ProbabilisticSharpe.calculate(best_strategy)
 
+    # Calculate Alpha vs equal weight benchmark
+    benchmark_rets = strategy_returns['EqualWeight'] if 'EqualWeight' in strategy_returns.columns else returns_df.mean(axis=1)
+    best_metrics = strategy_metrics[spa_result.best_strategy]
+    bench_ann_ret = strategy_metrics.get('EqualWeight', {}).get('annualized_return', benchmark_rets.mean() * 252)
+    alpha = best_metrics['annualized_return'] - bench_ann_ret
+
     print(f"\n  Deflated Sharpe Analysis ({spa_result.best_strategy}):")
     print(f"    Observed Sharpe: {sharpe:.3f}")
     print(f"    Deflated Sharpe: {dsr:.3f}")
     print(f"    DSR Threshold: {dsr_threshold:.3f}")
     print(f"    PSR: {psr:.3f}")
     print(f"    DSR > 0: {'YES - SIGNIFICANT' if dsr > 0 else 'NO - NOT SIGNIFICANT'}")
+
+    print(f"\n  Best Strategy Details ({spa_result.best_strategy}):")
+    print(f"    Annualized Return: {best_metrics['annualized_return']:.1%}")
+    print(f"    Annualized Volatility: {best_metrics['volatility']:.1%}")
+    print(f"    Maximum Drawdown: {best_metrics['max_drawdown']:.1%}")
+    print(f"    Alpha vs EqualWeight: {alpha:.1%}")
+    print(f"    Calmar Ratio: {best_metrics['calmar']:.2f}")
+    print(f"    Sortino Ratio: {best_metrics['sortino']:.2f}")
 
     # FDR Control
     raw_p_values = np.array([r.raw_p_value for r in spa_result.results])

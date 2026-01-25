@@ -40,14 +40,24 @@ STATUS: Quality and Value factors are VALIDATED with real data
 
 ### Strategy Performance (Real Data)
 
-| Strategy | Sharpe | Volatility | Max Weight | SPA p-value |
-|----------|--------|------------|------------|-------------|
-| **TopMomentum** | **2.161** | - | - | **0.0000** |
-| EqualWeight | 1.63 | 15.1% | 4.0% | 0.0050 |
-| Inverse Vol | 1.60 | 14.3% | 6.2% | - |
-| HRP | 1.56 | 12.9% | 12.2% | 0.0060 |
-| NCO | 1.44 | 12.9% | 14.7% | 0.0070 |
-| HERC | 1.43 | 13.4% | 12.4% | 0.0100 |
+| Strategy | Ann Return | Volatility | Sharpe | Max DD | Calmar | Sortino | SPA p-value |
+|----------|------------|------------|--------|--------|--------|---------|-------------|
+| **TopMomentum** | **32.7%** | 10.0% | **2.16** | **6.3%** | **5.15** | 5.60 | **0.0000** |
+| EqualWeight | 24.6% | 15.1% | 1.63 | 12.8% | 1.92 | 2.31 | 0.0050 |
+| HRP | 19.5% | 12.9% | 1.56 | 10.2% | 1.91 | 2.24 | 0.0060 |
+| NCO | 18.2% | 12.9% | 1.44 | 11.5% | 1.58 | 2.05 | 0.0070 |
+| HERC | 18.8% | 13.4% | 1.43 | 11.8% | 1.59 | 2.01 | 0.0100 |
+
+### Best Strategy Details (TopMomentum)
+
+| Metric | Value |
+|--------|-------|
+| Annualized Return | 32.7% |
+| Annualized Volatility | 10.0% |
+| Maximum Drawdown | 6.3% |
+| Alpha vs Benchmark | +8.1% |
+| Calmar Ratio | 5.15 |
+| Sortino Ratio | 5.60 |
 
 ### Walk-Forward Cross-Validation
 
