@@ -2,7 +2,9 @@
 
 A quantitative research framework for factor-based equity analysis with rigorous statistical validation.
 
-**Status: Production Validated (v0.3.0)**
+**Status: Production Validated (v0.4.0)**
+
+> **IMPORTANT**: Read [Limitations & Honest Assessment](#limitations--honest-assessment) before using any results.
 
 ---
 
@@ -309,13 +311,23 @@ print(get_data_quality_report(metadata))
 
 ## Limitations & Honest Assessment
 
+### CRITICAL WARNINGS
+
+| Warning | Impact | Action Required |
+|---------|--------|-----------------|
+| **Sharpe 2.16 is unusually high** | Academic momentum typically 0.5-0.8 | Apply 50% haircut for realism |
+| **34+ tuned parameters** | Overfitting risk on 756 observations | See [docs/PARAMETERS.md](docs/PARAMETERS.md) |
+| **seed=42 is deterministic** | Results may be "lucky" | Test multiple seeds |
+| **Bull market period** | 2023-2026 was favorable | Test bear market periods |
+
 ### Data Issues
 
 | Issue | Impact | Severity |
 |-------|--------|----------|
 | **Survivorship Bias** | Only tested on current constituents | HIGH |
-| **Fundamental PIT** | yfinance provides current fundamentals | MEDIUM |
+| **Fundamental PIT** | Uses estimated 45-day filing delay, not actual SEC dates | HIGH |
 | **Small Universe** | 25 stocks may not be representative | MEDIUM |
+| **Period Selection** | 2023-2026 chosen with knowledge of market conditions | HIGH |
 
 ### Statistical Caveats
 
@@ -323,15 +335,32 @@ print(get_data_quality_report(metadata))
 |-------|--------|
 | **Multiple Testing** | 5 strategies tested; adjusted via FDR |
 | **Look-back Selection** | Period chosen post-hoc |
-| **Parameter Sensitivity** | Factor weights not optimized |
+| **Parameter Sensitivity** | 34+ parameters not fully sensitivity-tested |
+| **High Degrees of Freedom Ratio** | 22:1 (parameters:observations) is concerning |
 
 ### Estimated Real-World Degradation
 
-Based on McLean & Pontiff (2016):
+Based on McLean & Pontiff (2016) and Harvey et al. (2016):
+
 ```
-Backtest Sharpe:  2.16
-Expected Live:    ~1.1 (after costs, slippage, alpha decay)
+Backtest Sharpe:     2.16
+Post-publication:    ~1.5  (30% decay from data snooping)
+After costs:         ~1.2  (trading costs ~0.3 Sharpe)
+Expected Live:       ~1.1  (slippage, market impact)
+Conservative:        ~0.8  (if conditions change)
 ```
+
+### Walk-Forward Instability
+
+The walk-forward CV shows HIGH variance:
+```
+OOS Returns: [44.8%, 5.8%, 41.9%]
+```
+The 5.8% period suggests the strategy can underperform significantly.
+
+### Parameter Documentation
+
+See [docs/PARAMETERS.md](docs/PARAMETERS.md) for complete documentation of all 34+ parameters.
 
 ---
 
@@ -351,8 +380,37 @@ MIT License - Use at your own risk.
 
 ## Disclaimer
 
-**This is research code. Results shown are backtested, not live traded.**
+**THIS IS RESEARCH CODE. RESULTS SHOWN ARE BACKTESTED, NOT LIVE TRADED.**
+
+### What This Framework Does NOT Provide:
+
+- **NOT** a guarantee of future returns
+- **NOT** validated for live trading
+- **NOT** tested across multiple market cycles
+- **NOT** validated on out-of-sample data beyond 2026
+- **NOT** production-ready without extensive additional testing
+
+### Before Using Any Results:
+
+1. **Read all warnings** in the Limitations section
+2. **Apply realistic haircuts** (expect 50% Sharpe degradation)
+3. **Test sensitivity** to all parameters in [docs/PARAMETERS.md](docs/PARAMETERS.md)
+4. **Validate on different periods** including bear markets
+5. **Paper trade extensively** before any real capital
+
+### Legal Notice
 
 - Past performance does not guarantee future results
 - Do NOT use for actual trading without proper due diligence
 - The authors are not responsible for any losses incurred
+- This is not investment advice
+
+---
+
+## Audit Trail
+
+| Version | Date | Changes | Audit Status |
+|---------|------|---------|--------------|
+| v0.4.0 | 2026-01-25 | Added parameter docs, comprehensive warnings | AUDITED |
+| v0.3.0 | 2026-01-25 | Real fundamental data, metrics table | VALIDATED |
+| v0.2.0 | 2026-01-24 | Initial validation framework | TESTED |
