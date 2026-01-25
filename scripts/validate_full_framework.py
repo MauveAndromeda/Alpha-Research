@@ -34,6 +34,7 @@ import sys
 import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -161,8 +162,60 @@ def download_market_data(symbols: list, start_date: str, end_date: str) -> pd.Da
     return generate_synthetic_market_data(symbols)
 
 
-def create_mock_fundamental_data(symbols: list, n_periods: int = 4) -> pd.DataFrame:
-    """Create mock fundamental data for testing."""
+def fetch_fundamental_data(symbols: list, n_quarters: int = 8) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """
+    Fetch REAL fundamental data from yfinance with fallback to synthetic.
+
+    This is CRITICAL for proper validation of Quality and Value factors.
+    Returns both the data and metadata about data quality.
+    """
+    try:
+        from alpha_research.data.fundamental_fetcher import (
+            fetch_real_fundamentals,
+            get_data_quality_report,
+        )
+
+        print("  Attempting to fetch REAL fundamental data from yfinance...")
+        fundamental_data, metadata = fetch_real_fundamentals(symbols, n_quarters)
+
+        # Add earnings_yield if we have earnings_to_price
+        if 'earnings_to_price' in fundamental_data.columns:
+            fundamental_data['earnings_yield'] = fundamental_data['earnings_to_price']
+
+        # Add book_value from market_cap and book_to_price if needed
+        if 'book_value' not in fundamental_data.columns:
+            if 'market_cap' in fundamental_data.columns and 'book_to_price' in fundamental_data.columns:
+                fundamental_data['book_value'] = (
+                    fundamental_data['market_cap'] * fundamental_data['book_to_price']
+                )
+
+        # Add cfo if not present (estimate from net_income and accruals)
+        if 'cfo' not in fundamental_data.columns and 'net_income' in fundamental_data.columns:
+            fundamental_data['cfo'] = fundamental_data['net_income'] * 1.1  # Rough estimate
+
+        # Print data quality report
+        print(get_data_quality_report(metadata))
+
+        return fundamental_data, metadata
+
+    except Exception as e:
+        print(f"  WARNING: Could not fetch real fundamentals: {e}")
+        print("  Falling back to synthetic fundamental data")
+        return create_synthetic_fundamental_data(symbols, n_quarters), {
+            'data_quality': 'SYNTHETIC',
+            'real_symbols': 0,
+            'synthetic_symbols': len(symbols),
+            'warning': 'Network error - Quality/Value factors NOT validated with real data'
+        }
+
+
+def create_synthetic_fundamental_data(symbols: list, n_periods: int = 4) -> pd.DataFrame:
+    """
+    Create SYNTHETIC fundamental data for testing.
+
+    WARNING: This data is RANDOM - Quality and Value factors calculated
+    from this data have NO predictive validity for real markets!
+    """
     np.random.seed(42)
 
     symbol_sectors = {
@@ -191,6 +244,7 @@ def create_mock_fundamental_data(symbols: list, n_periods: int = 4) -> pd.DataFr
                 'symbol': symbol,
                 'period_end': period_end,
                 'asof_time': asof_time,
+                'data_source': 'SYNTHETIC',
 
                 # Quality factor expected columns
                 'return_on_equity': base_quality * np.random.uniform(0.08, 0.25),
@@ -256,7 +310,9 @@ def run_full_validation():
     start_date = (datetime.now() - timedelta(days=365 * 3)).strftime('%Y-%m-%d')
 
     market_data = download_market_data(symbols, start_date, end_date)
-    fundamental_data = create_mock_fundamental_data(symbols)
+
+    # Fetch REAL fundamental data (with fallback to synthetic)
+    fundamental_data, fundamental_metadata = fetch_fundamental_data(symbols, n_quarters=8)
 
     # Create universe DataFrame
     universe = pd.DataFrame({'symbol': symbols})
@@ -663,14 +719,33 @@ def run_full_validation():
 
     print("KEY RESULTS:")
     print("-" * 40)
-    print(f"  Market Regime: {regime_state.regime.value} (confidence: {regime_state.confidence:.1%})")
-    print(f"  SPA Best Strategy: {spa_result.best_strategy} (adj_p={spa_result.best_adjusted_p:.4f})")
-    print(f"  Deflated Sharpe: {dsr:.3f} ({'SIGNIFICANT' if dsr > 0 else 'NOT SIGNIFICANT'})")
-    print(f"  Probabilistic Sharpe: {psr:.3f}")
+
+    # DATA QUALITY - Critical for understanding what is validated
+    fund_quality = fundamental_metadata.get('data_quality', 'UNKNOWN')
+    fund_real = fundamental_metadata.get('real_symbols', 0)
+    fund_total = fund_real + fundamental_metadata.get('synthetic_symbols', 0)
+
+    print("  DATA QUALITY:")
+    print(f"    Market Data: REAL (from yfinance)")
+    print(f"    Fundamental Data: {fund_quality} ({fund_real}/{fund_total} real symbols)")
+    if fund_quality == 'SYNTHETIC':
+        print("    ⚠️  WARNING: Quality/Value factors use SYNTHETIC data!")
+        print("    ⚠️  Only Momentum factor is validated with real data")
+    elif fund_quality == 'RESEARCH':
+        print("    ⚠️  Some symbols use synthetic fundamental data")
+    elif fund_quality == 'PRODUCTION':
+        print("    ✓ All factors validated with REAL data")
+    print()
+
+    print("  STATISTICAL RESULTS:")
+    print(f"    Market Regime: {regime_state.regime.value} (confidence: {regime_state.confidence:.1%})")
+    print(f"    SPA Best Strategy: {spa_result.best_strategy} (adj_p={spa_result.best_adjusted_p:.4f})")
+    print(f"    Deflated Sharpe: {dsr:.3f} ({'SIGNIFICANT' if dsr > 0 else 'NOT SIGNIFICANT'})")
+    print(f"    Probabilistic Sharpe: {psr:.3f}")
     if hrp_result:
-        print(f"  HRP Diversification Ratio: {hrp_result.diversification_ratio:.2f}")
-    print(f"  Causal Weight Level: {final_status['level']} ({final_status['weight']:.0%})")
-    print(f"  Falsification Flags: {sum(1 for d in decisions.values() if d.flags_raised)}/{len(decisions)} symbols flagged")
+        print(f"    HRP Diversification Ratio: {hrp_result.diversification_ratio:.2f}")
+    print(f"    Causal Weight Level: {final_status['level']} ({final_status['weight']:.0%})")
+    print(f"    Falsification Flags: {sum(1 for d in decisions.values() if d.flags_raised)}/{len(decisions)} symbols flagged")
     print()
 
     # Final verdict - handle NaN in DSR (high Sharpe can cause numerical issues)
@@ -686,11 +761,28 @@ def run_full_validation():
 
     print("FINAL VERDICT:")
     print("-" * 40)
+
+    # Determine if full validation or partial
+    full_validation = fund_quality in ['PRODUCTION', 'RESEARCH']
+
     if is_significant:
-        print("  ✓ FRAMEWORK VALIDATION PASSED")
-        print("    - Deflated Sharpe > 0")
-        print("    - SPA adjusted p-value < 0.05")
-        print("    - All framework components functioning correctly")
+        if full_validation:
+            print("  ✓ FULL VALIDATION PASSED")
+            print("    - Deflated Sharpe > 0")
+            print("    - SPA adjusted p-value < 0.05")
+            print("    - All framework components functioning correctly")
+            print("    - All factors validated with REAL data")
+        else:
+            print("  ⚠️  PARTIAL VALIDATION PASSED")
+            print("    - Deflated Sharpe > 0")
+            print("    - SPA adjusted p-value < 0.05")
+            print("    - Framework code is correct")
+            print("    - BUT: Quality/Value factors used SYNTHETIC data")
+            print("    - Only Momentum-based strategies are fully validated")
+            print()
+            print("  TO COMPLETE VALIDATION:")
+            print("    - Run with network access to fetch real fundamentals")
+            print("    - Or integrate real fundamental data source")
     else:
         print("  ✗ FRAMEWORK VALIDATION NEEDS IMPROVEMENT")
         dsr_status = f"{dsr:.3f} > 0 ✓" if (dsr_valid and dsr > 0) else f"{dsr} ✗"
