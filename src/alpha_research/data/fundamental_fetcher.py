@@ -28,12 +28,22 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+class SyntheticDataError(Exception):
+    """Raised when synthetic data would be used but is not allowed."""
+    pass
+
+
 class FundamentalDataFetcher:
     """
     Fetches real fundamental data from yfinance.
 
     This provides REAL financial metrics for Quality and Value factor validation.
-    Falls back to synthetic data only if network is unavailable.
+
+    CRITICAL: By default, synthetic fallback is DISABLED (fail_on_synthetic=True).
+    This prevents accidentally using synthetic data and claiming real results.
+
+    To allow synthetic data for development/testing only, explicitly set:
+        fetcher = FundamentalDataFetcher(fail_on_synthetic=False)
     """
 
     # SEC filing deadlines (days after quarter end)
@@ -56,16 +66,24 @@ class FundamentalDataFetcher:
         'Communication': ['VZ', 'T', 'CMCSA', 'NFLX', 'DIS', 'TMUS', 'CHTR', 'WBD', 'OMC', 'IPG'],
     }
 
-    def __init__(self, use_cache: bool = True, cache_hours: int = 24):
+    def __init__(
+        self,
+        use_cache: bool = True,
+        cache_hours: int = 24,
+        fail_on_synthetic: bool = True,  # CRITICAL: Default is to FAIL, not fallback
+    ):
         """
         Initialize fundamental data fetcher.
 
         Args:
             use_cache: Whether to cache fetched data
             cache_hours: Hours to keep cached data
+            fail_on_synthetic: If True (default), raise error instead of using synthetic data.
+                              Set to False ONLY for development/testing, NEVER for validation.
         """
         self.use_cache = use_cache
         self.cache_hours = cache_hours
+        self.fail_on_synthetic = fail_on_synthetic
         self._cache: Dict[str, Tuple[datetime, pd.DataFrame]] = {}
         self._yfinance_available = self._check_yfinance()
 
@@ -101,12 +119,21 @@ class FundamentalDataFetcher:
             Tuple of (DataFrame with fundamentals, metadata dict)
         """
         if not self._yfinance_available:
-            logger.warning("Using synthetic fundamentals (yfinance unavailable)")
+            if self.fail_on_synthetic:
+                raise SyntheticDataError(
+                    "yfinance not available and fail_on_synthetic=True. "
+                    "Cannot proceed with synthetic data. "
+                    "Either install yfinance and ensure network access, "
+                    "or explicitly set fail_on_synthetic=False (NOT recommended for validation)."
+                )
+            logger.warning("CRITICAL: Using synthetic fundamentals (yfinance unavailable)")
+            logger.warning("CRITICAL: Results are CONTAMINATED and should NOT be used")
             return self._generate_synthetic_fundamentals(symbols, n_quarters), {
                 'data_quality': 'SYNTHETIC',
+                'data_contaminated': True,
                 'real_symbols': 0,
                 'synthetic_symbols': len(symbols),
-                'warning': 'No real data - Quality/Value factors NOT validated'
+                'warning': 'CONTAMINATED: No real data - Quality/Value factors NOT validated'
             }
 
         import yfinance as yf
@@ -126,18 +153,29 @@ class FundamentalDataFetcher:
                     real_count += 1
                     logger.debug(f"Fetched {len(records)} records for {symbol}")
                 else:
-                    # Fallback to synthetic for this symbol
+                    # No data available for this symbol
+                    if self.fail_on_synthetic:
+                        raise SyntheticDataError(
+                            f"No real data for {symbol} and fail_on_synthetic=True"
+                        )
+                    # Fallback to synthetic for this symbol (only if explicitly allowed)
                     synthetic_records = self._generate_synthetic_for_symbol(symbol, n_quarters)
                     all_records.extend(synthetic_records)
                     synthetic_count += 1
-                    fetch_errors.append(f"{symbol}: No data available")
+                    fetch_errors.append(f"{symbol}: No data available (SYNTHETIC USED)")
 
+            except SyntheticDataError:
+                raise  # Re-raise synthetic data errors
             except Exception as e:
-                # Fallback to synthetic on error
+                if self.fail_on_synthetic:
+                    raise SyntheticDataError(
+                        f"Error fetching {symbol} and fail_on_synthetic=True: {e}"
+                    )
+                # Fallback to synthetic on error (only if explicitly allowed)
                 synthetic_records = self._generate_synthetic_for_symbol(symbol, n_quarters)
                 all_records.extend(synthetic_records)
                 synthetic_count += 1
-                fetch_errors.append(f"{symbol}: {str(e)[:50]}")
+                fetch_errors.append(f"{symbol}: {str(e)[:50]} (SYNTHETIC USED)")
 
         df = pd.DataFrame(all_records)
 
@@ -150,19 +188,26 @@ class FundamentalDataFetcher:
         else:
             quality = 'SYNTHETIC'
 
+        # Track contamination
+        data_contaminated = synthetic_count > 0 or quality == 'SYNTHETIC'
+
         metadata = {
             'data_quality': quality,
+            'data_contaminated': data_contaminated,
             'real_symbols': real_count,
             'synthetic_symbols': synthetic_count,
             'real_percentage': f"{real_pct:.1%}",
             'fetch_errors': fetch_errors[:10],  # First 10 errors
             'total_records': len(df),
+            'pit_method': 'estimated_45_day_delay',  # Explicitly document PIT method
+            'pit_compliant': False,  # We use estimates, not actual SEC filing dates
         }
 
-        if quality == 'PRODUCTION':
+        if quality == 'PRODUCTION' and not data_contaminated:
             logger.info(f"Fetched REAL fundamentals: {real_count}/{len(symbols)} symbols")
-        elif quality == 'SYNTHETIC':
-            logger.warning(f"Mostly SYNTHETIC fundamentals: only {real_count}/{len(symbols)} real")
+        elif data_contaminated:
+            logger.warning(f"CONTAMINATED: {synthetic_count}/{len(symbols)} symbols use synthetic data")
+            logger.warning("Results should be treated as RESEARCH ONLY")
 
         return df, metadata
 

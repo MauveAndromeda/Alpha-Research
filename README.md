@@ -2,9 +2,10 @@
 
 A quantitative research framework for factor-based equity analysis with rigorous statistical validation.
 
-**Status: Production Validated (v0.4.0)**
+**Status: Research Only (v0.5.0) - NOT Production Ready**
 
-> **IMPORTANT**: Read [Limitations & Honest Assessment](#limitations--honest-assessment) before using any results.
+> **CRITICAL**: This is research code with known limitations. NOT validated for live trading.
+> Read [Limitations & Honest Assessment](#limitations--honest-assessment) before any use.
 
 ---
 
@@ -411,6 +412,38 @@ MIT License - Use at your own risk.
 
 | Version | Date | Changes | Audit Status |
 |---------|------|---------|--------------|
-| v0.4.0 | 2026-01-25 | Added parameter docs, comprehensive warnings | AUDITED |
+| v0.5.0 | 2026-01-25 | Added audit infrastructure (Trial Ledger, Snapshots, Result Cards), fail-fast synthetic | AUDITED |
+| v0.4.0 | 2026-01-25 | Added parameter docs, comprehensive warnings | TRANSPARENT |
 | v0.3.0 | 2026-01-25 | Real fundamental data, metrics table | VALIDATED |
 | v0.2.0 | 2026-01-24 | Initial validation framework | TESTED |
+
+## Audit Infrastructure (v0.5.0)
+
+The framework now includes proper audit infrastructure:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **Trial Ledger** | `src/alpha_research/audit/trial_ledger.py` | Tracks ALL experiments for proper n_trials |
+| **Snapshot System** | `src/alpha_research/audit/snapshot.py` | Ensures reproducibility with hash verification |
+| **Result Cards** | `src/alpha_research/audit/result_card.py` | Standardized output format for audit compliance |
+
+### Compliance Levels
+
+| Level | Description | Can Be Published? |
+|-------|-------------|-------------------|
+| `locked_box` | Pre-registered, held-out test set | YES |
+| `pit_compliant` | Real data with actual SEC filing dates | YES (with caveats) |
+| `research` | Real data but estimated PIT timestamps | NO - Research only |
+| `contaminated` | Any synthetic data used | NO - Invalid |
+
+### Synthetic Data Policy
+
+**Default: FAIL-FAST** - The framework now raises `SyntheticDataError` instead of silently using synthetic data.
+
+```python
+# This will FAIL if network unavailable (correct behavior)
+fetcher = FundamentalDataFetcher()  # fail_on_synthetic=True by default
+
+# Only for development/testing, NEVER for validation:
+fetcher = FundamentalDataFetcher(fail_on_synthetic=False)  # NOT RECOMMENDED
+```
