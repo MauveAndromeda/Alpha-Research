@@ -360,8 +360,8 @@ Market State:
     opinions = {}
     votes = {'APPROVE': 0, 'REJECT': 0, 'CAUTION': 0}
 
-    # Query 3 experts (to save API calls)
-    for expert_id in ['momentum_expert', 'risk_expert', 'macro_expert']:
+    # Query ALL 5 experts for complete debate
+    for expert_id in EXPERTS.keys():
         expert = EXPERTS[expert_id]
 
         prompt = f"""{state_summary}
@@ -381,11 +381,13 @@ Output JSON: {{"verdict": "APPROVE" or "REJECT" or "CAUTION", "reason": "brief r
             votes['CAUTION'] += 1
             opinions[expert_id] = {'verdict': 'CAUTION', 'reason': 'No response'}
 
-    # Determine consensus
-    if votes['REJECT'] >= 2:
+    # Determine consensus (majority vote with 5 experts)
+    if votes['REJECT'] >= 3:
         final_verdict = 'REJECT'
-    elif votes['APPROVE'] >= 2:
+    elif votes['APPROVE'] >= 3:
         final_verdict = 'APPROVE'
+    elif votes['REJECT'] >= 2 and votes['CAUTION'] >= 2:
+        final_verdict = 'REJECT'  # Conservative: 2 reject + 2 caution = reject
     else:
         final_verdict = 'CAUTION'
 
@@ -846,7 +848,7 @@ def main():
     print(f"Expert Debate: {'OFF' if args.no_debate else 'ON'}")
     print(f"Framework: HRP={'YES' if HAS_HRP else 'NO'}, TE={'YES' if HAS_TE else 'NO'}")
     print("\nFeatures:")
-    print("  ✓ Expert Debate System (3 AI experts)")
+    print("  ✓ Expert Debate System (5 AI experts: momentum, risk, macro, quant, contrarian)")
     print("  ✓ Transfer Entropy (Causal Analysis)")
     print("  ✓ Graph-based Stock Clustering")
     print("  ✓ Multi-Factor Model (5 factors)")
