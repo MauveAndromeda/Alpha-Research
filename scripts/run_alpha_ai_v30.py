@@ -334,10 +334,14 @@ def compute_market_state_v3(prices: pd.Series, returns: pd.DataFrame) -> Dict:
         return {
             'regime': 'neutral',
             'vol_regime': 'normal',
+            'vol_20d': 0.15,
+            'vol_60d': 0.15,
             'vol_ratio': 1.0,
             'trend_strength': 0,
             'momentum_working': True,
             'quality_working': True,
+            'mom_perf': 0,
+            'qual_perf': 0,
         }
 
     # Volatility regime
