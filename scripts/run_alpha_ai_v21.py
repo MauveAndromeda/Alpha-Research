@@ -598,11 +598,15 @@ def main():
 
     combined = pd.concat(all_data, ignore_index=True)
 
-    # Prepare data
+    # Prepare data - remove timezone for consistent comparison
     pivot = combined[combined['symbol'] != 'SPY'].pivot(index='date', columns='symbol', values='close')
+    if pivot.index.tz is not None:
+        pivot.index = pivot.index.tz_localize(None)
     returns = pivot.pct_change().dropna()
 
     bench_df = combined[combined['symbol'] == 'SPY'].set_index('date')['close']
+    if bench_df.index.tz is not None:
+        bench_df.index = bench_df.index.tz_localize(None)
     bench_returns = bench_df.pct_change().dropna()
 
     print(f"  Fetched {len(pivot.columns)} symbols")
