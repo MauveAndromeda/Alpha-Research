@@ -81,11 +81,11 @@ class OpenAIClient(LLMClient):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
+        # GPT-5 mini only supports default temperature (1)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=0.2,  # Lower for more consistent outputs
-            max_completion_tokens=1500,  # GPT-5 uses this instead of max_tokens
+            max_completion_tokens=1500,
         )
         return response.choices[0].message.content
 
