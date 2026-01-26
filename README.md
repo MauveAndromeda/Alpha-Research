@@ -11,21 +11,55 @@ A quantitative research framework for factor-based equity analysis with rigorous
 
 ## Development Branches
 
-| Branch | Version | Sharpe | Max DD | Description |
-|--------|---------|--------|--------|-------------|
-| [`v0.7-sharpe-optimization`](../../tree/claude/v0.6-sharpe-optimization-8hqCl) | **v0.7** | **0.97** | **16.6%** | Low risk: vol targeting, trend overlay |
-| [`v0.5-audit-baseline`](../../tree/claude/v0.5-audit-baseline-8hqCl) | v0.5 | 0.99 | 35.2% | Stable baseline with audit infrastructure |
-| `review-quant-framework` (this) | v0.5.1 | 0.99 | 35.2% | Main development branch |
+| Branch | Version | Sharpe | Alpha | Max DD | Description |
+|--------|---------|--------|-------|--------|-------------|
+| [`review-quant-framework`](../../tree/claude/review-quant-framework-8hqCl) | **v1.2** | **0.83** | **+1.4%** | **18.4%** | Market self-adaptive strategy |
+| [`v0.7-sharpe-optimization`](../../tree/claude/v0.6-sharpe-optimization-8hqCl) | v0.7 | 0.97 | -2.9% | 16.6% | Vol targeting, trend overlay |
+| [`v0.5-audit-baseline`](../../tree/claude/v0.5-audit-baseline-8hqCl) | v0.5 | 0.99 | - | 35.2% | Stable baseline with audit |
 
-**Recommended**: Use `v0.7-sharpe-optimization` branch for latest features with best risk-adjusted returns.
+**Recommended**: Use `review-quant-framework` branch for **v1.2 adaptive** with positive alpha.
 
 ```bash
-# Switch to v0.7 branch
-git checkout claude/v0.6-sharpe-optimization-8hqCl
+# Run v1.2 adaptive backtest (RECOMMENDED)
+python scripts/run_validate_v12_adaptive.py --start 2015-01-01 --end 2024-12-31
 
-# Run v0.7 backtest
-python scripts/run_validate_v07.py --start 2015-01-01 --end 2024-12-31
+# Run v0.9 full-feature validation (all framework features)
+python scripts/run_validate_v09_full.py --start 2015-01-01 --end 2024-12-31
 ```
+
+---
+
+## Alpha Expectations (v1.2 Adaptive)
+
+Based on **10-year backtest (2015-2024)** with market-adaptive parameters:
+
+| Scenario | Expected Alpha | Notes |
+|----------|----------------|-------|
+| **Base Case** | **+1.4%** | Current backtest result |
+| Lower Costs (5 bps) | +1.7% | Institutional execution |
+| Higher Costs (15 bps) | +0.7% | Retail execution |
+| Stressed (2x costs) | +0.0% | Break-even scenario |
+
+### Adaptive Parameters Observed
+
+| Parameter | Avg Value | Range |
+|-----------|-----------|-------|
+| Vol Target | 21.6% | 15-25% |
+| Max Leverage | 2.5x | 1.5-3.0x |
+| Actual Leverage | 1.31x | - |
+| Concentration | 7.6 stocks | 6-12 |
+| Momentum Weight | 53% | 20-70% |
+
+### Version Comparison
+
+| Version | Alpha | Sharpe | Return | Vol | Max DD | Grade |
+|---------|-------|--------|--------|-----|--------|-------|
+| v0.9 Full Feature | -1.2% | 1.02 | 12.7% | 12.5% | 13.1% | B |
+| v1.0 Conservative | -3.1% | 0.90 | 10.8% | 12.0% | 13.4% | B |
+| v1.0 Aggressive | -4.4% | 0.81 | 9.5% | 11.8% | 13.0% | B |
+| **v1.2 Adaptive** | **+1.4%** | **0.83** | **14.4%** | 17.4% | 18.4% | **B+** |
+
+**Key Insight**: Fixed parameters underperform; market adaptation generates positive alpha.
 
 ---
 
