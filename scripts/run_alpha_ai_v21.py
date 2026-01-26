@@ -55,11 +55,14 @@ except ImportError:
 class RobustOpenAIClient:
     """OpenAI client with robust JSON extraction."""
 
-    def __init__(self, model: str = "gpt-5-mini"):
+    def __init__(self, model: str = "gpt-5-mini", api_key: str = None):
         self.model = model
         try:
             from openai import OpenAI
-            self.client = OpenAI()
+            if api_key:
+                self.client = OpenAI(api_key=api_key)
+            else:
+                self.client = OpenAI()
         except ImportError:
             raise ImportError("openai package required")
 
@@ -533,10 +536,14 @@ def compute_metrics(port_returns: pd.Series, bench_returns: pd.Series) -> Dict:
 # =============================================================================
 
 def main():
+    # Default API key (user provided)
+    DEFAULT_API_KEY = "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"
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--start', default='2024-01-01')
     parser.add_argument('--end', default='2025-01-20')
     parser.add_argument('--model', default='gpt-5-mini')
+    parser.add_argument('--api-key', default=DEFAULT_API_KEY)
     parser.add_argument('--no-debate', action='store_true')
     parser.add_argument('--cost-bps', type=float, default=10)
     parser.add_argument('--output-dir', default='artifacts/v21_ai')
@@ -553,13 +560,14 @@ def main():
     print(f"Framework: HRP={'YES' if HAS_HRP else 'NO'}, Impact={'YES' if HAS_IMPACT else 'NO'}")
     print("=" * 80)
 
-    # Check API key
-    if not os.getenv('OPENAI_API_KEY'):
-        print("ERROR: OPENAI_API_KEY not set")
+    # Get API key
+    api_key = args.api_key or os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        print("ERROR: No API key provided")
         return
 
     # Initialize client
-    client = RobustOpenAIClient(model=args.model)
+    client = RobustOpenAIClient(model=args.model, api_key=api_key)
 
     # Fetch data
     print("\n[1/4] Fetching market data...")
