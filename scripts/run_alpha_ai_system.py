@@ -67,7 +67,7 @@ class LLMClient(ABC):
 
 
 class OpenAIClient(LLMClient):
-    def __init__(self, model: str = "gpt-4o"):
+    def __init__(self, model: str = "gpt-5-mini"):  # Default to cheaper model
         self.model = model
         try:
             from openai import OpenAI
@@ -84,8 +84,8 @@ class OpenAIClient(LLMClient):
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=0.3,
-            max_tokens=2000,
+            temperature=0.2,  # Lower for more consistent outputs
+            max_tokens=1500,  # Reduced to save costs
         )
         return response.choices[0].message.content
 
@@ -743,6 +743,7 @@ def main():
     parser.add_argument('--start', default='2020-01-01')  # Shorter for AI testing
     parser.add_argument('--end', default='2024-12-31')
     parser.add_argument('--llm', default='mock', choices=['openai', 'anthropic', 'mock'])
+    parser.add_argument('--model', default='gpt-5-mini', help='Model to use (gpt-5-mini, gpt-5-nano, gpt-4o, etc.)')
     parser.add_argument('--no-debate', action='store_true', help='Disable expert debate')
     parser.add_argument('--cost-bps', type=float, default=10)
     parser.add_argument('--output-dir', default='artifacts/v20_ai')
@@ -763,7 +764,8 @@ def main():
         if not os.getenv('OPENAI_API_KEY'):
             print("ERROR: OPENAI_API_KEY not set")
             return
-        llm = OpenAIClient()
+        llm = OpenAIClient(model=args.model)
+        print(f"Using model: {args.model}")
     elif args.llm == 'anthropic':
         if not os.getenv('ANTHROPIC_API_KEY'):
             print("ERROR: ANTHROPIC_API_KEY not set")
