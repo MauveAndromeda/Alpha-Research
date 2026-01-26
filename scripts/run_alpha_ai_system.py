@@ -85,7 +85,7 @@ class OpenAIClient(LLMClient):
             model=self.model,
             messages=messages,
             temperature=0.2,  # Lower for more consistent outputs
-            max_tokens=1500,  # Reduced to save costs
+            max_completion_tokens=1500,  # GPT-5 uses this instead of max_tokens
         )
         return response.choices[0].message.content
 
