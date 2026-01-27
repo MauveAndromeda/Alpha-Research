@@ -1,6 +1,9 @@
 @echo off
 title Alpha Research v5.0
 
+REM Change to the directory where this batch file is located
+cd /d "%~dp0"
+
 echo ============================================================
 echo   Alpha Research v5.0 Optimized
 echo   Double-click to run
