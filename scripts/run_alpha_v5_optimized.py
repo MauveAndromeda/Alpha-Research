@@ -46,25 +46,29 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 warnings.filterwarnings('ignore')
 
 # =============================================================================
-# API KEY - 直接内置
+# API KEY - Deepseek
 # =============================================================================
-DEFAULT_API_KEY = "sk-proj-kZJaRvIOvT5RfIfR2BCmtMPaw0shVNCfw2qxoSxZJ1eBq0Cf_GCJtn6HuBjzsf-8l7si_WDLSkT3BlbkFJVdlHqP3WV8ODuL70FBgjIZovYIzPItraUhUkX4V2pIWO_2GPKvrEcMcHz5zdjNnoA"
+DEFAULT_API_KEY = "sk-1056c2911da74da6a8de6f156b07daf5"
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MODEL = "deepseek-chat"  # or "deepseek-reasoner" for reasoning tasks
 
 
 # =============================================================================
-# LLM CLIENT
+# LLM CLIENT (Deepseek compatible)
 # =============================================================================
 
 class LLMClient:
-    """OpenAI client for strategic decisions."""
+    """Deepseek/OpenAI compatible client for strategic decisions."""
 
-    def __init__(self, model: str = "gpt-4o-mini", api_key: str = None):
-        self.model = model
-        self.api_key = api_key or os.getenv('OPENAI_API_KEY') or DEFAULT_API_KEY
+    def __init__(self, model: str = None, api_key: str = None, base_url: str = None):
+        self.model = model or DEFAULT_MODEL
+        self.api_key = api_key or os.getenv('DEEPSEEK_API_KEY') or os.getenv('OPENAI_API_KEY') or DEFAULT_API_KEY
+        self.base_url = base_url or os.getenv('DEEPSEEK_BASE_URL') or DEFAULT_BASE_URL
         try:
             from openai import OpenAI
-            self.client = OpenAI(api_key=self.api_key)
+            self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
             self.available = True
+            print(f"  LLM: {self.model} @ {self.base_url}")
         except ImportError:
             print("WARNING: openai not installed, using rule-based system")
             self.available = False
@@ -667,7 +671,7 @@ def main():
     parser.add_argument('--start', default='2024-01-01', help='开始日期')
     parser.add_argument('--end', default='2025-01-20', help='结束日期')
     parser.add_argument('--years', type=float, help='如果指定，使用最近N年数据')
-    parser.add_argument('--model', default='gpt-4o-mini', help='LLM模型')
+    parser.add_argument('--model', default='deepseek-chat', help='LLM model (deepseek-chat or deepseek-reasoner)')
     parser.add_argument('--no-debate', action='store_true', help='禁用专家辩论')
     parser.add_argument('--no-impact', action='store_true', help='禁用市场冲击')
     parser.add_argument('--cost-bps', type=float, default=10, help='交易成本 (bps)')
