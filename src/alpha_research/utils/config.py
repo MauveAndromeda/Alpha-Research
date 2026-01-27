@@ -4,7 +4,9 @@ Configuration management for Alpha Research Trading System.
 Provides centralized access to all configuration files with validation.
 """
 
+import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 from functools import lru_cache
@@ -13,9 +15,11 @@ import yaml
 from pydantic import BaseModel, Field, validator
 from datetime import time
 
+logger = logging.getLogger(__name__)
 
-# Global config cache
+# Global config cache with thread-safe access
 _config_cache: Dict[str, Any] = {}
+_config_cache_lock = threading.Lock()
 
 
 class ConfigPaths:
@@ -96,10 +100,10 @@ def load_config(config_name: str, base_dir: Optional[Path] = None) -> Dict[str, 
                         f"Valid options: {list(config_map.keys())}")
 
     cache_key = f"{base_dir}:{config_name}"
-    if cache_key not in _config_cache:
-        _config_cache[cache_key] = load_yaml(config_map[config_name])
-
-    return _config_cache[cache_key]
+    with _config_cache_lock:
+        if cache_key not in _config_cache:
+            _config_cache[cache_key] = load_yaml(config_map[config_name])
+        return _config_cache[cache_key]
 
 
 def get_config(config_name: str, *keys: str, default: Any = None) -> Any:
@@ -139,12 +143,13 @@ def reload_config(config_name: Optional[str] = None) -> None:
     """
     global _config_cache
 
-    if config_name is None:
-        _config_cache.clear()
-    else:
-        keys_to_remove = [k for k in _config_cache if k.endswith(f":{config_name}")]
-        for key in keys_to_remove:
-            del _config_cache[key]
+    with _config_cache_lock:
+        if config_name is None:
+            _config_cache.clear()
+        else:
+            keys_to_remove = [k for k in _config_cache if k.endswith(f":{config_name}")]
+            for key in keys_to_remove:
+                del _config_cache[key]
 
 
 class Settings:
@@ -257,8 +262,8 @@ def validate_all_configs(base_dir: Optional[Path] = None) -> Dict[str, bool]:
         try:
             load_config(name, base_dir)
             results[name] = True
-        except Exception as e:
+        except (FileNotFoundError, yaml.YAMLError, ValueError) as e:
             results[name] = False
-            print(f"Config validation failed for {name}: {e}")
+            logger.warning(f"Config validation failed for {name}: {e}")
 
     return results

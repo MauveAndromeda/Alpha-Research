@@ -567,12 +567,12 @@ class PerformanceAttributor:
 
         # Estimate contributions based on signal counts and outcomes
         total_signals = news_count + filing_count + insider_count + guard_count
-        if total_signals > 0:
+        if total_signals > 0 and satellite_alpha != 0:
             # Weight by signal count (simplified attribution)
-            news_weight = news_count / total_signals
-            filing_weight = filing_count / total_signals
-            insider_weight = insider_count / total_signals
-            guard_weight = guard_count / total_signals
+            news_weight = news_count / total_signals if total_signals > 0 else 0.0
+            filing_weight = filing_count / total_signals if total_signals > 0 else 0.0
+            insider_weight = insider_count / total_signals if total_signals > 0 else 0.0
+            guard_weight = guard_count / total_signals if total_signals > 0 else 0.0
 
             news_contrib = satellite_alpha * news_weight
             filing_contrib = satellite_alpha * filing_weight
@@ -638,16 +638,16 @@ class PerformanceAttributor:
         annual_vol = std_return * np.sqrt(self.trading_days)
 
         # Sharpe ratio
-        if annual_vol > 0:
+        if annual_vol > 1e-10:  # Use small epsilon to avoid numerical issues
             sharpe = (annual_return - self.risk_free_rate) / annual_vol
         else:
             sharpe = 0.0
 
         # Sortino ratio (downside deviation)
         downside_returns = returns_np[returns_np < 0]
-        if len(downside_returns) > 0:
+        if len(downside_returns) > 1:  # Need at least 2 points for std
             downside_std = np.std(downside_returns, ddof=1) * np.sqrt(self.trading_days)
-            if downside_std > 0:
+            if downside_std > 1e-10:  # Use small epsilon to avoid numerical issues
                 sortino = (annual_return - self.risk_free_rate) / downside_std
             else:
                 sortino = 0.0

@@ -270,15 +270,15 @@ class FundamentalDataFetcher:
                         total_debt = self._safe_get_statement(quarterly_bs, period_end, 'Total Debt')
                         stockholders_equity = self._safe_get_statement(quarterly_bs, period_end, 'Stockholders Equity')
 
-                        if total_assets and total_debt:
+                        if total_assets and total_debt and total_assets > 0:
                             record['debt_to_assets'] = total_debt / total_assets
 
                         if stockholders_equity:
                             record['total_equity'] = stockholders_equity
 
                         record['total_assets'] = total_assets
-                    except Exception:
-                        pass
+                    except (KeyError, TypeError, ValueError) as e:
+                        logger.debug(f"Error extracting balance sheet data for {symbol}: {e}")
 
                 # Cash flow metrics
                 if quarterly_cf is not None and not quarterly_cf.empty:
@@ -289,12 +289,13 @@ class FundamentalDataFetcher:
                         record['cfo'] = cfo
                         record['fcf'] = fcf
 
-                        if cfo and record.get('total_assets'):
-                            record['cfo_to_assets'] = cfo / record['total_assets']
-                        if fcf and record.get('total_assets'):
-                            record['fcf_to_assets'] = fcf / record['total_assets']
-                    except Exception:
-                        pass
+                        total_assets = record.get('total_assets')
+                        if cfo and total_assets and total_assets > 0:
+                            record['cfo_to_assets'] = cfo / total_assets
+                        if fcf and total_assets and total_assets > 0:
+                            record['fcf_to_assets'] = fcf / total_assets
+                    except (KeyError, TypeError, ValueError) as e:
+                        logger.debug(f"Error extracting cash flow data for {symbol}: {e}")
 
                 # Income statement metrics
                 if quarterly_financials is not None:
@@ -308,8 +309,8 @@ class FundamentalDataFetcher:
                         record['gross_profit'] = gross_profit
                         record['operating_income'] = operating_income
                         record['ebitda'] = ebitda
-                    except Exception:
-                        pass
+                    except (KeyError, TypeError, ValueError) as e:
+                        logger.debug(f"Error extracting income statement data for {symbol}: {e}")
 
                 # Value metrics (from info)
                 record['market_cap'] = self._safe_get(info, 'marketCap', None)
@@ -361,8 +362,8 @@ class FundamentalDataFetcher:
                 val = df.loc[row_name, period]
                 if pd.notna(val):
                     return float(val)
-        except Exception:
-            pass
+        except (KeyError, TypeError, ValueError, IndexError) as e:
+            logger.debug(f"Error getting {row_name} for period {period}: {e}")
         return None
 
     def _generate_synthetic_fundamentals(

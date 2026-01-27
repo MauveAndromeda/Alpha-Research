@@ -5,6 +5,7 @@ Handles order execution with IBKR integration.
 Ensures idempotent execution - same run_id cannot duplicate orders.
 """
 
+import logging
 import os
 import time
 import json
@@ -16,6 +17,8 @@ from dataclasses import dataclass, field
 from alpha_research.data.models import Order
 from alpha_research.utils.enums import OrderType, OrderSide, OrderStatus
 from alpha_research.utils.config import load_config
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -96,9 +99,18 @@ class OrderExecutor:
             ib = IB()
             ib.connect(self.host, self.port, clientId=self.client_id)
             self._connected = True
+            logger.info(f"Successfully connected to IBKR at {self.host}:{self.port}")
             return ib
+        except ImportError as e:
+            logger.error(f"ib_insync not installed: {e}")
+            self._connected = False
+            return None
+        except ConnectionRefusedError as e:
+            logger.warning(f"IBKR connection refused at {self.host}:{self.port}: {e}")
+            self._connected = False
+            return None
         except Exception as e:
-            print(f"Failed to connect to IBKR: {e}")
+            logger.error(f"Failed to connect to IBKR: {e}")
             self._connected = False
             return None
 
@@ -364,8 +376,8 @@ class OrderExecutor:
 
                 self._executed_keys[order.idempotency_key] = result
 
-            except Exception as e:
-                print(f"Error loading order {filepath}: {e}")
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+                logger.warning(f"Error loading order {filepath}: {e}")
 
     def get_positions(self) -> Dict[str, int]:
         """
@@ -383,8 +395,8 @@ class OrderExecutor:
                 symbol = pos.contract.symbol
                 positions[symbol] = int(pos.position)
             return positions
-        except Exception as e:
-            print(f"Error getting positions: {e}")
+        except (AttributeError, ConnectionError, RuntimeError) as e:
+            logger.warning(f"Error getting positions: {e}")
             return {}
 
     def get_account_summary(self) -> Dict[str, Any]:
@@ -405,8 +417,8 @@ class OrderExecutor:
                     'currency': item.currency,
                 }
             return summary
-        except Exception as e:
-            print(f"Error getting account summary: {e}")
+        except (AttributeError, ConnectionError, RuntimeError) as e:
+            logger.warning(f"Error getting account summary: {e}")
             return {}
 
     def disconnect(self) -> None:

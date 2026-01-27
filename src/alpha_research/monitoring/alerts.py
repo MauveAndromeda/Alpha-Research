@@ -5,6 +5,7 @@ Manages alerts and notifications based on configured thresholds.
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
@@ -13,6 +14,8 @@ from enum import Enum
 
 from alpha_research.utils.enums import IncidentSeverity, ErrorCode
 from alpha_research.utils.config import load_config
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -203,21 +206,29 @@ class AlertManager:
 
     def _dispatch_alert(self, alert: Alert) -> None:
         """Dispatch alert to configured channels."""
-        # Log alert
+        # Log alert based on severity
         log_message = f"[{alert.severity.value}] {alert.title}: {alert.message}"
         if alert.error_code:
             log_message += f" (Code: {alert.error_code.value})"
-        print(log_message)
+
+        if alert.severity == IncidentSeverity.CRITICAL:
+            logger.critical(log_message)
+        elif alert.severity == IncidentSeverity.ERROR:
+            logger.error(log_message)
+        elif alert.severity == IncidentSeverity.WARN:
+            logger.warning(log_message)
+        else:
+            logger.info(log_message)
 
         # Save to disk
         self._save_alert(alert)
 
         # Call registered handlers
-        for handler in self._handlers.values():
+        for handler_name, handler in self._handlers.items():
             try:
                 handler(alert)
-            except Exception as e:
-                print(f"Alert handler error: {e}")
+            except (TypeError, ValueError, RuntimeError) as e:
+                logger.warning(f"Alert handler '{handler_name}' error: {e}")
 
     def _execute_auto_action(self, alert: Alert) -> None:
         """Execute auto-action for an alert."""
@@ -225,16 +236,16 @@ class AlertManager:
             return
 
         action = alert.auto_action
-        print(f"Executing auto-action: {action}")
+        logger.info(f"Executing auto-action: {action}")
 
         # Actions would be implemented here
         # For now, just log
         if action == "ABORT_RUN":
-            print("AUTO-ACTION: Aborting current run")
+            logger.warning("AUTO-ACTION: Aborting current run")
         elif action == "DISABLE_LLM_FOR_DAY":
-            print("AUTO-ACTION: Disabling LLM modules for today")
+            logger.warning("AUTO-ACTION: Disabling LLM modules for today")
         elif action == "FREEZE_TRADING":
-            print("AUTO-ACTION: Freezing trading")
+            logger.warning("AUTO-ACTION: Freezing trading")
 
     def _save_alert(self, alert: Alert) -> None:
         """Save alert to disk."""

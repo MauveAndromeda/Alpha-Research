@@ -15,6 +15,7 @@ Features:
 - Fallback providers
 """
 
+import logging
 import os
 import json
 import time
@@ -27,6 +28,8 @@ from functools import wraps
 import threading
 import pandas as pd
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from alpha_research.data.models import (
     MarketData,
@@ -161,8 +164,8 @@ class DataCache:
                 with open(meta_path, 'w') as f:
                     json.dump(meta, f, default=str)
 
-            except Exception as e:
-                print(f"Cache write error: {e}")
+            except (IOError, OSError, json.JSONDecodeError) as e:
+                logger.warning(f"Cache write error: {e}")
 
     def invalidate(self, provider: str, method: str, params: Dict) -> None:
         """Invalidate specific cache entry."""
@@ -401,7 +404,7 @@ class YahooDataProvider(DataProvider):
 
         if failed_symbols and len(failed_symbols) > len(symbols) * 0.5:
             # More than half failed - log warning
-            print(f"Warning: {len(failed_symbols)}/{len(symbols)} symbols failed to fetch")
+            logger.warning(f"{len(failed_symbols)}/{len(symbols)} symbols failed to fetch")
 
         df = pd.DataFrame(records)
 
