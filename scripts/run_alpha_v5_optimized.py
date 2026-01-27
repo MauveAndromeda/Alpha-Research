@@ -66,7 +66,7 @@ class LLMClient:
             self.client = OpenAI(api_key=self.api_key)
             self.available = True
         except ImportError:
-            print("警告: openai 未安装，将使用规则系统")
+            print("WARNING: openai not installed, using rule-based system")
             self.available = False
 
     def query(self, prompt: str, system: str = None) -> str:
@@ -85,7 +85,7 @@ class LLMClient:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"LLM 查询失败: {e}")
+            print(f"LLM query failed: {e}")
             return ""
 
     def query_json(self, prompt: str, system: str = None) -> Dict:
@@ -661,32 +661,32 @@ def main():
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
-    print("v5.0 优化版机构级 Alpha 系统")
+    print("v5.0 OPTIMIZED INSTITUTIONAL-GRADE ALPHA SYSTEM")
     print("=" * 70)
-    print(f"测试周期: {args.start} 到 {args.end}")
-    print(f"LLM模型: {args.model}")
-    print(f"专家辩论: {'关闭' if args.no_debate else '开启 (3专家简化版)'}")
-    print(f"市场冲击: {'关闭' if args.no_impact else '开启 (优化参数)'}")
+    print(f"Period: {args.start} to {args.end}")
+    print(f"LLM Model: {args.model}")
+    print(f"Expert Debate: {'OFF' if args.no_debate else 'ON (3 experts)'}")
+    print(f"Market Impact: {'OFF' if args.no_impact else 'ON (optimized)'}")
     print()
-    print("v5.0 优化点:")
-    print("  ✓ 风险管理阈值恢复 (5-10-15%)")
-    print("  ✓ 杠杆范围恢复 (Turbo: 1.5-2.5x)")
-    print("  ✓ 模式切换频率降低 (42天)")
-    print("  ✓ 简化专家系统 (3专家)")
-    print("  ✓ 移除有缺陷的 Transfer Entropy")
-    print("  ✓ Top-N 集中度恢复 (Turbo: 8)")
-    print("  ✓ Survivorship 调整修正 (0.8%)")
+    print("v5.0 Optimizations:")
+    print("  + Risk thresholds restored (5-10-15%)")
+    print("  + Leverage restored (Turbo: 1.5-2.5x)")
+    print("  + Mode switch frequency reduced (42 days)")
+    print("  + Simplified expert system (3 experts)")
+    print("  + Removed flawed Transfer Entropy")
+    print("  + Top-N concentration restored (Turbo: 8)")
+    print("  + Survivorship adjustment fixed (0.8%)")
     print("=" * 70)
 
     client = LLMClient(model=args.model)
 
-    print("\n[1/4] 获取市场数据...")
+    print("\n[1/4] Fetching market data...")
     try:
         import yfinance as yf
     except ImportError:
-        print("错误: 需要安装 yfinance")
-        print("运行: pip install yfinance")
-        input("按回车键退出...")
+        print("ERROR: yfinance not installed")
+        print("Run: pip install yfinance")
+        input("Press Enter to exit...")
         return
 
     symbols = [
@@ -699,7 +699,7 @@ def main():
 
     lookback_start = pd.to_datetime(args.start) - pd.Timedelta(days=400)
 
-    print(f"  获取 {len(symbols)} 只股票数据...")
+    print(f"  Fetching {len(symbols)} stocks...")
     all_data = []
     for sym in symbols + ['SPY']:
         try:
@@ -713,8 +713,8 @@ def main():
             pass
 
     if not all_data:
-        print("错误: 无法获取数据")
-        input("按回车键退出...")
+        print("ERROR: Failed to fetch data")
+        input("Press Enter to exit...")
         return
 
     combined = pd.concat(all_data, ignore_index=True)
@@ -729,14 +729,14 @@ def main():
         bench_df.index = bench_df.index.tz_localize(None)
     bench_returns = bench_df.pct_change().dropna()
 
-    print(f"  成功获取 {len(pivot.columns)} 只股票")
+    print(f"  Loaded {len(pivot.columns)} stocks")
 
     test_start = pd.to_datetime(args.start)
     test_bench = bench_returns[bench_returns.index >= test_start]
     bench_test_ret = (1 + test_bench).prod() - 1
-    print(f"  SPY 收益 ({args.start} 到 {args.end}): {bench_test_ret:.1%}")
+    print(f"  SPY return ({args.start} to {args.end}): {bench_test_ret:.1%}")
 
-    print("\n[2/4] 运行优化版回测...")
+    print("\n[2/4] Running optimized backtest...")
     port_returns, info = run_backtest(
         returns, bench_returns, client,
         cost_bps=args.cost_bps,
@@ -749,47 +749,47 @@ def main():
         mode_counts = {}
         for m in info['mode_log']:
             mode_counts[m['mode']] = mode_counts.get(m['mode'], 0) + 1
-        print(f"  模式分布: {mode_counts}")
+        print(f"  Mode distribution: {mode_counts}")
 
     port_returns = port_returns[port_returns.index >= test_start]
     bench_test = bench_returns[bench_returns.index >= test_start]
 
-    print("\n[3/4] 计算指标...")
+    print("\n[3/4] Computing metrics...")
     metrics = compute_metrics(port_returns, bench_test)
 
     if 'error' in metrics:
-        print(f"错误: {metrics['error']}")
-        input("按回车键退出...")
+        print(f"ERROR: {metrics['error']}")
+        input("Press Enter to exit...")
         return
 
     n_years = metrics['n_days'] / 252
     metrics = apply_survivorship_adjustment(metrics, n_years)
 
-    print("\n[4/4] 统计验证...")
+    print("\n[4/4] Statistical validation...")
     sharpe_test = bootstrap_sharpe_test(port_returns)
     dsr = deflated_sharpe_ratio(metrics['sharpe'], metrics['n_days'], n_trials=10)
 
-    # 结果
+    # Results
     print("\n" + "=" * 70)
-    print("回测结果")
+    print("BACKTEST RESULTS")
     print("=" * 70)
     print(f"  Sharpe Ratio:      {metrics['sharpe']:.3f}")
-    print(f"  年化收益:          {metrics['ann_return']:.2%}")
-    print(f"  年化波动率:        {metrics['ann_vol']:.2%}")
+    print(f"  Annual Return:     {metrics['ann_return']:.2%}")
+    print(f"  Annual Volatility: {metrics['ann_vol']:.2%}")
     print(f"  Alpha:             {metrics['alpha']:.2%}")
-    print(f"  Alpha (调整后):    {metrics['alpha_adjusted']:.2%}")
-    print(f"  最大回撤:          {metrics['max_dd']:.2%}")
+    print(f"  Alpha (adjusted):  {metrics['alpha_adjusted']:.2%}")
+    print(f"  Max Drawdown:      {metrics['max_dd']:.2%}")
     print(f"  Sortino:           {metrics['sortino']:.3f}")
     print(f"  Calmar:            {metrics['calmar']:.3f}")
-    print(f"  基准收益:          {metrics['bench_return']:.2%}")
+    print(f"  Benchmark Return:  {metrics['bench_return']:.2%}")
     print()
-    print("统计验证:")
+    print("Statistical Validation:")
     print(f"  Bootstrap p-value: {sharpe_test['p_value']:.4f}")
     print(f"  Deflated Sharpe:   {dsr:.3f}")
-    print(f"  显著 (p<0.05):     {'是' if sharpe_test['significant_05'] else '否'}")
+    print(f"  Significant p<0.05: {'YES' if sharpe_test['significant_05'] else 'NO'}")
     print("=" * 70)
 
-    # 保存结果
+    # Save results
     result = {
         'version': 'v5.0-optimized',
         'period': f"{args.start} to {args.end}",
@@ -806,11 +806,11 @@ def main():
     with open(output_file, 'w') as f:
         json.dump(result, f, indent=2, default=str)
 
-    print(f"\n结果已保存到: {output_file}")
+    print(f"\nResults saved to: {output_file}")
 
-    # Windows 双击运行时暂停
+    # Pause on Windows double-click
     if os.name == 'nt' or not sys.stdin.isatty():
-        input("\n按回车键退出...")
+        input("\nPress Enter to exit...")
 
 
 if __name__ == '__main__':

@@ -1,30 +1,37 @@
 #!/bin/bash
-# Alpha Research v5.0 - 本地运行脚本
-# 使用方法: chmod +x run_alpha.sh && ./run_alpha.sh
+# Alpha Research v5.0 - Local Run Script
+# Usage: chmod +x run_alpha.sh && ./run_alpha.sh
+
+# Change to script directory
+cd "$(dirname "$0")"
 
 echo "============================================================"
-echo "  Alpha Research v5.0 优化版"
+echo "  Alpha Research v5.0 Optimized"
 echo "============================================================"
 echo
 
-# 检查 Python
+# Check Python
 if ! command -v python3 &> /dev/null; then
-    echo "错误: 未找到 Python3，请先安装"
+    echo "ERROR: Python3 not found, please install first"
     exit 1
 fi
 
-# 安装依赖
-echo "正在检查依赖..."
+echo "Python found:"
+python3 --version
+echo
+
+# Install dependencies
+echo "Installing dependencies..."
 pip3 install yfinance openai pandas numpy scipy --quiet
 
 echo
-echo "开始运行回测..."
+echo "Starting backtest..."
 echo
 
-# 运行脚本
+# Run script
 python3 scripts/run_alpha_v5_optimized.py --years 1
 
 echo
 echo "============================================================"
-echo "  运行完成！"
+echo "  Done!"
 echo "============================================================"
