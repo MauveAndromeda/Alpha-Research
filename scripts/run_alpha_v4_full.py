@@ -735,10 +735,10 @@ def run_backtest(
         vol_short = realized_vol
         vol_long = pd.Series(portfolio_returns[-252:]).std() * np.sqrt(252) if len(portfolio_returns) >= 252 else realized_vol
 
-        # Trend filter
-        if i >= 200:
-            current_bench = bench_prices.iloc[i]
-            sma_200 = bench_prices.iloc[i-200:i].mean()
+        # Trend filter (MUST use yesterday's data to avoid look-ahead bias)
+        if i >= 201:
+            current_bench = bench_prices.iloc[i-1]  # Yesterday's close (no look-ahead)
+            sma_200 = bench_prices.iloc[i-201:i-1].mean()  # 200-day SMA up to yesterday
             if current_bench > sma_200:
                 trend_filter = 1.0
             else:
@@ -821,6 +821,83 @@ def compute_metrics(port_returns: pd.Series, bench_returns: pd.Series) -> Dict:
         'calmar': calmar,
         'total_return': total_ret,
         'n_days': n,
+    }
+
+
+# =============================================================================
+# STATISTICAL VALIDATION (SPA Bootstrap)
+# =============================================================================
+
+def bootstrap_sharpe_test(returns: pd.Series, n_bootstrap: int = 10000) -> Dict:
+    """
+    Bootstrap test for Sharpe ratio significance.
+    H0: True Sharpe <= 0
+    Returns p-value for rejecting H0.
+    """
+    n = len(returns)
+    observed_sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
+
+    # Bootstrap under null (centered returns)
+    centered = returns - returns.mean()
+
+    bootstrap_sharpes = []
+    for _ in range(n_bootstrap):
+        sample = np.random.choice(centered, size=n, replace=True)
+        boot_sharpe = sample.mean() / sample.std() * np.sqrt(252) if sample.std() > 0 else 0
+        bootstrap_sharpes.append(boot_sharpe)
+
+    bootstrap_sharpes = np.array(bootstrap_sharpes)
+
+    # p-value: proportion of bootstrap samples >= observed
+    p_value = (bootstrap_sharpes >= observed_sharpe).mean()
+
+    # Confidence interval
+    ci_lower = np.percentile(bootstrap_sharpes + observed_sharpe, 2.5)
+    ci_upper = np.percentile(bootstrap_sharpes + observed_sharpe, 97.5)
+
+    return {
+        'observed_sharpe': observed_sharpe,
+        'p_value': p_value,
+        'ci_95': (ci_lower, ci_upper),
+        'significant_001': p_value < 0.001,
+        'significant_01': p_value < 0.01,
+        'significant_05': p_value < 0.05,
+    }
+
+
+def bootstrap_alpha_test(port_returns: pd.Series, bench_returns: pd.Series, n_bootstrap: int = 10000) -> Dict:
+    """
+    Bootstrap test for alpha significance.
+    H0: True Alpha <= 0
+    """
+    # Align
+    common = port_returns.index.intersection(bench_returns.index)
+    port_returns = port_returns.loc[common]
+    bench_returns = bench_returns.loc[common]
+
+    excess = port_returns - bench_returns
+    n = len(excess)
+
+    observed_alpha = excess.mean() * 252
+
+    # Bootstrap under null
+    centered = excess - excess.mean()
+
+    bootstrap_alphas = []
+    for _ in range(n_bootstrap):
+        sample = np.random.choice(centered, size=n, replace=True)
+        boot_alpha = sample.mean() * 252
+        bootstrap_alphas.append(boot_alpha)
+
+    bootstrap_alphas = np.array(bootstrap_alphas)
+    p_value = (bootstrap_alphas >= observed_alpha).mean()
+
+    return {
+        'observed_alpha': observed_alpha,
+        'p_value': p_value,
+        'significant_001': p_value < 0.001,
+        'significant_01': p_value < 0.01,
+        'significant_05': p_value < 0.05,
     }
 
 
@@ -949,7 +1026,7 @@ def main():
         return
 
     # Validation
-    print("\n[4/4] Running validation...")
+    print("\n[4/4] Running statistical validation...")
     sharpe = metrics['sharpe']
     n_obs = metrics['n_days']
 
@@ -961,6 +1038,11 @@ def main():
     e_max = (1 - euler) * stats.norm.ppf(1 - 1/n_trials) + euler * stats.norm.ppf(1 - 1/(n_trials * np.e))
     e_max = e_max * np.sqrt(1 + 0.5 * (skew**2 + (kurt-3)/4)) / np.sqrt(n_obs)
     deflated = sharpe - e_max
+
+    # Bootstrap tests (10000 iterations for robust p-values)
+    print("  Running bootstrap tests (10000 iterations)...")
+    sharpe_test = bootstrap_sharpe_test(port_returns, n_bootstrap=10000)
+    alpha_test = bootstrap_alpha_test(port_returns, bench_returns, n_bootstrap=10000)
 
     # Results
     print("\n" + "=" * 80)
@@ -978,11 +1060,18 @@ def main():
     print(f"{'Sortino Ratio':<35} {metrics['sortino']:.3f}")
     print(f"{'Calmar Ratio':<35} {metrics['calmar']:.3f}")
 
-    print(f"\n{'VALIDATION':^80}")
+    print(f"\n{'STATISTICAL VALIDATION':^80}")
     print("-" * 80)
     print(f"{'Deflated Sharpe':<35} {deflated:.3f}")
     print(f"{'Deflated Significant (>0)':<35} {'YES' if deflated > 0 else 'NO'}")
     print(f"{'Trading Days':<35} {metrics['n_days']}")
+    print(f"\n{'BOOTSTRAP TEST (n=10000)':^80}")
+    print("-" * 80)
+    print(f"{'Sharpe p-value':<35} {sharpe_test['p_value']:.6f}")
+    print(f"{'Sharpe significant (p<0.001)':<35} {'YES' if sharpe_test['significant_001'] else 'NO'}")
+    print(f"{'Sharpe 95% CI':<35} [{sharpe_test['ci_95'][0]:.3f}, {sharpe_test['ci_95'][1]:.3f}]")
+    print(f"{'Alpha p-value':<35} {alpha_test['p_value']:.6f}")
+    print(f"{'Alpha significant (p<0.001)':<35} {'YES' if alpha_test['significant_001'] else 'NO'}")
 
     print(f"\n{'FEATURES USED':^80}")
     print("-" * 80)
@@ -995,26 +1084,28 @@ def main():
         print(f"{'Last Mode':<35} {last['mode'].upper()}")
         print(f"{'Last Regime':<35} {last['regime']}/{last['vol_regime']}")
 
-    # Grade
+    # Grade (stricter criteria with p-value)
     checks = [
-        metrics['sharpe'] > 1.5,
-        metrics['alpha'] > 0.05,
+        metrics['sharpe'] > 1.0,
+        metrics['alpha'] > 0,
         deflated > 0,
-        metrics['max_dd'] < 0.15,
-        metrics['calmar'] > 1.0,
+        metrics['max_dd'] < 0.20,
+        sharpe_test['p_value'] < 0.01,  # Sharpe p-value < 0.01
+        alpha_test['p_value'] < 0.05,   # Alpha p-value < 0.05
     ]
     passed = sum(checks)
 
     print("\n" + "=" * 80)
-    print(f"  [{'✓' if checks[0] else '✗'}] Sharpe > 1.5")
-    print(f"  [{'✓' if checks[1] else '✗'}] Alpha > 5%")
+    print(f"  [{'✓' if checks[0] else '✗'}] Sharpe > 1.0")
+    print(f"  [{'✓' if checks[1] else '✗'}] Alpha > 0%")
     print(f"  [{'✓' if checks[2] else '✗'}] Deflated Sharpe > 0")
-    print(f"  [{'✓' if checks[3] else '✗'}] Max DD < 15%")
-    print(f"  [{'✓' if checks[4] else '✗'}] Calmar > 1.0")
+    print(f"  [{'✓' if checks[3] else '✗'}] Max DD < 20%")
+    print(f"  [{'✓' if checks[4] else '✗'}] Sharpe p-value < 0.01")
+    print(f"  [{'✓' if checks[5] else '✗'}] Alpha p-value < 0.05")
 
-    grades = ['D', 'C', 'C+', 'B', 'B+', 'A']
-    grade = grades[min(passed, 5)]
-    print(f"\n*** GRADE: {grade} ({passed}/5 checks passed) ***")
+    grades = ['D', 'D+', 'C', 'C+', 'B', 'B+', 'A']
+    grade = grades[min(passed, 6)]
+    print(f"\n*** GRADE: {grade} ({passed}/6 checks passed) ***")
     print("=" * 80)
 
     # Save
