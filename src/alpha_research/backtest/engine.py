@@ -686,7 +686,7 @@ class BacktestEngine:
         cost_drag_annualized = cost_drag_total / n_years if n_years > 0 else cost_drag_total
 
         # Monthly returns
-        monthly_rets = daily_returns.resample('M').apply(lambda x: (1 + x).prod() - 1)
+        monthly_rets = daily_returns.resample('ME').apply(lambda x: (1 + x).prod() - 1)
 
         # Average holding period (simplified estimate)
         avg_holding = n_days / max(1, total_trades / 2)  # Rough estimate

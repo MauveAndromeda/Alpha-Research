@@ -255,7 +255,7 @@ class AlphaVerifier:
         var_95 = np.percentile(returns, 5)
 
         # Monthly stats
-        monthly = returns.resample('M').sum() if hasattr(returns.index, 'freq') else returns.groupby(pd.Grouper(freq='M')).sum()
+        monthly = returns.resample('ME').sum() if hasattr(returns.index, 'freq') else returns.groupby(pd.Grouper(freq='ME')).sum()
         if len(monthly) > 0:
             monthly_win_rate = (monthly > 0).mean()
         else:
