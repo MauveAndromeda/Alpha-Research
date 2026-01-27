@@ -130,15 +130,15 @@ def fetch_market_data(
 
 def fetch_fundamental_data(
     symbols: List[str],
-    use_real: bool = False,
+    use_real: bool = True,  # Default to real data
 ) -> Tuple[pd.DataFrame, Dict]:
     """
     Fetch fundamental data.
 
     Args:
         symbols: List of stock symbols
-        use_real: If True, use real yfinance data (slower, may fail for some symbols)
-                  If False, use synthetic data (faster, for testing)
+        use_real: If True (default), use real yfinance data
+                  If False, use synthetic data (for testing only)
 
     Returns:
         Tuple of (DataFrame with fundamentals, metadata dict)
@@ -158,7 +158,7 @@ def fetch_fundamental_data(
             logger.warning(f"Real fundamental fetch failed: {e}")
             logger.warning("Falling back to synthetic data")
 
-    # Generate synthetic fundamental data
+    # Generate synthetic fundamental data (only if use_real=False or real fetch failed)
     logger.info("Generating SYNTHETIC fundamental data (for testing only)")
 
     np.random.seed(42)  # Reproducibility
@@ -483,7 +483,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Quick 1-year backtest (default)
+    # Quick 1-year backtest with REAL data (default)
     python scripts/run_backtest_oneclick.py
 
     # 3-year backtest
@@ -492,8 +492,8 @@ Examples:
     # Custom date range
     python scripts/run_backtest_oneclick.py --start 2022-01-01 --end 2024-12-31
 
-    # With real fundamental data (slower but more accurate)
-    python scripts/run_backtest_oneclick.py --real-fundamentals
+    # With synthetic data (faster, for testing only)
+    python scripts/run_backtest_oneclick.py --synthetic-fundamentals
 
     # Custom capital
     python scripts/run_backtest_oneclick.py --capital 500000
@@ -538,9 +538,9 @@ Examples:
         help=f"Rebalance frequency (default: {DEFAULT_REBALANCE})",
     )
     parser.add_argument(
-        "--real-fundamentals",
+        "--synthetic-fundamentals",
         action="store_true",
-        help="Use real fundamental data from yfinance (slower, more accurate)",
+        help="Use synthetic fundamental data (faster, for testing only). Default uses REAL data.",
     )
     parser.add_argument(
         "--no-save",
@@ -562,12 +562,15 @@ Examples:
         start_date = end_date - timedelta(days=365 * args.years)
 
     # Header
+    # Determine if using real data (default) or synthetic
+    use_real = not args.synthetic_fundamentals
+
     print("=" * 70)
     print("ONE-CLICK BACKTEST - Alpha Research Trading System")
     print("=" * 70)
     print(f"  Period: {start_date} to {end_date}")
     print(f"  Capital: ${args.capital:,.0f}")
-    print(f"  Fundamentals: {'REAL' if args.real_fundamentals else 'SYNTHETIC'}")
+    print(f"  Fundamentals: {'REAL (yfinance)' if use_real else 'SYNTHETIC (testing only)'}")
     print("=" * 70)
 
     try:
@@ -580,7 +583,7 @@ Examples:
             slippage_bps=args.slippage,
             commission=DEFAULT_COMMISSION,
             rebalance=args.rebalance,
-            use_real_fundamentals=args.real_fundamentals,
+            use_real_fundamentals=use_real,
         )
 
         # Print results
