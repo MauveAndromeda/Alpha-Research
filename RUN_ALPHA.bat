@@ -26,7 +26,7 @@ echo.
 
 REM Install dependencies
 echo Installing dependencies...
-pip install yfinance openai pandas numpy scipy -q
+pip install yfinance openai pandas numpy scipy tqdm -q
 
 echo.
 echo Starting backtest...

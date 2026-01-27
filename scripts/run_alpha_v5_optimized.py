@@ -410,8 +410,9 @@ def run_backtest(
     mode_update_freq: int = 42,  # 优化: 42天而非21天
     use_debate: bool = True,
     use_market_impact: bool = True,
+    show_progress: bool = True,
 ) -> Tuple[pd.Series, Dict]:
-    """优化的回测引擎"""
+    """优化的回测引擎 - 带进度条和心跳"""
 
     common = returns.index.intersection(bench_returns.index)
     returns = returns.loc[common]
@@ -432,8 +433,21 @@ def run_backtest(
     debate_log = []
 
     dates = returns.index.tolist()
+    total_days = len(dates)
 
-    for i, date in enumerate(dates):
+    # Progress bar setup
+    try:
+        from tqdm import tqdm
+        date_iter = tqdm(enumerate(dates), total=total_days, desc="Backtesting",
+                        bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]')
+    except ImportError:
+        date_iter = enumerate(dates)
+        show_progress = False
+
+    last_heartbeat = 0
+    heartbeat_interval = 50  # Print status every 50 days
+
+    for i, date in date_iter:
         if i < min(lookback, 63):
             portfolio_returns.append(0)
             continue
@@ -541,6 +555,13 @@ def run_backtest(
 
         portfolio_returns.append(port_ret)
         cumulative_value *= (1 + port_ret)
+
+        # Heartbeat output to prevent Codespace timeout
+        if not show_progress and (i - last_heartbeat) >= heartbeat_interval:
+            last_heartbeat = i
+            pct = (i + 1) / total_days * 100
+            cum_ret = (cumulative_value - 1) * 100
+            print(f"  [HEARTBEAT] Day {i+1}/{total_days} ({pct:.1f}%) | Cum Return: {cum_ret:+.2f}% | Mode: {current_mode}")
 
     return pd.Series(portfolio_returns, index=dates), {
         'mode_log': mode_log,

@@ -22,7 +22,7 @@ echo
 
 # Install dependencies
 echo "Installing dependencies..."
-pip3 install yfinance openai pandas numpy scipy --quiet
+pip3 install yfinance openai pandas numpy scipy tqdm --quiet
 
 echo
 echo "Starting backtest..."
