@@ -86,7 +86,7 @@ SP500_UNIVERSE = [
 DEFAULT_CAPITAL = 100000
 DEFAULT_SLIPPAGE_BPS = 5.0
 DEFAULT_COMMISSION = 0.005
-DEFAULT_REBALANCE = 'monthly'
+DEFAULT_REBALANCE = 'weekly'
 DEFAULT_TARGET_HOLDINGS = 20  # 减少持仓数量,提高集中度
 
 # =============================================================================

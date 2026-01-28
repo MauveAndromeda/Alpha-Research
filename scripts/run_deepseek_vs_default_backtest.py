@@ -44,15 +44,18 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-chat"
 
-# 模拟模式标志
-SIMULATION_MODE = False
+# 严格模式：必须有真实的 API key
 if not DEEPSEEK_API_KEY:
     print("=" * 70)
-    print("WARNING: DEEPSEEK_API_KEY 环境变量未设置!")
-    print("将使用【模拟模式】- 使用增强规则替代真实 API 调用")
-    print("如需真实 API 调用，请设置: export DEEPSEEK_API_KEY=your_api_key")
+    print("错误: DEEPSEEK_API_KEY 环境变量未设置!")
+    print("")
+    print("本系统要求使用真实的 LLM API 调用，不允许模拟模式。")
+    print("请设置: export DEEPSEEK_API_KEY=your_api_key")
+    print("")
+    print("如果您只想运行默认因子策略（不使用LLM），请使用:")
+    print("  python scripts/run_backtest_oneclick.py")
     print("=" * 70)
-    SIMULATION_MODE = True
+    raise RuntimeError("DEEPSEEK_API_KEY 必须设置才能运行此脚本")
 
 # =============================================================================
 # 日志配置
@@ -96,7 +99,7 @@ LONG_HISTORY_UNIVERSE = [
 DEFAULT_CAPITAL = 100000
 DEFAULT_SLIPPAGE_BPS = 5.0
 DEFAULT_COMMISSION = 0.005
-DEFAULT_REBALANCE = 'monthly'
+DEFAULT_REBALANCE = 'weekly'
 DEFAULT_TARGET_HOLDINGS = 15  # 减少持仓以提高集中度
 
 # =============================================================================
@@ -489,11 +492,20 @@ def fetch_market_data(
 
 def fetch_fundamental_data(symbols: List[str]) -> pd.DataFrame:
     """
-    获取真实基本面数据 - 禁止使用模拟数据
+    获取基本面数据
 
-    注意: 基本面数据获取失败时，使用默认值而非模拟数据
+    ⚠️ 重要警告：
+    yfinance 只能获取【当前】基本面数据，无法获取历史数据。
+    这意味着 Quality 和 Value 因子在历史回测中存在前瞻偏差！
+
+    对于严谨的长期回测，建议：
+    1. 只使用动量因子（基于历史价格，无前瞻偏差）
+    2. 或使用付费数据源（Quandl/Bloomberg）获取历史基本面
+
+    本函数仅用于行业分类，不作为核心选股依据。
     """
-    logger.info("正在获取基本面数据...")
+    logger.info("正在获取基本面数据（仅用于行业分类）...")
+    logger.warning("⚠️ 注意: 基本面数据为当前数据，存在前瞻偏差！建议仅使用动量因子。")
 
     # 股票到行业的映射 (用于无法获取行业时的默认值)
     default_sectors = {
@@ -791,16 +803,14 @@ class DeepSeekDecisionMaker:
     2. 调用 DeepSeek API 分析并推荐股票
     3. 解析 LLM 输出获取推荐股票和权重
 
-    模拟模式:
-    - 当没有 API Key 时，使用增强规则决策
-    - 包含市场状态检测、动态因子权重、风险调整
+    注意: 必须有真实的 DEEPSEEK_API_KEY，不支持模拟模式
     """
 
     def __init__(self):
-        self.client = DeepSeekClient() if not SIMULATION_MODE else None
+        self.client = DeepSeekClient()  # 必须使用真实 API
         self.decision_history = []
         self._api_calls = 0
-        self._simulated_calls = 0
+        self._failed_calls = 0
 
     async def make_decision(
         self,
@@ -825,38 +835,40 @@ class DeepSeekDecisionMaker:
         if len(valid_metrics) == 0:
             return []
 
-        # 模拟模式：使用增强规则决策
-        if SIMULATION_MODE:
-            self._simulated_calls += 1
-            return self._enhanced_rule_decision(valid_metrics, target_holdings, as_of_date)
-
-        # 真实 API 模式
-        # 构建数据摘要给 LLM
+        # 真实 API 模式 - 构建数据摘要给 LLM
         stock_summary = self._build_stock_summary(valid_metrics)
 
-        # 构建 prompt
+        # 构建 prompt - 强调动量因子（无前瞻偏差），降低基本面因子权重
         prompt = f"""你是一位量化投资组合经理。现在是 {as_of_date}，请基于以下股票数据，选择 {target_holdings} 支最佳股票构建投资组合。
 
 ## 可选股票数据
 
 {stock_summary}
 
-## 选股要求
+## 选股要求（严格遵守）
 
 1. 选择 {target_holdings} 支股票
-2. 考虑因素:
-   - 动量: 优先选择 12-1 动量 > 0 的股票
-   - 质量: ROE > 10%, 利润率 > 5%
-   - 估值: PE < 30, 避免极端高估值
-   - 风险: 波动率适中, 避免过高波动
-   - 行业分散: 避免过度集中在单一行业
 
-3. 权重分配原则:
-   - 信心高的股票给予更高权重
+2. 核心决策因素（按重要性排序）:
+   【最重要】动量因子（70%权重）:
+   - 12-1动量 > 0 的股票优先
+   - 3月收益率为正的股票优先
+   - 价格在上升趋势中
+
+   【次要】风险控制（20%权重）:
+   - 波动率 < 40% 优先
+   - 行业分散（每个行业最多3支）
+
+   【参考】行业配置（10%权重）:
+   - 适度分散到不同行业
+   - 注：ROE/PE等基本面指标仅作参考，因为是当前数据
+
+3. 权重分配:
+   - 动量越强，权重越高
    - 单只股票权重 5%-10%
    - 总权重 = 100%
 
-## 输出格式 (严格按此格式)
+## 输出格式（严格按此格式）
 
 RECOMMENDATIONS:
 SYMBOL1: WEIGHT1%
@@ -886,15 +898,16 @@ JPM: 6%
         self._api_calls += 1
 
         if not response.success:
-            logger.warning(f"DeepSeek API 调用失败，回退到增强规则策略")
-            return self._enhanced_rule_decision(valid_metrics, target_holdings, as_of_date)
+            self._failed_calls += 1
+            logger.warning(f"DeepSeek API 调用失败 @ {as_of_date}，跳过本次调仓（保持当前持仓）")
+            return []  # 返回空列表表示跳过调仓
 
         # 解析 LLM 输出
         recommendations = self._parse_recommendations(response.content, valid_metrics)
 
         if len(recommendations) == 0:
-            logger.warning(f"无法解析 LLM 输出，回退到增强规则策略")
-            return self._enhanced_rule_decision(valid_metrics, target_holdings, as_of_date)
+            logger.warning(f"无法解析 LLM 输出 @ {as_of_date}，跳过本次调仓")
+            return []  # 返回空列表表示跳过调仓
 
         # 记录决策历史
         self.decision_history.append({
@@ -904,106 +917,6 @@ JPM: 6%
         })
 
         logger.info(f"DeepSeek 推荐: {[r['symbol'] for r in recommendations[:5]]}...")
-
-        return recommendations
-
-    def _enhanced_rule_decision(
-        self,
-        metrics: List[Dict],
-        target_holdings: int,
-        as_of_date: date,
-    ) -> List[Dict]:
-        """
-        增强规则决策 - 模拟 LLM 的智能决策
-
-        相比默认策略的改进:
-        1. 动态因子权重 - 根据市场状态调整
-        2. 风险调整 - 降低高波动股票权重
-        3. 行业分散 - 限制单一行业集中度
-        4. 综合评分加权 - 按分数分配权重
-        """
-        # 1. 检测市场状态（基于大盘股的平均动量）
-        tech_stocks = [m for m in metrics if m.get('sector') == 'Technology']
-        avg_momentum = np.mean([m.get('momentum_12_1', 0) or 0 for m in tech_stocks]) if tech_stocks else 0
-
-        # 动态因子权重
-        if avg_momentum > 0.15:  # 牛市
-            quality_weight = 0.20
-            momentum_weight = 0.55
-            value_weight = 0.25
-        elif avg_momentum < -0.10:  # 熊市
-            quality_weight = 0.45
-            momentum_weight = 0.25
-            value_weight = 0.30
-        else:  # 震荡
-            quality_weight = 0.30
-            momentum_weight = 0.45
-            value_weight = 0.25
-
-        # 2. 计算综合分数
-        scored = []
-        for m in metrics:
-            q = calculate_quality_score(m)
-            mom = calculate_momentum_score(m)
-            v = calculate_value_score(m)
-
-            # 基础分数
-            base_score = quality_weight * q + momentum_weight * mom + value_weight * v
-
-            # 风险惩罚 - 高波动股票降分
-            vol = m.get('volatility_20d', 0.3) or 0.3
-            if vol > 0.40:
-                base_score *= 0.85
-            elif vol > 0.30:
-                base_score *= 0.95
-
-            # 趋势加分 - 价格在200日均线上方
-            price_vs_sma = m.get('price_vs_sma200', 0) or 0
-            if price_vs_sma > 0:
-                base_score *= 1.05
-
-            scored.append({
-                'symbol': m['symbol'],
-                'score': base_score,
-                'sector': m.get('sector', 'Unknown'),
-                'momentum': m.get('momentum_12_1', 0) or 0,
-            })
-
-        # 3. 排序并选择
-        scored.sort(key=lambda x: x['score'], reverse=True)
-
-        # 4. 行业分散 - 每个行业最多3支
-        selected = []
-        sector_counts = {}
-
-        for s in scored:
-            sector = s['sector']
-            if sector_counts.get(sector, 0) < 3:
-                selected.append(s)
-                sector_counts[sector] = sector_counts.get(sector, 0) + 1
-            if len(selected) >= target_holdings:
-                break
-
-        # 5. 按分数加权分配
-        if not selected:
-            return []
-
-        total_score = sum(s['score'] for s in selected)
-        recommendations = []
-
-        for s in selected:
-            weight = s['score'] / total_score if total_score > 0 else 1.0 / len(selected)
-            # 限制单股权重
-            weight = min(weight, 0.10)
-            recommendations.append({
-                'symbol': s['symbol'],
-                'weight': weight,
-            })
-
-        # 归一化权重
-        total_weight = sum(r['weight'] for r in recommendations)
-        for r in recommendations:
-            r['weight'] = r['weight'] / total_weight
 
         return recommendations
 
@@ -1068,31 +981,18 @@ JPM: 6%
 
         return recommendations
 
-    def _fallback_decision(self, metrics: List[Dict], target_holdings: int) -> List[Dict]:
-        """回退到默认因子策略"""
-        scored = []
-        for m in metrics:
-            q = calculate_quality_score(m)
-            mom = calculate_momentum_score(m)
-            v = calculate_value_score(m)
-            score = 0.30 * q + 0.45 * mom + 0.25 * v
-            scored.append({'symbol': m['symbol'], 'score': score})
-
-        # 选择得分最高的
-        scored.sort(key=lambda x: x['score'], reverse=True)
-        top = scored[:target_holdings]
-
-        # 等权重
-        weight = 1.0 / len(top) if top else 0
-        return [{'symbol': s['symbol'], 'weight': weight} for s in top]
-
 
 # =============================================================================
 # 默认因子策略决策器
 # =============================================================================
 
 class DefaultFactorDecisionMaker:
-    """默认因子策略 - 固定权重因子模型"""
+    """
+    默认因子策略 - 以动量为主的因子模型
+
+    注意: 由于 Quality 和 Value 因子使用的是当前基本面数据（存在前瞻偏差），
+    因此在历史回测中主要依赖动量因子（基于历史价格，无前瞻偏差）。
+    """
 
     def make_decision(
         self,
@@ -1100,9 +1000,10 @@ class DefaultFactorDecisionMaker:
         target_holdings: int = 15,
     ) -> List[Dict[str, Any]]:
         """
-        使用固定因子权重做决策
+        使用动量为主的因子权重做决策
 
-        因子权重: Quality 30% + Momentum 45% + Value 25%
+        因子权重: Momentum 80% + Quality 10% + Value 10%
+        (Quality/Value 权重降低，因为它们使用当前数据存在前瞻偏差)
         """
         valid_metrics = [m for m in all_metrics if m is not None]
 
@@ -1115,8 +1016,8 @@ class DefaultFactorDecisionMaker:
             mom = calculate_momentum_score(m)
             v = calculate_value_score(m)
 
-            # 固定权重
-            score = 0.30 * q + 0.45 * mom + 0.25 * v
+            # 动量为主的权重配置（减少前瞻偏差）
+            score = 0.10 * q + 0.80 * mom + 0.10 * v
             scored.append({
                 'symbol': m['symbol'],
                 'score': score,
@@ -1441,16 +1342,10 @@ async def run_deepseek_backtest(
 
     result = engine.compute_results("DeepSeek决策策略", start_date, end_date)
 
-    # LLM 统计
-    if decision_maker.client:
-        result.llm_stats = decision_maker.client.get_stats()
-    else:
-        result.llm_stats = {
-            "mode": "SIMULATION",
-            "simulated_calls": decision_maker._simulated_calls,
-            "total_requests": 0,
-            "total_tokens": 0,
-        }
+    # LLM 统计 - 必须使用真实 API
+    result.llm_stats = decision_maker.client.get_stats()
+    result.llm_stats["mode"] = "REAL_API"
+    result.llm_stats["failed_calls"] = decision_maker._failed_calls
 
     logger.info(f"DeepSeek 回测完成: 总收益={result.total_return:.2%}, 夏普={result.sharpe_ratio:.2f}")
 
@@ -1657,7 +1552,7 @@ async def main(years: int = 20):
     print(f"回测周期: {years}年")
     print(f"初始资金: ${DEFAULT_CAPITAL:,}")
     print(f"目标持仓: {DEFAULT_TARGET_HOLDINGS} 支股票")
-    print(f"再平衡频率: 月度")
+    print(f"再平衡频率: 每周")
     print(f"DeepSeek API: 已配置")
     print("=" * 80)
 

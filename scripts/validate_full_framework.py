@@ -119,94 +119,81 @@ def generate_synthetic_market_data(symbols: list, n_days: int = 756) -> pd.DataF
 
 
 def download_market_data(symbols: list, start_date: str, end_date: str) -> pd.DataFrame:
-    """Download market data from yfinance with fallback to synthetic data."""
-    try:
-        import yfinance as yf
+    """Download REAL market data from yfinance. 禁止使用合成数据."""
+    import yfinance as yf
 
-        all_data = []
-        for symbol in symbols[:3]:  # Try just first 3 to check network
-            try:
-                ticker = yf.Ticker(symbol)
-                df = ticker.history(start=start_date, end=end_date, timeout=5)
-                if len(df) > 0:
-                    df = df.reset_index()
-                    df['symbol'] = symbol
-                    df.columns = [c.lower() for c in df.columns]
-                    df = df.rename(columns={'date': 'date'})
-                    all_data.append(df)
-            except Exception:
-                pass
+    all_data = []
+    failed_symbols = []
 
-        if all_data:
-            # Download rest of symbols
-            for symbol in symbols[3:]:
-                try:
-                    ticker = yf.Ticker(symbol)
-                    df = ticker.history(start=start_date, end=end_date, timeout=5)
-                    if len(df) > 0:
-                        df = df.reset_index()
-                        df['symbol'] = symbol
-                        df.columns = [c.lower() for c in df.columns]
-                        all_data.append(df)
-                except Exception:
-                    pass
+    for symbol in symbols:
+        try:
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(start=start_date, end=end_date, timeout=10)
+            if len(df) > 0:
+                df = df.reset_index()
+                df['symbol'] = symbol
+                df.columns = [c.lower() for c in df.columns]
+                df = df.rename(columns={'date': 'date'})
+                all_data.append(df)
+            else:
+                failed_symbols.append(symbol)
+        except Exception as e:
+            failed_symbols.append(symbol)
+            continue
 
-            if all_data:
-                return pd.concat(all_data, ignore_index=True)
+    if not all_data:
+        raise RuntimeError(
+            "无法获取任何真实市场数据！\n"
+            "请检查网络连接。本系统禁止使用合成数据。"
+        )
 
-    except Exception:
-        pass
+    if failed_symbols:
+        print(f"  警告: {len(failed_symbols)} 支股票数据获取失败: {failed_symbols[:10]}...")
 
-    # Fallback to synthetic data
-    print("  Using synthetic market data (network unavailable)")
-    return generate_synthetic_market_data(symbols)
+    return pd.concat(all_data, ignore_index=True)
 
 
 def fetch_fundamental_data(symbols: list, n_quarters: int = 8) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    Fetch REAL fundamental data from yfinance with fallback to synthetic.
+    Fetch REAL fundamental data from yfinance. 禁止使用合成数据.
 
     This is CRITICAL for proper validation of Quality and Value factors.
     Returns both the data and metadata about data quality.
     """
-    try:
-        from alpha_research.data.fundamental_fetcher import (
-            fetch_real_fundamentals,
-            get_data_quality_report,
+    from alpha_research.data.fundamental_fetcher import (
+        fetch_real_fundamentals,
+        get_data_quality_report,
+    )
+
+    print("  正在获取真实基本面数据...")
+    fundamental_data, metadata = fetch_real_fundamentals(symbols, n_quarters)
+
+    # 验证数据质量
+    if metadata.get('data_quality') == 'SYNTHETIC':
+        raise RuntimeError(
+            "获取到的是合成数据，本系统禁止使用合成数据！\n"
+            "请检查网络连接和 yfinance 是否正常工作。"
         )
 
-        print("  Attempting to fetch REAL fundamental data from yfinance...")
-        fundamental_data, metadata = fetch_real_fundamentals(symbols, n_quarters)
+    # Add earnings_yield if we have earnings_to_price
+    if 'earnings_to_price' in fundamental_data.columns:
+        fundamental_data['earnings_yield'] = fundamental_data['earnings_to_price']
 
-        # Add earnings_yield if we have earnings_to_price
-        if 'earnings_to_price' in fundamental_data.columns:
-            fundamental_data['earnings_yield'] = fundamental_data['earnings_to_price']
+    # Add book_value from market_cap and book_to_price if needed
+    if 'book_value' not in fundamental_data.columns:
+        if 'market_cap' in fundamental_data.columns and 'book_to_price' in fundamental_data.columns:
+            fundamental_data['book_value'] = (
+                fundamental_data['market_cap'] * fundamental_data['book_to_price']
+            )
 
-        # Add book_value from market_cap and book_to_price if needed
-        if 'book_value' not in fundamental_data.columns:
-            if 'market_cap' in fundamental_data.columns and 'book_to_price' in fundamental_data.columns:
-                fundamental_data['book_value'] = (
-                    fundamental_data['market_cap'] * fundamental_data['book_to_price']
-                )
+    # Add cfo if not present (estimate from net_income and accruals)
+    if 'cfo' not in fundamental_data.columns and 'net_income' in fundamental_data.columns:
+        fundamental_data['cfo'] = fundamental_data['net_income'] * 1.1  # Rough estimate
 
-        # Add cfo if not present (estimate from net_income and accruals)
-        if 'cfo' not in fundamental_data.columns and 'net_income' in fundamental_data.columns:
-            fundamental_data['cfo'] = fundamental_data['net_income'] * 1.1  # Rough estimate
+    # Print data quality report
+    print(get_data_quality_report(metadata))
 
-        # Print data quality report
-        print(get_data_quality_report(metadata))
-
-        return fundamental_data, metadata
-
-    except Exception as e:
-        print(f"  WARNING: Could not fetch real fundamentals: {e}")
-        print("  Falling back to synthetic fundamental data")
-        return create_synthetic_fundamental_data(symbols, n_quarters), {
-            'data_quality': 'SYNTHETIC',
-            'real_symbols': 0,
-            'synthetic_symbols': len(symbols),
-            'warning': 'Network error - Quality/Value factors NOT validated with real data'
-        }
+    return fundamental_data, metadata
 
 
 def create_synthetic_fundamental_data(symbols: list, n_periods: int = 4) -> pd.DataFrame:

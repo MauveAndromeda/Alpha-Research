@@ -54,18 +54,19 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# HARDCODED DEEPSEEK API CONFIGURATION
+# DEEPSEEK API CONFIGURATION - 必须从环境变量获取
 # =============================================================================
 
-DEEPSEEK_API_KEY = "sk-cfd0929086bd4661a39ec7d tried4bb29ca"  # Your DeepSeek API Key
-DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = "deepseek-chat"
 
-def setup_deepseek_api():
-    """Setup DeepSeek API environment."""
-    os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
-    os.environ["DEEPSEEK_BASE_URL"] = DEEPSEEK_BASE_URL
-    logger.info("DeepSeek API configured")
+if not DEEPSEEK_API_KEY:
+    print("=" * 70)
+    print("错误: DEEPSEEK_API_KEY 环境变量未设置!")
+    print("请设置: export DEEPSEEK_API_KEY=your_api_key")
+    print("=" * 70)
+    raise RuntimeError("DEEPSEEK_API_KEY 必须设置才能运行此脚本")
 
 
 # =============================================================================
@@ -94,7 +95,7 @@ SP500_UNIVERSE = [
 DEFAULT_CAPITAL = 100000
 DEFAULT_SLIPPAGE_BPS = 5.0
 DEFAULT_COMMISSION = 0.005
-DEFAULT_REBALANCE = 'monthly'
+DEFAULT_REBALANCE = 'weekly'
 DEFAULT_TARGET_HOLDINGS = 25
 BACKTEST_YEARS = 3
 
