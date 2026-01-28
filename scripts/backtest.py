@@ -2,12 +2,15 @@
 """
 Backtest Runner for Alpha Research Trading System.
 
+IMPORTANT: This script uses REAL data only. Synthetic data is NOT allowed.
+
 Usage:
     python scripts/backtest.py --start 2023-01-01 --end 2023-12-31
     python scripts/backtest.py --start 2020-01-01 --end 2024-01-01 --capital 1000000
 """
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 from datetime import datetime, date, timedelta
@@ -20,8 +23,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from alpha_research.backtest.engine import BacktestEngine, SlippageModel
 from alpha_research.data.providers import YahooDataProvider
+from alpha_research.data.fundamental_fetcher import FundamentalDataFetcher, get_data_quality_report
 from alpha_research.risk.risk_gate import RiskGate
 from alpha_research.utils.time_utils import get_trading_calendar
+
+logger = logging.getLogger(__name__)
 
 
 def fetch_backtest_data(
@@ -31,7 +37,9 @@ def fetch_backtest_data(
     verbose: bool = True,
 ) -> tuple:
     """
-    Fetch historical data for backtesting.
+    Fetch REAL historical data for backtesting.
+
+    This function ONLY uses real data. Synthetic data is NOT allowed.
 
     Args:
         symbols: List of symbols to fetch
@@ -41,9 +49,13 @@ def fetch_backtest_data(
 
     Returns:
         Tuple of (market_data, fundamental_data)
+
+    Raises:
+        RuntimeError: If real data cannot be fetched
     """
     if verbose:
-        print(f"Fetching data for {len(symbols)} symbols...")
+        print(f"Fetching REAL data for {len(symbols)} symbols...")
+        print("IMPORTANT: Only real data is used. Synthetic data is NOT allowed.")
 
     provider = YahooDataProvider()
 
@@ -57,52 +69,33 @@ def fetch_backtest_data(
         asof_time=datetime.combine(end_date, datetime.min.time()),
     )
 
-    # Generate synthetic fundamental data (in production, use real data)
-    fundamental_data = generate_synthetic_fundamentals(market_data, symbols)
+    if len(market_data) == 0:
+        raise RuntimeError("Failed to fetch market data. Check network connection.")
+
+    # Fetch REAL fundamental data (no synthetic fallback)
+    if verbose:
+        print("Fetching REAL fundamental data...")
+
+    fetcher = FundamentalDataFetcher(
+        use_cache=True,
+        cache_hours=24,
+        fail_on_synthetic=True,  # CRITICAL: Never use synthetic data
+    )
+    fundamental_data, metadata = fetcher.fetch_fundamentals(symbols, n_quarters=4)
 
     if verbose:
         print(f"Fetched {len(market_data)} market data rows")
-        print(f"Generated {len(fundamental_data)} fundamental data rows")
+        print(f"Fetched {len(fundamental_data)} fundamental data rows")
+        print(get_data_quality_report(metadata))
+
+    # Verify data quality
+    if metadata.get('data_quality') == 'SYNTHETIC':
+        raise RuntimeError(
+            "ERROR: Received synthetic data but only real data is allowed. "
+            "Please ensure network connectivity and yfinance is working."
+        )
 
     return market_data, fundamental_data
-
-
-def generate_synthetic_fundamentals(market_data: pd.DataFrame, symbols: List[str]) -> pd.DataFrame:
-    """
-    Generate synthetic fundamental data for backtesting.
-
-    In production, this would be replaced with real fundamental data
-    from a data provider like Bloomberg, Refinitiv, or Compustat.
-    """
-    np.random.seed(42)  # For reproducibility
-
-    fundamentals = []
-    for symbol in symbols:
-        # Generate plausible random fundamentals
-        record = {
-            'symbol': symbol,
-            'return_on_equity': np.random.uniform(0.05, 0.35),
-            'gross_profit_margin': np.random.uniform(0.20, 0.60),
-            'operating_profit_margin': np.random.uniform(0.10, 0.40),
-            'debt_to_assets': np.random.uniform(0.10, 0.50),
-            'debt_to_equity': np.random.uniform(0.15, 0.80),
-            'cfo_to_assets': np.random.uniform(0.05, 0.20),
-            'fcf_to_assets': np.random.uniform(0.03, 0.15),
-            'net_income': np.random.uniform(1e9, 100e9),
-            'cfo': np.random.uniform(1e9, 120e9),
-            'total_assets': np.random.uniform(10e9, 500e9),
-            'ebitda': np.random.uniform(5e9, 80e9),
-            'enterprise_value': np.random.uniform(50e9, 1000e9),
-            'ebitda_to_ev': np.random.uniform(0.05, 0.15),
-            'book_value': np.random.uniform(10e9, 200e9),
-            'book_to_price': np.random.uniform(0.02, 0.10),
-            'earnings_to_price': np.random.uniform(0.03, 0.08),
-            'fcf_to_price': np.random.uniform(0.02, 0.06),
-            'asof_time': datetime.now(),
-        }
-        fundamentals.append(record)
-
-    return pd.DataFrame(fundamentals)
 
 
 def get_sp500_sample() -> List[str]:

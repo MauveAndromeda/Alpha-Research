@@ -28,7 +28,7 @@ import logging
 # Data layer
 from alpha_research.data.snapshot import SnapshotManager, RunResultManager
 from alpha_research.data.ledger import EvidenceLedger
-from alpha_research.data.providers import DataProvider, YahooDataProvider, MockDataProvider
+from alpha_research.data.providers import DataProvider, YahooDataProvider
 from alpha_research.data.models import Snapshot, RunResult, TargetWeight
 
 # Factor components
@@ -260,11 +260,13 @@ class UnifiedOrchestrator:
         self.run_result_manager = RunResultManager()
         self.evidence_ledger = EvidenceLedger()
 
-        # Data provider
+        # Data provider - ONLY real data is allowed
         if mode == "mock":
-            self.data_provider = MockDataProvider()
-        else:
-            self.data_provider = YahooDataProvider()
+            raise ValueError(
+                "Mock mode is no longer supported. Only real data is allowed. "
+                "Use mode='paper' or mode='live' instead."
+            )
+        self.data_provider = YahooDataProvider()
 
         # Factor components
         self.universe_builder = UniverseBuilder()

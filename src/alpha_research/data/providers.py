@@ -738,17 +738,30 @@ class FallbackDataProvider(DataProvider):
 
 
 # =============================================================================
-# Mock Provider
+# Mock Provider (DEPRECATED - DO NOT USE)
 # =============================================================================
 
 class MockDataProvider(DataProvider):
     """
-    Mock data provider for testing.
+    DEPRECATED: Mock data provider for testing.
 
-    Generates synthetic data that follows realistic patterns.
+    WARNING: This class generates SYNTHETIC data and should NOT be used
+    for any production or validation purposes.
+
+    The system now requires REAL data only. This class is kept for
+    backwards compatibility with tests but should not be used in
+    production code.
     """
 
     def __init__(self, seed: int = 42):
+        import warnings
+        warnings.warn(
+            "MockDataProvider is DEPRECATED. Only real data is allowed. "
+            "Use YahooDataProvider instead. Synthetic data should NOT be used "
+            "for validation or production.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         np.random.seed(seed)
 
     def get_market_data(

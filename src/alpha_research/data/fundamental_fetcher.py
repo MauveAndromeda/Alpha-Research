@@ -371,7 +371,19 @@ class FundamentalDataFetcher:
         symbols: List[str],
         n_quarters: int,
     ) -> pd.DataFrame:
-        """Generate synthetic fundamentals for all symbols."""
+        """
+        DEPRECATED: Generate synthetic fundamentals for all symbols.
+
+        WARNING: This method generates FAKE data and should NEVER be used
+        for production or validation. Only kept for backwards compatibility.
+        """
+        import warnings
+        warnings.warn(
+            "Generating SYNTHETIC fundamental data. This is DEPRECATED and "
+            "should NOT be used for validation or production. Results are meaningless.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         records = []
         for symbol in symbols:
             records.extend(self._generate_synthetic_for_symbol(symbol, n_quarters))
@@ -382,7 +394,12 @@ class FundamentalDataFetcher:
         symbol: str,
         n_quarters: int,
     ) -> List[Dict[str, Any]]:
-        """Generate synthetic fundamentals for a single symbol."""
+        """
+        DEPRECATED: Generate synthetic fundamentals for a single symbol.
+
+        WARNING: This generates FAKE data that should NOT be used for any
+        real analysis or validation purposes.
+        """
         np.random.seed(hash(symbol) % (2**32))
 
         records = []

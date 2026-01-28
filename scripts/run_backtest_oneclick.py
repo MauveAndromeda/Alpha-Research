@@ -4,16 +4,18 @@ One-Click Backtest - Alpha Research Trading System
 
 Features:
 1. Auto-fetch latest market data from Yahoo Finance
-2. Fetch real fundamental data (with fallback to synthetic if unavailable)
+2. Fetch REAL fundamental data ONLY (no synthetic data allowed)
 3. Run full simplified strategy with Factor + Causal + Catalyst
 4. Generate comprehensive performance report
 5. Save results to artifacts/
+
+IMPORTANT: This script uses REAL data only. Synthetic data is NOT allowed.
 
 Usage:
     python scripts/run_backtest_oneclick.py
     python scripts/run_backtest_oneclick.py --years 2
     python scripts/run_backtest_oneclick.py --start 2023-01-01 --end 2024-12-31
-    python scripts/run_backtest_oneclick.py --capital 500000 --real-fundamentals
+    python scripts/run_backtest_oneclick.py --capital 500000
 """
 
 import argparse
@@ -84,109 +86,6 @@ DEFAULT_TARGET_HOLDINGS = 25
 # Data Fetching
 # =============================================================================
 
-def generate_synthetic_market_data(
-    symbols: List[str],
-    start_date: date,
-    end_date: date,
-) -> pd.DataFrame:
-    """
-    Generate synthetic market data for offline testing.
-
-    Creates realistic price movements using GBM (Geometric Brownian Motion)
-    with sector-based correlations for a more realistic simulation.
-    """
-    logger.info("Generating SYNTHETIC market data for offline testing...")
-
-    np.random.seed(42)  # Reproducibility
-
-    # Generate business days
-    all_days = pd.date_range(start=start_date - timedelta(days=400), end=end_date, freq='B')
-
-    # Sector characteristics (drift, volatility)
-    sector_params = {
-        'Technology': (0.15, 0.28),
-        'Healthcare': (0.10, 0.22),
-        'Financials': (0.08, 0.24),
-        'Consumer': (0.07, 0.18),
-        'Industrials': (0.09, 0.20),
-        'Energy': (0.05, 0.30),
-        'Other': (0.10, 0.22),
-    }
-
-    # Assign sectors to symbols based on position in SP500_SAMPLE
-    symbol_sectors = {}
-    for i, sym in enumerate(symbols):
-        if i < 15:
-            symbol_sectors[sym] = 'Technology'
-        elif i < 25:
-            symbol_sectors[sym] = 'Healthcare'
-        elif i < 35:
-            symbol_sectors[sym] = 'Financials'
-        elif i < 45:
-            symbol_sectors[sym] = 'Consumer'
-        elif i < 53:
-            symbol_sectors[sym] = 'Industrials'
-        elif i < 57:
-            symbol_sectors[sym] = 'Energy'
-        else:
-            symbol_sectors[sym] = 'Other'
-
-    records = []
-    dt = 1/252  # Daily time step
-
-    for symbol in symbols:
-        sector = symbol_sectors.get(symbol, 'Other')
-        drift, vol = sector_params[sector]
-
-        # Use symbol hash for consistent but varied starting prices
-        seed = hash(symbol) % (2**32)
-        rng = np.random.RandomState(seed)
-
-        # Starting price between $50 and $500
-        start_price = 50 + rng.random() * 450
-
-        # Generate GBM price path
-        n_days = len(all_days)
-        returns = rng.normal(drift * dt, vol * np.sqrt(dt), n_days)
-        prices = start_price * np.cumprod(1 + returns)
-
-        for i, day in enumerate(all_days):
-            price = prices[i]
-            daily_vol = rng.uniform(0.008, 0.025)  # Intraday volatility
-
-            open_price = price * (1 + rng.uniform(-daily_vol/2, daily_vol/2))
-            high_price = max(price, open_price) * (1 + rng.uniform(0, daily_vol))
-            low_price = min(price, open_price) * (1 - rng.uniform(0, daily_vol))
-            close_price = price
-
-            # Volume based on market cap proxy and randomness
-            base_volume = rng.uniform(1e6, 20e6)
-            volume = int(base_volume * rng.uniform(0.5, 2.0))
-
-            records.append({
-                'symbol': symbol,
-                'trade_date': pd.Timestamp(day),  # Use Timestamp for proper resampling
-                'open': round(open_price, 2),
-                'high': round(high_price, 2),
-                'low': round(low_price, 2),
-                'close': round(close_price, 2),
-                'volume': volume,
-                'adj_close': round(close_price, 2),
-            })
-
-    df = pd.DataFrame(records)
-    logger.info(f"Generated {len(df):,} synthetic market data rows")
-    logger.info(f"  Date range: {df['trade_date'].min()} to {df['trade_date'].max()}")
-    logger.info(f"  Symbols: {df['symbol'].nunique()}")
-
-    logger.warning("=" * 60)
-    logger.warning("WARNING: Using SYNTHETIC market data")
-    logger.warning("Results are for TESTING/DEMONSTRATION ONLY")
-    logger.warning("=" * 60)
-
-    return df
-
-
 def fetch_market_data(
     symbols: List[str],
     start_date: date,
@@ -194,30 +93,36 @@ def fetch_market_data(
     offline: bool = False,
 ) -> pd.DataFrame:
     """
-    Fetch market data from Yahoo Finance or generate synthetic data.
+    Fetch REAL market data from Yahoo Finance.
+
+    This function ONLY uses real data. Synthetic data is NOT allowed.
 
     Args:
         symbols: List of stock symbols
         start_date: Start date (will add buffer for lookback)
         end_date: End date
-        offline: If True, generate synthetic data instead of fetching
+        offline: If True, only use cached data (will fail if cache is empty)
 
     Returns:
         DataFrame with OHLCV data
-    """
-    if offline:
-        return generate_synthetic_market_data(symbols, start_date, end_date)
 
-    logger.info(f"Fetching market data for {len(symbols)} symbols...")
+    Raises:
+        ValueError: If data cannot be fetched and no cache is available
+    """
+    logger.info(f"Fetching REAL market data for {len(symbols)} symbols...")
+    logger.info("IMPORTANT: Only real data is used. Synthetic data is NOT allowed.")
 
     provider = YahooDataProvider(
         cache_enabled=True,
-        cache_ttl_hours=4,
+        cache_ttl_hours=24 if offline else 4,  # Longer cache TTL in offline mode
         rate_limit=2.0,
     )
 
     # Add 400-day buffer for lookback calculations
     fetch_start = start_date - timedelta(days=400)
+
+    if offline:
+        logger.info("OFFLINE MODE: Using cached data only")
 
     market_data = provider.get_market_data(
         symbols=symbols,
@@ -227,7 +132,13 @@ def fetch_market_data(
     )
 
     if len(market_data) == 0:
-        raise ValueError("Failed to fetch market data. Check network connection.")
+        if offline:
+            raise ValueError(
+                "OFFLINE MODE FAILED: No cached market data available. "
+                "Please run once with network access to populate cache."
+            )
+        else:
+            raise ValueError("Failed to fetch market data. Check network connection.")
 
     logger.info(f"Fetched {len(market_data):,} market data rows")
     logger.info(f"  Date range: {market_data['trade_date'].min()} to {market_data['trade_date'].max()}")
@@ -238,95 +149,42 @@ def fetch_market_data(
 
 def fetch_fundamental_data(
     symbols: List[str],
-    use_real: bool = True,  # Default to real data
 ) -> Tuple[pd.DataFrame, Dict]:
     """
-    Fetch fundamental data.
+    Fetch REAL fundamental data from yfinance.
+
+    This function ONLY uses real data. Synthetic data is NOT allowed.
+    If data fetching fails, the function will raise an error.
 
     Args:
         symbols: List of stock symbols
-        use_real: If True (default), use real yfinance data
-                  If False, use synthetic data (for testing only)
 
     Returns:
         Tuple of (DataFrame with fundamentals, metadata dict)
+
+    Raises:
+        RuntimeError: If real data cannot be fetched
     """
-    if use_real:
-        logger.info("Fetching REAL fundamental data from yfinance...")
-        try:
-            fetcher = FundamentalDataFetcher(
-                use_cache=True,
-                cache_hours=24,
-                fail_on_synthetic=False,  # Allow fallback for missing symbols
-            )
-            df, metadata = fetcher.fetch_fundamentals(symbols, n_quarters=4)
-            logger.info(get_data_quality_report(metadata))
-            return df, metadata
-        except Exception as e:
-            logger.warning(f"Real fundamental fetch failed: {e}")
-            logger.warning("Falling back to synthetic data")
+    logger.info("Fetching REAL fundamental data from yfinance...")
+    logger.info("IMPORTANT: Only real data is used. Synthetic data is NOT allowed.")
 
-    # Generate synthetic fundamental data (only if use_real=False or real fetch failed)
-    logger.info("Generating SYNTHETIC fundamental data (for testing only)")
+    fetcher = FundamentalDataFetcher(
+        use_cache=True,
+        cache_hours=24,
+        fail_on_synthetic=True,  # CRITICAL: Never use synthetic data
+    )
+    df, metadata = fetcher.fetch_fundamentals(symbols, n_quarters=4)
+    logger.info(get_data_quality_report(metadata))
 
-    np.random.seed(42)  # Reproducibility
+    # Verify data quality
+    if metadata.get('data_quality') == 'SYNTHETIC':
+        raise RuntimeError(
+            "ERROR: Received synthetic data but only real data is allowed. "
+            "Please ensure network connectivity and yfinance is working."
+        )
 
-    records = []
-    for symbol in symbols:
-        # Generate plausible fundamentals based on symbol hash (consistent per symbol)
-        seed = hash(symbol) % (2**32)
-        rng = np.random.RandomState(seed)
-
-        base_quality = rng.uniform(0.3, 0.8)
-
-        record = {
-            'symbol': symbol,
-            'period_end': datetime.now(),
-            'asof_time': datetime.now(),
-            'data_source': 'SYNTHETIC',
-
-            # Quality metrics
-            'return_on_equity': base_quality * rng.uniform(0.08, 0.30),
-            'gross_profit_margin': base_quality * rng.uniform(0.30, 0.60),
-            'operating_profit_margin': base_quality * rng.uniform(0.10, 0.35),
-            'profit_margin': base_quality * rng.uniform(0.05, 0.25),
-
-            # Leverage
-            'debt_to_assets': (1 - base_quality) * rng.uniform(0.15, 0.55),
-            'debt_to_equity': (1 - base_quality) * rng.uniform(0.20, 1.50),
-
-            # Cash flow
-            'cfo_to_assets': base_quality * rng.uniform(0.05, 0.18),
-            'fcf_to_assets': base_quality * rng.uniform(0.02, 0.12),
-
-            # Value metrics
-            'ebitda_to_ev': rng.uniform(0.04, 0.14),
-            'book_to_price': rng.uniform(0.15, 1.50),
-            'earnings_to_price': rng.uniform(0.02, 0.12),
-
-            # Raw values
-            'market_cap': rng.uniform(10e9, 500e9),
-            'enterprise_value': rng.uniform(12e9, 600e9),
-            'total_assets': rng.uniform(5e9, 300e9),
-            'net_income': rng.uniform(500e6, 30e9),
-            'ebitda': rng.uniform(1e9, 50e9),
-        }
-        records.append(record)
-
-    df = pd.DataFrame(records)
-    metadata = {
-        'data_quality': 'SYNTHETIC',
-        'data_contaminated': True,
-        'real_symbols': 0,
-        'synthetic_symbols': len(symbols),
-        'warning': 'SYNTHETIC DATA - Results are for TESTING ONLY',
-    }
-
-    logger.warning("=" * 60)
-    logger.warning("WARNING: Using SYNTHETIC fundamental data")
-    logger.warning("Results should NOT be used for production decisions")
-    logger.warning("Use --real-fundamentals for real data (slower)")
-    logger.warning("=" * 60)
+    if metadata.get('data_contaminated'):
+        logger.warning("WARNING: Some symbols may have incomplete data")
 
     return df, metadata
 
@@ -343,7 +201,6 @@ def run_backtest(
     slippage_bps: float = DEFAULT_SLIPPAGE_BPS,
     commission: float = DEFAULT_COMMISSION,
     rebalance: str = DEFAULT_REBALANCE,
-    use_real_fundamentals: bool = False,
     offline: bool = False,
 ) -> Tuple[BacktestResult, Dict]:
     """
@@ -357,8 +214,7 @@ def run_backtest(
         slippage_bps: Slippage in basis points
         commission: Commission per share
         rebalance: Rebalance frequency
-        use_real_fundamentals: Use real fundamental data
-        offline: Use synthetic data (no network required)
+        offline: Use offline mode (requires cached data or will fail)
 
     Returns:
         Tuple of (BacktestResult, metadata dict)
@@ -380,7 +236,7 @@ def run_backtest(
     print("=" * 70)
 
     market_data = fetch_market_data(symbols, start_date, end_date, offline=offline)
-    fundamental_data, fund_metadata = fetch_fundamental_data(symbols, use_real_fundamentals)
+    fundamental_data, fund_metadata = fetch_fundamental_data(symbols)
 
     metadata['fundamental_data_quality'] = fund_metadata.get('data_quality', 'UNKNOWN')
     metadata['real_symbols'] = fund_metadata.get('real_symbols', 0)
@@ -471,11 +327,14 @@ def print_results(result: BacktestResult, metadata: Dict) -> None:
     print(f"  Total Slippage:     ${result.total_slippage:>10,.2f}")
     print(f"  Cost Drag (Ann.):   {result.cost_drag_annualized:>10.2%}")
 
-    # Data quality warning
-    if metadata.get('fundamental_data_quality') == 'SYNTHETIC':
+    # Data quality verification
+    if metadata.get('fundamental_data_quality') == 'PRODUCTION':
+        print("\n" + "=" * 70)
+        print("DATA QUALITY: PRODUCTION (100% real data)")
+        print("=" * 70)
+    elif metadata.get('fundamental_data_quality') == 'RESEARCH':
         print("\n" + "!" * 70)
-        print("! WARNING: Results based on SYNTHETIC fundamental data")
-        print("! Use --real-fundamentals for production-quality validation")
+        print("! DATA QUALITY: RESEARCH (some symbols have limited data)")
         print("!" * 70)
 
     # Assessment
@@ -590,11 +449,11 @@ def save_results(result: BacktestResult, metadata: Dict, output_dir: Path) -> No
 
 def main():
     parser = argparse.ArgumentParser(
-        description="One-Click Backtest - Alpha Research Trading System",
+        description="One-Click Backtest - Alpha Research Trading System (REAL DATA ONLY)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Quick 1-year backtest with REAL data (default)
+    # Quick 1-year backtest with REAL data
     python scripts/run_backtest_oneclick.py
 
     # 3-year backtest
@@ -603,11 +462,10 @@ Examples:
     # Custom date range
     python scripts/run_backtest_oneclick.py --start 2022-01-01 --end 2024-12-31
 
-    # With synthetic data (faster, for testing only)
-    python scripts/run_backtest_oneclick.py --synthetic-fundamentals
-
     # Custom capital
     python scripts/run_backtest_oneclick.py --capital 500000
+
+NOTE: This script ONLY uses real data. Synthetic data is NOT allowed.
         """
     )
 
@@ -649,14 +507,9 @@ Examples:
         help=f"Rebalance frequency (default: {DEFAULT_REBALANCE})",
     )
     parser.add_argument(
-        "--synthetic-fundamentals",
-        action="store_true",
-        help="Use synthetic fundamental data (faster, for testing only). Default uses REAL data.",
-    )
-    parser.add_argument(
         "--offline",
         action="store_true",
-        help="Offline mode: use synthetic market AND fundamental data (no network required).",
+        help="Offline mode: use cached data only (requires prior cache population).",
     )
     parser.add_argument(
         "--no-save",
@@ -678,20 +531,16 @@ Examples:
         start_date = end_date - timedelta(days=365 * args.years)
 
     # Header
-    # Determine if using real data (default) or synthetic
-    # In offline mode, always use synthetic for both market and fundamentals
     offline = args.offline
-    use_real = not args.synthetic_fundamentals and not offline
 
     print("=" * 70)
     print("ONE-CLICK BACKTEST - Alpha Research Trading System")
     print("=" * 70)
     print(f"  Period: {start_date} to {end_date}")
     print(f"  Capital: ${args.capital:,.0f}")
+    print(f"  Data Mode: REAL DATA ONLY (no synthetic data allowed)")
     if offline:
-        print(f"  Mode: OFFLINE (synthetic market + fundamental data)")
-    else:
-        print(f"  Fundamentals: {'REAL (yfinance)' if use_real else 'SYNTHETIC (testing only)'}")
+        print(f"  Network: OFFLINE (using cached data)")
     print("=" * 70)
 
     try:
@@ -704,7 +553,6 @@ Examples:
             slippage_bps=args.slippage,
             commission=DEFAULT_COMMISSION,
             rebalance=args.rebalance,
-            use_real_fundamentals=use_real,
             offline=offline,
         )
 
