@@ -262,7 +262,7 @@ class DeepSeekClient(BaseLLMClient):
     def __init__(self, api_key: Optional[str] = None):
         super().__init__(api_key or os.getenv("DEEPSEEK_API_KEY"))
         self.model = "deepseek-chat"
-        self.base_url = "https://api.deepseek.com/v1/chat/completions"
+        self.base_url = "https://api.deepseek.com/chat/completions"
 
     def get_model_name(self) -> str:
         return self.model
