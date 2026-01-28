@@ -466,6 +466,17 @@ class BacktestEngine:
             if scores is None or len(scores) == 0:
                 return
 
+            # Add required columns for PortfolioConstructor if missing
+            # Make a copy to avoid SettingWithCopyWarning
+            scores = scores.copy()
+            if 'score_final' not in scores.columns:
+                # Use core score as final score with explicit numeric conversion
+                scores['score_final'] = pd.to_numeric(scores['score_core'], errors='coerce') if 'score_core' in scores.columns else 0.0
+            if 'delay_trade' not in scores.columns:
+                scores['delay_trade'] = False
+            if 'position_cap' not in scores.columns:
+                scores['position_cap'] = self.max_position_weight
+
         except Exception as e:
             # If scoring fails, skip rebalance
             return
@@ -622,10 +633,10 @@ class BacktestEngine:
         if len(self._snapshots) == 0:
             raise ValueError("No snapshots recorded - backtest may have failed")
 
-        # Extract daily returns
+        # Extract daily returns with proper DatetimeIndex for resampling
         daily_returns = pd.Series(
             [s.daily_return for s in self._snapshots],
-            index=[s.date for s in self._snapshots]
+            index=pd.DatetimeIndex([pd.Timestamp(s.date) for s in self._snapshots])
         )
 
         # Basic metrics

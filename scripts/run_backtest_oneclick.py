@@ -84,22 +84,130 @@ DEFAULT_TARGET_HOLDINGS = 25
 # Data Fetching
 # =============================================================================
 
-def fetch_market_data(
+def generate_synthetic_market_data(
     symbols: List[str],
     start_date: date,
     end_date: date,
 ) -> pd.DataFrame:
     """
-    Fetch market data from Yahoo Finance.
+    Generate synthetic market data for offline testing.
+
+    Creates realistic price movements using GBM (Geometric Brownian Motion)
+    with sector-based correlations for a more realistic simulation.
+    """
+    logger.info("Generating SYNTHETIC market data for offline testing...")
+
+    np.random.seed(42)  # Reproducibility
+
+    # Generate business days
+    all_days = pd.date_range(start=start_date - timedelta(days=400), end=end_date, freq='B')
+
+    # Sector characteristics (drift, volatility)
+    sector_params = {
+        'Technology': (0.15, 0.28),
+        'Healthcare': (0.10, 0.22),
+        'Financials': (0.08, 0.24),
+        'Consumer': (0.07, 0.18),
+        'Industrials': (0.09, 0.20),
+        'Energy': (0.05, 0.30),
+        'Other': (0.10, 0.22),
+    }
+
+    # Assign sectors to symbols based on position in SP500_SAMPLE
+    symbol_sectors = {}
+    for i, sym in enumerate(symbols):
+        if i < 15:
+            symbol_sectors[sym] = 'Technology'
+        elif i < 25:
+            symbol_sectors[sym] = 'Healthcare'
+        elif i < 35:
+            symbol_sectors[sym] = 'Financials'
+        elif i < 45:
+            symbol_sectors[sym] = 'Consumer'
+        elif i < 53:
+            symbol_sectors[sym] = 'Industrials'
+        elif i < 57:
+            symbol_sectors[sym] = 'Energy'
+        else:
+            symbol_sectors[sym] = 'Other'
+
+    records = []
+    dt = 1/252  # Daily time step
+
+    for symbol in symbols:
+        sector = symbol_sectors.get(symbol, 'Other')
+        drift, vol = sector_params[sector]
+
+        # Use symbol hash for consistent but varied starting prices
+        seed = hash(symbol) % (2**32)
+        rng = np.random.RandomState(seed)
+
+        # Starting price between $50 and $500
+        start_price = 50 + rng.random() * 450
+
+        # Generate GBM price path
+        n_days = len(all_days)
+        returns = rng.normal(drift * dt, vol * np.sqrt(dt), n_days)
+        prices = start_price * np.cumprod(1 + returns)
+
+        for i, day in enumerate(all_days):
+            price = prices[i]
+            daily_vol = rng.uniform(0.008, 0.025)  # Intraday volatility
+
+            open_price = price * (1 + rng.uniform(-daily_vol/2, daily_vol/2))
+            high_price = max(price, open_price) * (1 + rng.uniform(0, daily_vol))
+            low_price = min(price, open_price) * (1 - rng.uniform(0, daily_vol))
+            close_price = price
+
+            # Volume based on market cap proxy and randomness
+            base_volume = rng.uniform(1e6, 20e6)
+            volume = int(base_volume * rng.uniform(0.5, 2.0))
+
+            records.append({
+                'symbol': symbol,
+                'trade_date': pd.Timestamp(day),  # Use Timestamp for proper resampling
+                'open': round(open_price, 2),
+                'high': round(high_price, 2),
+                'low': round(low_price, 2),
+                'close': round(close_price, 2),
+                'volume': volume,
+                'adj_close': round(close_price, 2),
+            })
+
+    df = pd.DataFrame(records)
+    logger.info(f"Generated {len(df):,} synthetic market data rows")
+    logger.info(f"  Date range: {df['trade_date'].min()} to {df['trade_date'].max()}")
+    logger.info(f"  Symbols: {df['symbol'].nunique()}")
+
+    logger.warning("=" * 60)
+    logger.warning("WARNING: Using SYNTHETIC market data")
+    logger.warning("Results are for TESTING/DEMONSTRATION ONLY")
+    logger.warning("=" * 60)
+
+    return df
+
+
+def fetch_market_data(
+    symbols: List[str],
+    start_date: date,
+    end_date: date,
+    offline: bool = False,
+) -> pd.DataFrame:
+    """
+    Fetch market data from Yahoo Finance or generate synthetic data.
 
     Args:
         symbols: List of stock symbols
         start_date: Start date (will add buffer for lookback)
         end_date: End date
+        offline: If True, generate synthetic data instead of fetching
 
     Returns:
         DataFrame with OHLCV data
     """
+    if offline:
+        return generate_synthetic_market_data(symbols, start_date, end_date)
+
     logger.info(f"Fetching market data for {len(symbols)} symbols...")
 
     provider = YahooDataProvider(
@@ -236,6 +344,7 @@ def run_backtest(
     commission: float = DEFAULT_COMMISSION,
     rebalance: str = DEFAULT_REBALANCE,
     use_real_fundamentals: bool = False,
+    offline: bool = False,
 ) -> Tuple[BacktestResult, Dict]:
     """
     Run complete backtest.
@@ -249,6 +358,7 @@ def run_backtest(
         commission: Commission per share
         rebalance: Rebalance frequency
         use_real_fundamentals: Use real fundamental data
+        offline: Use synthetic data (no network required)
 
     Returns:
         Tuple of (BacktestResult, metadata dict)
@@ -261,6 +371,7 @@ def run_backtest(
         'slippage_bps': slippage_bps,
         'commission': commission,
         'rebalance': rebalance,
+        'offline_mode': offline,
     }
 
     # Step 1: Fetch data
@@ -268,7 +379,7 @@ def run_backtest(
     print("STEP 1: Fetching Data")
     print("=" * 70)
 
-    market_data = fetch_market_data(symbols, start_date, end_date)
+    market_data = fetch_market_data(symbols, start_date, end_date, offline=offline)
     fundamental_data, fund_metadata = fetch_fundamental_data(symbols, use_real_fundamentals)
 
     metadata['fundamental_data_quality'] = fund_metadata.get('data_quality', 'UNKNOWN')
@@ -543,6 +654,11 @@ Examples:
         help="Use synthetic fundamental data (faster, for testing only). Default uses REAL data.",
     )
     parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Offline mode: use synthetic market AND fundamental data (no network required).",
+    )
+    parser.add_argument(
         "--no-save",
         action="store_true",
         help="Don't save results to files",
@@ -563,14 +679,19 @@ Examples:
 
     # Header
     # Determine if using real data (default) or synthetic
-    use_real = not args.synthetic_fundamentals
+    # In offline mode, always use synthetic for both market and fundamentals
+    offline = args.offline
+    use_real = not args.synthetic_fundamentals and not offline
 
     print("=" * 70)
     print("ONE-CLICK BACKTEST - Alpha Research Trading System")
     print("=" * 70)
     print(f"  Period: {start_date} to {end_date}")
     print(f"  Capital: ${args.capital:,.0f}")
-    print(f"  Fundamentals: {'REAL (yfinance)' if use_real else 'SYNTHETIC (testing only)'}")
+    if offline:
+        print(f"  Mode: OFFLINE (synthetic market + fundamental data)")
+    else:
+        print(f"  Fundamentals: {'REAL (yfinance)' if use_real else 'SYNTHETIC (testing only)'}")
     print("=" * 70)
 
     try:
@@ -584,6 +705,7 @@ Examples:
             commission=DEFAULT_COMMISSION,
             rebalance=args.rebalance,
             use_real_fundamentals=use_real,
+            offline=offline,
         )
 
         # Print results
