@@ -48,7 +48,7 @@ warnings.filterwarnings('ignore')
 # =============================================================================
 # API KEY - Deepseek
 # =============================================================================
-DEFAULT_API_KEY = "sk-1056c2911da74da6a8de6f156b07daf5"
+DEFAULT_API_KEY = None  # Must be set via environment variable
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-chat"  # or "deepseek-reasoner" for reasoning tasks
 

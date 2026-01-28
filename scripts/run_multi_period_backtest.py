@@ -38,11 +38,13 @@ import pandas as pd
 # DeepSeek API 配置
 # =============================================================================
 
-DEEPSEEK_API_KEY = "sk-19c97621db06472f8926750167d2037b"
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = "deepseek-chat"
 
-os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
+if not DEEPSEEK_API_KEY:
+    print("WARNING: DEEPSEEK_API_KEY environment variable not set. LLM features will be disabled.")
+    print("Set it with: export DEEPSEEK_API_KEY=your_api_key")
 
 # =============================================================================
 # 日志配置
