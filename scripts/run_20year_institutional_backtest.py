@@ -56,7 +56,7 @@ from scipy import stats
 # DeepSeek API Configuration - HARDCODED (Private Repo)
 # =============================================================================
 
-DEEPSEEK_API_KEY = "sk-19c97621db06472f8926750167d2037b"
+DEEPSEEK_API_KEY = "sk-0e190de725b84e088ca15c8ce98f0c9b"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-chat"
 
