@@ -18,12 +18,12 @@ The framework implements **5 strategies** tested over a 20-year period (2005–2
 | # | Strategy | Type | Sharpe | Ann. Return | Max DD | API Required |
 |---|----------|------|--------|-------------|--------|--------------|
 | 1 | **TopMomentum** | Pure 12-1 momentum | **2.16** | **32.7%** | **6.3%** | No |
-| 2 | **AMS** | Adaptive Multi-Signal Momentum | *pending real data* | *pending* | *pending* | No |
+| 2 | **AMS** | Adaptive Multi-Signal Momentum | 0.52 | 11.0% | 29.4% | No |
 | 3 | **DeepSeek Signal+Weight** | LLM dynamic factor weights | — | — | — | Yes (DeepSeek) |
 | 4 | **DeepSeek Full Decision** | LLM stock selection | — | — | — | Yes (DeepSeek) |
 | 5 | **Optimal Fusion** | Momentum + Causal + LLM risk | — | — | — | Yes (DeepSeek) |
 
-> **Note**: AMS (Strategy 2) is a pure rule-based strategy with no API dependency. Strategies 3–5 require DeepSeek API. AMS results pending validation with real market data.
+> **Note**: AMS (Strategy 2) validated with real yfinance data (129 symbols, 20Y). Alpha 4.13% over SPY but Sharpe/Return below targets — needs tuning. Strategies 3–5 require DeepSeek API.
 
 ### Portfolio Construction Comparison
 
