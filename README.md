@@ -11,19 +11,20 @@ A quantitative research framework for factor-based equity analysis with rigorous
 
 ## Strategy Overview
 
-The framework implements **5 strategies** tested over a 20-year period (2005–2025) on 130 stocks with institutional-grade methodology.
+The framework implements **6 strategies** tested over a 20-year period (2005–2025) on 130 stocks with institutional-grade methodology.
 
 ### Active Strategies
 
 | # | Strategy | Type | Sharpe | Ann. Return | Max DD | API Required |
 |---|----------|------|--------|-------------|--------|--------------|
 | 1 | **TopMomentum** | Pure 12-1 momentum | **2.16** | **32.7%** | **6.3%** | No |
-| 2 | **AMS** | Adaptive Multi-Signal Momentum | 0.52 | 11.0% | 29.4% | No |
-| 3 | **DeepSeek Signal+Weight** | LLM dynamic factor weights | — | — | — | Yes (DeepSeek) |
-| 4 | **DeepSeek Full Decision** | LLM stock selection | — | — | — | Yes (DeepSeek) |
-| 5 | **Optimal Fusion** | Momentum + Causal + LLM risk | — | — | — | Yes (DeepSeek) |
+| 2 | **TopMom+R1Shield** | TopMom + VIX filter + R1 risk | *pending* | *pending* | *pending* | Optional (DeepSeek R1) |
+| 3 | **AMS** | Adaptive Multi-Signal Momentum | 0.52 | 11.0% | 29.4% | No |
+| 4 | **DeepSeek Signal+Weight** | LLM dynamic factor weights | — | — | — | Yes (DeepSeek) |
+| 5 | **DeepSeek Full Decision** | LLM stock selection | — | — | — | Yes (DeepSeek) |
+| 6 | **Optimal Fusion** | Momentum + Causal + LLM risk | — | — | — | Yes (DeepSeek) |
 
-> **Note**: AMS (Strategy 2) validated with real yfinance data (129 symbols, 20Y). Alpha 4.13% over SPY but Sharpe/Return below targets — needs tuning. Strategies 3–5 require DeepSeek API.
+> **Note**: TopMom+R1Shield (Strategy 2) uses TopMomentum's exact stock selection + VIX sentiment scaling + DeepSeek R1 deduction-only risk shield. Works without API (VIX-only mode). Results pending validation.
 
 ### Portfolio Construction Comparison
 
@@ -48,7 +49,47 @@ Pure rule-based momentum strategy. No lookahead bias, no API dependency.
 - **Rebalance**: Weekly
 - **Weighting**: Score-weighted
 
-### 2. Adaptive Multi-Signal Momentum — AMS (NEW)
+### 2. TopMom + R1 Risk Shield (LATEST)
+
+Preserves TopMomentum's proven alpha engine (unchanged) and adds two risk management layers.
+
+**Architecture:**
+```
+TopMomentum scoring (70% mom + 20% trend + 10% vol-adj)  ← UNCHANGED
+  → VIX/Put-Call Sentiment Filter (scales exposure 30-100%)
+    → DeepSeek R1 Risk Shield (deduction-only: remove/reduce, never add)
+      → Final Portfolio
+```
+
+**Layer 1 — VIX Sentiment (Put-Call Ratio Proxy):**
+- VIX < 12: Complacency → 80% exposure (Pan & Poteshman 2006)
+- VIX 12-20: Normal → 100%
+- VIX 25-30: Fear → 70%
+- VIX 30-40: High fear → 60%
+- VIX > 40: Panic → 80% (contrarian buy, Whaley 2000)
+- VIX trend adjustment: fast spike → extra caution, fast drop → confidence
+
+**Layer 2 — DeepSeek R1 Risk Shield:**
+- R1 receives portfolio + VIX + regime context
+- Can ONLY remove stocks (max 3) or reduce weights (max 3)
+- CANNOT add stocks or increase any weight
+- Temperature 0.1 for deterministic behavior
+- Graceful fallback to VIX-only if API unavailable
+
+**Why this design (lesson from AMS failure):**
+- AMS added 7 signals → diluted alpha from 32.7% to 11.0%
+- Correct approach: keep the alpha engine, only add risk overlays
+- R1's role is risk management, not stock selection
+
+```bash
+# With R1 (requires DEEPSEEK_API_KEY env var)
+python scripts/run_topmom_r1_shield_backtest.py
+
+# VIX-only mode (no API needed)
+python scripts/run_topmom_r1_shield_backtest.py --no-r1
+```
+
+### 3. Adaptive Multi-Signal Momentum — AMS
 
 Next-generation momentum strategy addressing key weaknesses of pure 12-1 momentum through multiple orthogonal academic signals and dynamic risk management.
 
@@ -189,7 +230,8 @@ Alpha-Research/
 │       ├── snapshot.py           # Reproducible data snapshots
 │       └── result_card.py        # Standardized result output
 ├── scripts/
-│   ├── run_adaptive_multisignal_backtest.py   # NEW: AMS strategy, 7 signals
+│   ├── run_topmom_r1_shield_backtest.py        # LATEST: TopMom + VIX + R1
+│   ├── run_adaptive_multisignal_backtest.py   # AMS strategy, 7 signals
 │   ├── run_20year_institutional_backtest.py  # PRIMARY: 4 strategies, 20Y
 │   ├── run_deepseek_vs_default_backtest.py   # DeepSeek vs rule-based
 │   ├── run_llm_enhanced_backtest.py          # LLM-enhanced variations
