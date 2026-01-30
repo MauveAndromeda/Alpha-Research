@@ -267,7 +267,7 @@ def calc_momentum_score(prices: np.ndarray) -> Optional[Dict]:
     else: trend += 0.10
 
     # Volatility-adjusted momentum
-    returns = np.diff(prices[-126:]) / prices[-127:-1]
+    returns = np.diff(prices[-126:]) / prices[-126:-1]
     vol_6m = np.std(returns) * np.sqrt(252)
     ret_6m = prices[-1] / prices[-126] - 1 if len(prices) >= 126 else 0
     vol_adj = ret_6m / vol_6m if vol_6m > 0.01 else 0
