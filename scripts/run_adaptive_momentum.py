@@ -354,7 +354,7 @@ def score_stock(prices):
     trend_ok = prices[-1] > sma200
 
     # Volatility (annualized)
-    rets = np.diff(prices[-126:-1]) / prices[-127:-2]
+    rets = np.diff(prices[-126:-1]) / prices[-126:-2]
     vol = np.std(rets) * np.sqrt(252) if len(rets) > 0 else 0.3
 
     # Trend strength: distance from SMA200 (normalized)
