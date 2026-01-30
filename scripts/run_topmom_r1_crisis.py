@@ -51,7 +51,7 @@ from scipy import stats
 # Configuration
 # =============================================================================
 
-DEEPSEEK_API_KEY = "sk-0e190de725b84e088ca15c8ce98f0c9b"
+DEEPSEEK_API_KEY = "sk-96a72b3dbe8847179659a6cb3c7b65c9"
 DEEPSEEK_R1_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_R1_MODEL = "deepseek-reasoner"
 
