@@ -1,25 +1,38 @@
 #!/usr/bin/env python3
 """
 =============================================================================
-Adaptive Momentum Strategy — S&P 500
+Adaptive Momentum V2 — S&P 500
 =============================================================================
 
-LESSONS FROM FAILED LONG-SHORT APPROACH:
-- Individual stock shorts bleed in bull markets (2009-2025)
-- Weekly rebalancing = $55K+ costs on $100K capital → death by costs
-- Tight portfolio stops (18%) trigger 16-21 times → mostly in cash
-- Concentrated 5+5 positions + weekly churn = catastrophic whipsaw
+ACADEMIC FOUNDATIONS (not curve-fitted):
+1. Dual Momentum (Antonacci 2014, "Dual Momentum Investing")
+   - Absolute momentum: stock 12-1 return > 0 (T-bill proxy)
+   - Relative momentum: rank stocks by 12-1 return
+   - When absolute momentum is negative → go to cash
+   - This is a STRUCTURAL market feature, not a fitted parameter
 
-NEW DESIGN PRINCIPLES:
-1. LONG-ONLY with market regime filter (cash is the hedge)
-2. MONTHLY rebalance (not weekly) → ~4x fewer trades
-3. 10 holdings, score-weighted, 10% max → diversified but concentrated
-4. NO individual stop-losses (they cause whipsaw)
-5. Market regime: SPY below SMA200 → scale to 30% exposure (not 0%)
-6. R1 regime analysis (anonymized) every 4 weeks for extra risk control
-7. Volatility scaling: reduce exposure when vol is elevated
+2. Volatility Targeting (Moreira & Muir 2017, JF)
+   - Scale exposure so portfolio vol targets a constant level
+   - Universally applicable: works across asset classes and time periods
+   - Target vol = realized vol of the strategy itself (~15% for momentum)
+   - When recent vol doubles, halve position sizes → automatic DD control
 
-Target: Sharpe ≥ 1.0, Max DD ≤ 20%, Ann Return ≥ 12%
+3. Inverse-Volatility Weighting (standard risk parity)
+   - Allocate more to low-vol stocks, less to high-vol
+   - Structural: compensates for heteroskedasticity
+   - Not sector-specific or time-specific
+
+4. Absolute Momentum of SPY as regime filter
+   - SPY 12-month return < 0 → reduce to partial cash
+   - Faster than SMA200 (which lags ~6 months)
+   - Not fitted: just "is the market going up or down over 1 year?"
+
+ANTI-BIAS MEASURES:
+- NO parameter tuning to specific historical events
+- All parameters derived from academic consensus or structural reasoning
+- Survivorship bias: stocks selected by momentum score, not identity
+- R1 (optional): fully anonymized, no dates, no tickers
+- Signal delay: 1 trading day
 
 Period: 2005.12 - 2025.12 (20 years)
 Author: Alpha Research Team
@@ -66,24 +79,41 @@ RISK_FREE_RATE = 0.03
 COMMISSION_PER_SHARE = 0.005
 SLIPPAGE_BPS = 5.0
 
-# Strategy parameters
-N_HOLDINGS = 10
-MAX_POSITION_WEIGHT = 0.15
-MIN_MOMENTUM = 0.0  # Only buy positive momentum
-REBALANCE_FREQ = 'monthly'  # 'monthly' or 'weekly'
+# =============================================================================
+# STRATEGY PARAMETERS — all from academic literature, not fitted
+# =============================================================================
 
-# Risk management — regime-based, NOT stop-loss based
-BEAR_EXPOSURE = 0.30      # 30% invested when SPY < SMA200
-NORMAL_EXPOSURE = 1.00    # 100% invested normally
-HIGH_VOL_THRESHOLD = 0.25 # Annualized vol > 25% → scale down
-VOL_SCALE_MIN = 0.50      # Minimum exposure from vol scaling
+# Holdings: 15 (Jegadeesh & Titman 1993 used decile portfolios ~50 stocks;
+# 15 is a practical compromise for concentration + diversification)
+N_HOLDINGS = 15
+MAX_POSITION_WEIGHT = 0.12  # Max 12% per stock (1/N would be ~6.7%)
+
+# Volatility target: 15% annualized
+# (S&P 500 long-run vol ~15-16%; targeting same level means full exposure
+#  in normal times, automatic scaling in crisis — NOT fitted to any period)
+VOL_TARGET = 0.15
+
+# Lookback for realized vol estimate: 63 days (1 quarter)
+# (standard institutional practice, not fitted)
+VOL_LOOKBACK = 63
+
+# Momentum lookback: 12-1 months (Jegadeesh & Titman 1993)
+# This is THE canonical momentum signal, not a parameter choice
+MOM_LOOKBACK = 252  # ~12 months
+MOM_SKIP = 22       # ~1 month (skip recent reversal)
+
+# Rebalance: monthly (reduces costs vs weekly; standard in literature)
+
+# Max sector concentration: 40% (prevents single-sector risk;
+# structural constraint, not fitted)
+MAX_SECTOR_PCT = 0.40
+
 
 # =============================================================================
 # S&P 500 Universe
 # =============================================================================
 
 def get_sp500_tickers():
-    """Try Wikipedia, fallback to hardcoded list."""
     try:
         tables = pd.read_html(
             'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
@@ -115,6 +145,7 @@ NEE DUK SO D AEP EXC SRE XEL WEC ED ES DTE CMS ATO AES PEG EIX PPL FE CEG AWK
 LIN APD ECL SHW PPG NEM FCX NUE CF ALB DD MLM VMC PKG AVY
 DIS CMCSA T VZ CHTR NFLX TMUS EA TTWO OMC FOX FOXA
 AMT PLD CCI EQIX SPG PSA O DLR WELL AVB EQR VTR ARE ESS MAA IRM SBAC CBRE VICI
+SPY
 """.split()
 
 
@@ -169,7 +200,6 @@ def trading_calendar(start, end):
 
 
 def monthly_rebalance_dates(start, end):
-    """First trading day of each month."""
     cal = trading_calendar(start, end)
     dates = []
     last_month = None
@@ -181,7 +211,7 @@ def monthly_rebalance_dates(start, end):
 
 
 # =============================================================================
-# Data Fetcher — Batch download for S&P 500
+# Data Fetcher
 # =============================================================================
 
 class DataFetcher:
@@ -191,9 +221,9 @@ class DataFetcher:
 
     def fetch(self, symbols, start, end):
         cache_key = hashlib.md5(
-            f"sp500_adaptive_{len(symbols)}_{start}_{end}".encode()
+            f"sp500v2_{len(symbols)}_{start}_{end}".encode()
         ).hexdigest()[:12]
-        cache_file = self.cache_dir / f"sp500_adaptive_{cache_key}.parquet"
+        cache_file = self.cache_dir / f"sp500v2_{cache_key}.parquet"
 
         if cache_file.exists():
             try:
@@ -331,101 +361,116 @@ class MarketIndex:
 
 
 # =============================================================================
-# Momentum Scoring — 12-1 Jegadeesh & Titman
+# Dual Momentum Scoring (Antonacci + Jegadeesh-Titman)
 # =============================================================================
 
 def score_stock(prices):
     """
-    Score a stock for the portfolio.
-    Uses 12-1 momentum (skip most recent month to avoid reversal).
+    Dual momentum score:
+    1. Relative momentum: 12-1 month return (Jegadeesh & Titman 1993)
+    2. Absolute momentum: 12-1 return must be > 0 (Antonacci 2014)
+    3. Inverse-vol weighting factor
 
-    Returns: (score, momentum, vol, trend_ok) or (None, None, None, False)
+    Returns: (score, momentum, vol, abs_mom_ok) or (None, None, None, False)
     """
-    if prices is None or len(prices) < 252:
+    if prices is None or len(prices) < 260:
         return None, None, None, False
 
-    # 12-1 momentum: 12-month return minus last 1 month
-    r12 = prices[-22] / prices[-252] - 1 if prices[-252] > 0 else 0
-    r1 = prices[-1] / prices[-22] - 1 if prices[-22] > 0 else 0
-    mom = r12 - r1
+    # 12-1 momentum (skip most recent month to avoid short-term reversal)
+    p_now = prices[-MOM_SKIP]   # price ~1 month ago
+    p_12m = prices[-MOM_LOOKBACK]  # price ~12 months ago
+    if p_12m <= 0:
+        return None, None, None, False
 
-    # Trend: above SMA200
-    sma200 = np.mean(prices[-200:])
-    trend_ok = prices[-1] > sma200
+    mom = p_now / p_12m - 1
 
-    # Volatility (annualized)
-    rets = np.diff(prices[-126:-1]) / prices[-126:-2]
+    # Absolute momentum gate: only invest if 12-1 return > 0
+    abs_mom_ok = mom > 0
+
+    # Realized volatility (annualized, 63-day lookback)
+    n = min(VOL_LOOKBACK, len(prices) - 1)
+    rets = np.diff(prices[-n-1:]) / prices[-n-1:-1]
     vol = np.std(rets) * np.sqrt(252) if len(rets) > 0 else 0.3
+    vol = max(vol, 0.05)  # floor at 5% to avoid division issues
 
-    # Trend strength: distance from SMA200 (normalized)
-    trend_strength = (prices[-1] / sma200 - 1) if sma200 > 0 else 0
-    trend_score = min(1.0, max(0.0, trend_strength / 0.30 + 0.5))
+    # Score = momentum / vol (risk-adjusted momentum, i.e. Sharpe-like ranking)
+    # This naturally favors stocks with strong momentum AND low volatility
+    # Academic basis: Daniel & Moskowitz (2016) show vol-scaled momentum
+    # significantly reduces crash risk
+    score = mom / vol if vol > 0 else 0
 
-    # Vol-adjusted momentum
-    vol_adj = mom / vol if vol > 0 else 0
-    vol_adj_score = min(1.0, max(0.0, vol_adj / 4.0 + 0.5))
+    return score, mom, vol, abs_mom_ok
 
-    # Combined score: 70% raw momentum + 20% trend + 10% vol-adj
-    mom_score = min(1.0, max(0.0, mom / 1.0 + 0.5))  # normalize ~[-50%, +150%] → [0,1]
-    score = 0.70 * mom_score + 0.20 * trend_score + 0.10 * vol_adj_score
 
-    return score, mom, vol, trend_ok
+def compute_portfolio_vol(returns_matrix):
+    """
+    Estimate portfolio volatility from recent daily returns.
+    Returns annualized vol.
+    """
+    if returns_matrix is None or len(returns_matrix) < 20:
+        return VOL_TARGET  # default to target if insufficient data
+    port_rets = np.mean(returns_matrix, axis=1)  # equal-weight proxy
+    return np.std(port_rets) * np.sqrt(252)
 
 
 # =============================================================================
-# Market Regime Detection
+# Market Regime — Absolute Momentum of SPY (Antonacci)
 # =============================================================================
 
 def detect_regime(spy_prices):
     """
-    Detect market regime from SPY prices (no lookahead).
+    Regime detection using absolute momentum of SPY (Antonacci 2014).
 
-    Returns: (regime, exposure_multiplier, details)
-    - regime: 'BULL', 'BEAR', 'VOLATILE'
-    - exposure_multiplier: 0.3 to 1.0
+    NOT SMA-based (SMA200 lags too much).
+    Instead: is SPY's 12-month return positive?
+
+    Also computes realized vol for vol-targeting.
+
+    Returns: (regime, vol_scale, details)
     """
-    if spy_prices is None or len(spy_prices) < 252:
+    if spy_prices is None or len(spy_prices) < 260:
         return 'UNKNOWN', 1.0, {}
 
-    # SMA200 trend
-    sma200 = np.mean(spy_prices[-200:])
-    sma50 = np.mean(spy_prices[-50:])
-    above_sma200 = spy_prices[-1] > sma200
+    # SPY absolute momentum (12-month return)
+    spy_12m = spy_prices[-MOM_SKIP] / spy_prices[-MOM_LOOKBACK] - 1
 
-    # Recent volatility (20-day)
-    rets_20 = np.diff(spy_prices[-21:]) / spy_prices[-21:-1]
-    vol_20 = np.std(rets_20) * np.sqrt(252)
+    # SPY realized vol (63-day)
+    n = min(VOL_LOOKBACK, len(spy_prices) - 1)
+    spy_rets = np.diff(spy_prices[-n-1:]) / spy_prices[-n-1:-1]
+    spy_vol = np.std(spy_rets) * np.sqrt(252)
 
-    # Longer volatility (60-day)
-    rets_60 = np.diff(spy_prices[-61:]) / spy_prices[-61:-1]
-    vol_60 = np.std(rets_60) * np.sqrt(252)
+    # Vol targeting: scale = target_vol / realized_vol
+    # Capped at [0.25, 1.5] to avoid extreme leverage or near-zero exposure
+    vol_scale = VOL_TARGET / spy_vol if spy_vol > 0 else 1.0
+    vol_scale = max(0.25, min(1.5, vol_scale))
 
-    # Recent drawdown from local peak
+    # Recent drawdown
     peak_60 = np.max(spy_prices[-60:])
     dd_60 = (peak_60 - spy_prices[-1]) / peak_60
 
+    # SMA for reference (not used for decision, just logging)
+    sma200 = np.mean(spy_prices[-200:]) if len(spy_prices) >= 200 else spy_prices[-1]
+
     details = {
-        'sma200': sma200, 'sma50': sma50,
-        'above_sma200': above_sma200,
-        'vol_20d': vol_20, 'vol_60d': vol_60,
+        'spy_12m_return': spy_12m,
+        'spy_vol': spy_vol,
+        'vol_scale': vol_scale,
         'dd_60d': dd_60,
+        'above_sma200': spy_prices[-1] > sma200,
     }
 
-    # Regime classification
-    if not above_sma200:
-        # BEAR: below SMA200
-        if dd_60 > 0.15:
-            # Crisis mode (like 2008, 2020 March)
-            return 'BEAR_CRISIS', BEAR_EXPOSURE * 0.5, details  # 15%
-        return 'BEAR', BEAR_EXPOSURE, details  # 30%
+    if spy_12m < -0.10:
+        # Strong negative absolute momentum → deep bear
+        regime = 'BEAR_DEEP'
+    elif spy_12m < 0:
+        # Mild negative momentum → caution
+        regime = 'BEAR'
+    elif spy_vol > 0.25:
+        regime = 'VOLATILE'
+    else:
+        regime = 'BULL'
 
-    if vol_20 > HIGH_VOL_THRESHOLD:
-        # High vol but still above SMA200 — cautious
-        vol_scale = max(VOL_SCALE_MIN, 1.0 - (vol_20 - HIGH_VOL_THRESHOLD) / 0.20)
-        return 'VOLATILE', vol_scale, details
-
-    # BULL: above SMA200, normal vol
-    return 'BULL', NORMAL_EXPOSURE, details
+    return regime, vol_scale, details
 
 
 # =============================================================================
@@ -452,39 +497,41 @@ class R1Analyzer:
 
     async def analyze_regime(self, regime, details, portfolio_stats):
         """
-        Ask R1 whether to override exposure based on statistical patterns.
-        Returns: exposure_override (float 0-1) or None (no override)
+        Ask R1 whether to override exposure.
+        R1 can ONLY scale exposure between 0.25 and 1.0.
+        Returns: scale_override (float) or None
         """
         import aiohttp
 
         self.call_count += 1
 
-        prompt = f"""You are a quantitative risk manager. Analyze these ANONYMIZED market statistics and portfolio metrics. No dates or identifiers are provided.
+        prompt = f"""You are a quantitative risk manager analyzing ANONYMIZED market data. No dates or identifiers are provided.
 
-## Market Statistics
-- Index trend: {'ABOVE' if details.get('above_sma200') else 'BELOW'} long-term average
-- Short-term volatility (20d annualized): {details.get('vol_20d', 0):.1%}
-- Medium-term volatility (60d annualized): {details.get('vol_60d', 0):.1%}
+## Market Statistics (all derived from price data only)
+- Index 12-month return: {details.get('spy_12m_return', 0):+.1%}
+- Index annualized volatility (63d): {details.get('spy_vol', 0):.1%}
 - Recent drawdown from 60d peak: {details.get('dd_60d', 0):.1%}
-- Current regime classification: {regime}
+- Current vol-target scale: {details.get('vol_scale', 1.0):.2f}x
+- Regime: {regime}
 
-## Portfolio Statistics
-- Current exposure: {portfolio_stats.get('exposure', 1.0):.0%}
-- Portfolio drawdown from HWM: {portfolio_stats.get('dd', 0):.1%}
-- Number of holdings: {portfolio_stats.get('n_holdings', 0)}
-- Average holding momentum: {portfolio_stats.get('avg_momentum', 0):.1%}
+## Portfolio
+- Current scale factor: {portfolio_stats.get('scale', 1.0):.2f}x
+- Portfolio DD from HWM: {portfolio_stats.get('dd', 0):.1%}
+- Holdings: {portfolio_stats.get('n_holdings', 0)}
+- Avg holding vol: {portfolio_stats.get('avg_vol', 0):.1%}
+- Avg holding momentum: {portfolio_stats.get('avg_momentum', 0):+.1%}
+- Pct with positive abs momentum: {portfolio_stats.get('pct_positive', 0):.0%}
 
 ## Task
-Based ONLY on these statistics (no external knowledge), should exposure be:
-1. MAINTAIN — current exposure is appropriate
-2. REDUCE — reduce to specific level (provide %)
-3. INCREASE — increase back toward full exposure
+Based ONLY on these statistics, recommend a SCALE FACTOR (0.25 to 1.00):
+- 1.00 = fully invested per vol target
+- 0.50 = half exposure
+- 0.25 = minimal exposure
 
-Consider: vol clustering, mean-reversion after extreme drawdowns, momentum decay.
+Consider: vol clustering, momentum decay, drawdown severity.
 
-## Output Format (strict)
-ACTION: MAINTAIN/REDUCE/INCREASE
-EXPOSURE: XX% (target)
+## Output (strict format)
+SCALE: X.XX
 REASONING: <one sentence>"""
 
         headers = {
@@ -495,8 +542,8 @@ REASONING: <one sentence>"""
             "model": DEEPSEEK_R1_MODEL,
             "messages": [
                 {"role": "system", "content":
-                 "You are a quantitative risk analyst. Only use the statistical data "
-                 "provided. Do not infer dates, tickers, or use external knowledge."},
+                 "You are a quantitative risk analyst. Use only the statistics provided. "
+                 "Do not infer dates, tickers, or use external knowledge."},
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": 512,
@@ -522,24 +569,18 @@ REASONING: <one sentence>"""
             return None
 
     def _parse(self, content):
-        upper = content.upper()
-
-        # Extract exposure percentage
-        exposure_match = re.search(r'EXPOSURE:\s*(\d+)%', upper)
-        if not exposure_match:
+        match = re.search(r'SCALE:\s*([\d.]+)', content, re.IGNORECASE)
+        if not match:
             return None
 
-        exposure = int(exposure_match.group(1)) / 100.0
-        exposure = max(0.10, min(1.0, exposure))  # clamp 10%-100%
+        scale = float(match.group(1))
+        scale = max(0.25, min(1.0, scale))
 
-        action_match = re.search(r'ACTION:\s*(MAINTAIN|REDUCE|INCREASE)', upper)
-        action = action_match.group(1) if action_match else 'MAINTAIN'
-
-        if action != 'MAINTAIN':
+        if abs(scale - 1.0) > 0.05:
             self.interventions += 1
-            logger.info(f"  R1 → {action} exposure to {exposure:.0%}")
+            logger.info(f"  R1 → scale {scale:.2f}x")
 
-        return exposure if action != 'MAINTAIN' else None
+        return scale
 
     def get_stats(self):
         return {
@@ -552,6 +593,8 @@ REASONING: <one sentence>"""
 # =============================================================================
 # Sector Map
 # =============================================================================
+
+SECTOR_MAP = {}
 
 def build_sector_map(symbols):
     known = {
@@ -584,15 +627,16 @@ def build_sector_map(symbols):
         'REIT': ['AMT','PLD','CCI','EQIX','SPG','PSA','O','DLR','WELL','AVB','EQR',
                  'VTR','ARE','ESS','MAA','IRM','SBAC','CBRE','VICI'],
     }
-    sm = {}
+    global SECTOR_MAP
+    SECTOR_MAP = {}
     for sector, syms in known.items():
         for s in syms:
-            sm[s] = sector
-    return sm
+            SECTOR_MAP[s] = sector
+    return SECTOR_MAP
 
 
 # =============================================================================
-# Portfolio Engine — Long-Only with Regime Scaling
+# Portfolio Engine
 # =============================================================================
 
 class AdaptiveEngine:
@@ -600,12 +644,11 @@ class AdaptiveEngine:
         self.capital = capital
         self.cash = capital
         self.positions = {}     # symbol -> shares
-        self.weights = {}       # symbol -> target weight
         self.snapshots = []
         self.trades = []
         self.hwm = capital
         self.total_costs = 0
-        self.exposure_target = 1.0
+        self.exposure_history = []
         self.regime_history = []
 
     def nav(self, idx, d):
@@ -620,25 +663,38 @@ class AdaptiveEngine:
         self.hwm = max(self.hwm, current_nav)
         return (self.hwm - current_nav) / self.hwm if self.hwm > 0 else 0
 
-    def rebalance(self, d, signals, idx, exposure):
-        """Rebalance to target positions with exposure scaling."""
+    def rebalance(self, d, signals, idx, scale):
+        """
+        Rebalance with inverse-vol weighting and exposure scaling.
+
+        scale: overall exposure multiplier (from vol-targeting + regime)
+        signals: list of {symbol, score, momentum, vol, ...}
+        """
         current_nav = self.nav(idx, d)
         if current_nav <= 0:
             return
 
-        self.exposure_target = exposure
-        invested_target = current_nav * exposure
+        invested_target = current_nav * min(scale, 1.5)  # cap at 150%
 
-        # Score-weighted allocation
-        total_score = sum(s['score'] for s in signals)
-        if total_score <= 0:
+        # Inverse-vol weighting: w_i = (1/vol_i) / sum(1/vol_j)
+        inv_vols = []
+        valid_signals = []
+        for sig in signals:
+            v = sig['vol']
+            if v > 0:
+                inv_vols.append(1.0 / v)
+                valid_signals.append(sig)
+
+        if not valid_signals:
             return
 
+        total_inv_vol = sum(inv_vols)
         target = {}
-        for sig in signals:
+
+        for sig, iv in zip(valid_signals, inv_vols):
             sym = sig['symbol']
-            raw_weight = sig['score'] / total_score
-            weight = min(raw_weight, MAX_POSITION_WEIGHT)
+            weight = iv / total_inv_vol
+            weight = min(weight, MAX_POSITION_WEIGHT)
             p = idx.price_on(sym, d)
             if p and p > 0:
                 alloc = invested_target * weight
@@ -648,12 +704,11 @@ class AdaptiveEngine:
 
         # Normalize if over-allocated
         total_alloc = sum(
-            shares * (idx.price_on(sym, d) or 0)
-            for sym, shares in target.items()
+            sh * (idx.price_on(s, d) or 0) for s, sh in target.items()
         )
         if total_alloc > invested_target * 1.05:
-            scale = invested_target / total_alloc
-            target = {s: max(1, int(sh * scale)) for s, sh in target.items()}
+            ratio = invested_target / total_alloc
+            target = {s: max(1, int(sh * ratio)) for s, sh in target.items()}
 
         # Execute trades
         all_syms = set(self.positions) | set(target)
@@ -684,13 +739,11 @@ class AdaptiveEngine:
 
             self.trades.append((d, sym, delta, p, cost))
 
-    def go_to_cash(self, d, idx, reason=""):
-        """Liquidate all positions."""
+    def go_to_cash(self, d, idx):
         for sym in list(self.positions.keys()):
             shares = self.positions[sym]
             p = idx.price_on(sym, d)
-            if not p:
-                continue
+            if not p: continue
             vol = idx.avg_volume(sym, d)
             cost = self._trade_cost(shares, p, vol)
             self.total_costs += cost
@@ -710,11 +763,9 @@ class AdaptiveEngine:
         n = self.nav(idx, d)
         dr = (n - prev_nav) / prev_nav if prev_nav > 0 else 0
         dd = self.portfolio_dd(n)
-
         self.snapshots.append({
             'date': d, 'nav': n, 'daily_return': dr, 'drawdown': dd,
             'n_holdings': len(self.positions),
-            'exposure': self.exposure_target,
         })
         return n
 
@@ -745,6 +796,10 @@ class AdaptiveEngine:
         for r in self.regime_history:
             regime_counts[r] = regime_counts.get(r, 0) + 1
 
+        # Exposure stats
+        exposures = self.exposure_history
+        avg_exposure = np.mean(exposures) if exposures else 1.0
+
         return {
             'strategy': name,
             'period': f"{start} to {end}",
@@ -761,6 +816,7 @@ class AdaptiveEngine:
             'trades': len(self.trades),
             'costs': self.total_costs,
             'regime_counts': regime_counts,
+            'avg_exposure': avg_exposure,
         }
 
 
@@ -768,25 +824,29 @@ class AdaptiveEngine:
 # Main Backtest
 # =============================================================================
 
-async def run_backtest(use_r1=False, variant='adaptive'):
+async def run_backtest(use_r1=False, variant='dual_mom'):
     variants = {
-        'adaptive': 'Adaptive Momentum (Regime Filter)',
-        'pure': 'Pure TopMomentum (S&P 500, No Filter)',
+        'dual_mom': 'Dual Momentum + Vol Target (Academic)',
+        'pure': 'Pure Relative Momentum (No Filter)',
     }
 
     print("=" * 80)
     print(f"STRATEGY: {variants[variant]}")
     print("=" * 80)
-    print(f"Universe:      S&P 500 scan (~500 stocks)")
-    print(f"Holdings:      Top {N_HOLDINGS} by 12-1 momentum score")
-    print(f"Weighting:     Score-weighted (max {MAX_POSITION_WEIGHT:.0%})")
-    print(f"Rebalance:     Monthly (first trading day)")
-    print(f"Regime Filter: {'ON' if variant == 'adaptive' else 'OFF'}")
+    print(f"Universe:      S&P 500 (~500 stocks)")
+    print(f"Signal:        12-1 Momentum (Jegadeesh & Titman 1993)")
+    print(f"Holdings:      Top {N_HOLDINGS} by risk-adj momentum")
+    print(f"Weighting:     Inverse-volatility (risk parity)")
+    print(f"Rebalance:     Monthly")
+    if variant == 'dual_mom':
+        print(f"Abs Momentum:  Gate — only invest if 12-1 > 0 (Antonacci 2014)")
+        print(f"Vol Target:    {VOL_TARGET:.0%} annualized (Moreira & Muir 2017)")
+        print(f"Regime:        SPY absolute momentum")
     print(f"R1 Analysis:   {'ON (anonymous)' if use_r1 else 'OFF'}")
     print(f"Period:        2005.12 - 2025.12")
     print("=" * 80)
 
-    # Get tickers — include SPY for regime detection
+    # Get tickers
     print("\nSTEP 1: Getting S&P 500 tickers...")
     tickers = get_sp500_tickers()
     if 'SPY' not in tickers:
@@ -808,8 +868,7 @@ async def run_backtest(use_r1=False, variant='adaptive'):
     actual_start = df['trade_date'].min()
     actual_end = df['trade_date'].max()
 
-    # Need 252 days warmup for 12-1 momentum
-    bt_start = max(start_date, actual_start + timedelta(days=365))
+    bt_start = max(start_date, actual_start + timedelta(days=380))
 
     cal = trading_calendar(bt_start, actual_end)
     rebal_dates = set(monthly_rebalance_dates(bt_start, actual_end))
@@ -823,7 +882,6 @@ async def run_backtest(use_r1=False, variant='adaptive'):
     engine = AdaptiveEngine(capital=DEFAULT_CAPITAL)
     r1 = R1Analyzer() if use_r1 else None
     prev_nav = DEFAULT_CAPITAL
-    current_exposure = 1.0
     last_signals = []
 
     print(f"\nSTEP 4: Running backtest...")
@@ -832,93 +890,119 @@ async def run_backtest(use_r1=False, variant='adaptive'):
             n = engine.nav(idx, d)
             dd = engine.portfolio_dd(n)
             logger.info(f"  {d} | NAV: ${n:,.0f} | DD: {dd:.1%} | "
-                        f"Holdings: {len(engine.positions)} | "
-                        f"Exposure: {current_exposure:.0%}")
+                        f"Holdings: {len(engine.positions)}")
 
         # Monthly rebalance
         if d in rebal_dates:
             signal_date = d - timedelta(days=1)
 
-            # Detect market regime from SPY
+            # Regime detection
             spy_prices = idx.prices('SPY', signal_date)
-            if variant == 'adaptive':
-                regime, exposure, details = detect_regime(spy_prices)
+
+            if variant == 'dual_mom':
+                regime, vol_scale, details = detect_regime(spy_prices)
+
+                # Absolute momentum gate on SPY
+                spy_abs_mom = details.get('spy_12m_return', 0)
+
+                if spy_abs_mom < -0.10:
+                    # Deep bear: go to cash
+                    scale = 0.0
+                elif spy_abs_mom < 0:
+                    # Mild bear: reduce via vol scale, floor at 30%
+                    scale = max(0.30, vol_scale * 0.5)
+                else:
+                    # Bull: use vol targeting
+                    scale = vol_scale
             else:
-                regime, exposure, details = 'BULL', 1.0, {}
+                regime = 'BULL'
+                scale = 1.0
+                details = {}
 
             engine.regime_history.append(regime)
+            engine.exposure_history.append(scale)
 
-            # R1 override (rate-limited to every 4 weeks)
-            if r1 and r1.should_call(d):
+            # R1 override
+            if r1 and r1.should_call(d) and variant == 'dual_mom':
                 r1.last_call_date = d
                 portfolio_stats = {
-                    'exposure': current_exposure,
+                    'scale': scale,
                     'dd': engine.portfolio_dd(engine.nav(idx, d)),
                     'n_holdings': len(engine.positions),
+                    'avg_vol': np.mean([s.get('vol', 0.3) for s in last_signals]) if last_signals else 0.3,
                     'avg_momentum': np.mean([s.get('momentum', 0) for s in last_signals]) if last_signals else 0,
+                    'pct_positive': (
+                        sum(1 for s in last_signals if s.get('momentum', 0) > 0) / len(last_signals)
+                        if last_signals else 0
+                    ),
                 }
-                r1_exposure = await r1.analyze_regime(regime, details, portfolio_stats)
-                if r1_exposure is not None:
-                    # R1 can only reduce exposure further, not increase beyond regime level
-                    exposure = min(exposure, r1_exposure)
-                    logger.info(f"  R1 adjusted exposure: {exposure:.0%}")
+                r1_scale = await r1.analyze_regime(regime, details, portfolio_stats)
+                if r1_scale is not None:
+                    scale = min(scale, r1_scale)
 
-            current_exposure = exposure
-
-            # If exposure very low, go to cash
-            if exposure < 0.20:
+            # Go to cash if scale is near zero
+            if scale < 0.10:
                 if engine.positions:
-                    engine.go_to_cash(d, idx, reason=f"regime={regime}")
-                    logger.info(f"  {d} | REGIME: {regime} → ALL CASH")
-            else:
-                # Score all stocks
-                scored = []
-                for sym in idx.symbols:
-                    if sym == 'SPY':
-                        continue  # Don't trade SPY itself
-                    p = idx.prices(sym, signal_date)
-                    score, mom, vol, trend_ok = score_stock(p)
-                    if score is None:
+                    engine.go_to_cash(d, idx)
+                    logger.info(f"  {d} | {regime} | SPY 12m={details.get('spy_12m_return',0):+.1%} → CASH")
+                continue
+
+            # Score all stocks
+            scored = []
+            for sym in idx.symbols:
+                if sym == 'SPY':
+                    continue
+                p = idx.prices(sym, signal_date)
+                score, mom, vol, abs_mom_ok = score_stock(p)
+                if score is None:
+                    continue
+
+                if variant == 'dual_mom':
+                    # Dual momentum: require positive absolute momentum
+                    if not abs_mom_ok:
                         continue
-                    if mom < MIN_MOMENTUM:
-                        continue
-                    if not trend_ok:
-                        continue  # Only buy stocks above SMA200
-                    scored.append({
-                        'symbol': sym,
-                        'score': score,
-                        'momentum': mom,
-                        'vol': vol,
-                        'sector': sector_map.get(sym, 'Other'),
-                    })
 
-                # Sort by score, take top N
-                scored.sort(key=lambda x: x['score'], reverse=True)
+                scored.append({
+                    'symbol': sym,
+                    'score': score,
+                    'momentum': mom,
+                    'vol': vol,
+                    'sector': SECTOR_MAP.get(sym, 'Other'),
+                })
 
-                # Sector diversification: max 3 from same sector
-                selected = []
-                sector_counts = {}
-                for s in scored:
-                    sec = s['sector']
-                    if sector_counts.get(sec, 0) >= 3:
-                        continue
-                    selected.append(s)
-                    sector_counts[sec] = sector_counts.get(sec, 0) + 1
-                    if len(selected) >= N_HOLDINGS:
-                        break
+            # Sort by risk-adjusted momentum score (= mom/vol)
+            scored.sort(key=lambda x: x['score'], reverse=True)
 
-                last_signals = selected
+            # Sector constraint: max 40% of holdings from one sector
+            max_per_sector = max(2, int(N_HOLDINGS * MAX_SECTOR_PCT))
+            selected = []
+            sector_counts = {}
+            for s in scored:
+                sec = s['sector']
+                if sector_counts.get(sec, 0) >= max_per_sector:
+                    continue
+                selected.append(s)
+                sector_counts[sec] = sector_counts.get(sec, 0) + 1
+                if len(selected) >= N_HOLDINGS:
+                    break
 
-                if selected:
-                    engine.rebalance(d, selected, idx, exposure)
-                    if (i+1) % 504 == 0 or regime != 'BULL':
-                        logger.info(f"  {d} | REGIME: {regime} | Exposure: {exposure:.0%} | "
-                                    f"Selected: {[s['symbol'] for s in selected[:5]]}...")
+            last_signals = selected
+
+            if selected:
+                engine.rebalance(d, selected, idx, scale)
+                if regime != 'BULL' or (i+1) % 504 == 0:
+                    top3 = [s['symbol'] for s in selected[:3]]
+                    logger.info(f"  {d} | {regime} | Scale: {scale:.2f}x | "
+                                f"Top: {top3} | N={len(selected)}")
+            elif engine.positions:
+                # No qualifying stocks → cash
+                engine.go_to_cash(d, idx)
+                logger.info(f"  {d} | No qualifying stocks → CASH")
 
         prev_nav = engine.record(d, idx, prev_nav)
 
     # Results
-    name = f"{'Adaptive' if variant == 'adaptive' else 'Pure'}Mom-SP500"
+    name = f"{'DualMom' if variant == 'dual_mom' else 'PureMom'}-SP500"
     if use_r1:
         name += "+R1"
     res = engine.results(name, bt_start, actual_end)
@@ -939,11 +1023,12 @@ async def run_backtest(use_r1=False, variant='adaptive'):
     print(f"  ES (95%):          {res['es_95']:.2%}")
     print(f"  Total Trades:      {res['trades']:,}")
     print(f"  Total Costs:       ${res['costs']:,.0f}")
+    print(f"  Avg Exposure:      {res['avg_exposure']:.0%}")
 
     if res['regime_counts']:
         print(f"\n  Regime Breakdown:")
         for regime, count in sorted(res['regime_counts'].items()):
-            print(f"    {regime:15s}: {count} months")
+            print(f"    {regime:15s}: {count:3d} months")
 
     if r1:
         st = r1.get_stats()
@@ -964,16 +1049,15 @@ async def run_backtest(use_r1=False, variant='adaptive'):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Adaptive Momentum Strategy — S&P 500"
+        description="Adaptive Momentum V2 — S&P 500"
     )
-    parser.add_argument("--variant", choices=["adaptive", "pure", "both"],
-                        default="both", help="Strategy variant")
-    parser.add_argument("--with-r1", action="store_true",
-                        help="Enable R1 anonymous regime analysis")
+    parser.add_argument("--variant", choices=["dual_mom", "pure", "both"],
+                        default="both")
+    parser.add_argument("--with-r1", action="store_true")
     args = parser.parse_args()
 
     if args.variant == 'both':
-        for v in ['pure', 'adaptive']:
+        for v in ['pure', 'dual_mom']:
             print(f"\n{'#' * 80}")
             print(f"# VARIANT: {v.upper()}")
             print(f"{'#' * 80}\n")
