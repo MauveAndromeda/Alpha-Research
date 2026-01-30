@@ -11,18 +11,19 @@ A quantitative research framework for factor-based equity analysis with rigorous
 
 ## Strategy Overview
 
-The framework implements **4 strategies** tested over a 20-year period (2005–2025) on 113 stocks with institutional-grade methodology.
+The framework implements **5 strategies** tested over a 20-year period (2005–2025) on 130 stocks with institutional-grade methodology.
 
 ### Active Strategies
 
 | # | Strategy | Type | Sharpe | Ann. Return | Max DD | API Required |
 |---|----------|------|--------|-------------|--------|--------------|
 | 1 | **TopMomentum** | Pure 12-1 momentum | **2.16** | **32.7%** | **6.3%** | No |
-| 2 | **DeepSeek Signal+Weight** | LLM dynamic factor weights | — | — | — | Yes (DeepSeek) |
-| 3 | **DeepSeek Full Decision** | LLM stock selection | — | — | — | Yes (DeepSeek) |
-| 4 | **Optimal Fusion** | Momentum + Causal + LLM risk | — | — | — | Yes (DeepSeek) |
+| 2 | **AMS** | Adaptive Multi-Signal Momentum | *pending real data* | *pending* | *pending* | No |
+| 3 | **DeepSeek Signal+Weight** | LLM dynamic factor weights | — | — | — | Yes (DeepSeek) |
+| 4 | **DeepSeek Full Decision** | LLM stock selection | — | — | — | Yes (DeepSeek) |
+| 5 | **Optimal Fusion** | Momentum + Causal + LLM risk | — | — | — | Yes (DeepSeek) |
 
-> **Note**: Strategies 2–4 require DeepSeek API access. Performance metrics depend on API responses and vary across runs due to LLM non-determinism.
+> **Note**: AMS (Strategy 2) is a pure rule-based strategy with no API dependency. Strategies 3–5 require DeepSeek API. AMS results pending validation with real market data.
 
 ### Portfolio Construction Comparison
 
@@ -47,7 +48,43 @@ Pure rule-based momentum strategy. No lookahead bias, no API dependency.
 - **Rebalance**: Weekly
 - **Weighting**: Score-weighted
 
-### 2. DeepSeek Signal+Weight
+### 2. Adaptive Multi-Signal Momentum — AMS (NEW)
+
+Next-generation momentum strategy addressing key weaknesses of pure 12-1 momentum through multiple orthogonal academic signals and dynamic risk management.
+
+**7 Signals (all PIT-safe, price/volume only):**
+
+| Signal | Weight | Academic Source |
+|--------|--------|----------------|
+| 12-1 Momentum | 40% | Jegadeesh & Titman (1993) |
+| 52-Week High Proximity | 15% | George & Hwang (2004) |
+| 6-1 Momentum | 10% | Intermediate momentum |
+| Volume-Price Confirmation | 10% | Gervais, Kaniel & Mingelgrin (2001) |
+| Sector Momentum | 10% | Moskowitz & Grinblatt (1999) |
+| Idiosyncratic Vol (inverted) | 10% | Ang, Hodrick, Xing & Zhang (2006) |
+| Short-Term Reversal (inverted) | 5% | Jegadeesh (1990) |
+
+**Risk Management:**
+- **Momentum Vol Scaling** (Barroso & Santa-Clara 2015): Scale exposure by inverse of realized strategy volatility
+- **VIX Regime Filter**: Put-call ratio proxy — VIX>30 reduces exposure, VIX>35 partial contrarian
+- **Momentum Crash Detector** (Daniel & Moskowitz 2016): Cross-sectional dispersion monitoring
+- **Dual Momentum**: Only long stocks with positive absolute momentum
+- **Sector cap**: Max 4 stocks per sector
+- **Position cap**: Max 8% per position
+- **Holdings**: 20 stocks
+
+**Key Advantages over TopMomentum:**
+- Crash protection via vol scaling (eliminates worst momentum crash drawdowns)
+- Multiple orthogonal alpha sources (not just momentum)
+- VIX-based regime awareness (put-call ratio proxy per professor's suggestion)
+- Lower idio vol filter removes high-risk lottery stocks
+- Broader sector diversification (4 per sector vs 3)
+
+```bash
+python scripts/run_adaptive_multisignal_backtest.py --start 2005 --end 2025
+```
+
+### 3. DeepSeek Signal+Weight
 
 LLM dynamically adjusts factor weights based on detected market regime (bull/bear/volatile/neutral).
 
@@ -152,6 +189,7 @@ Alpha-Research/
 │       ├── snapshot.py           # Reproducible data snapshots
 │       └── result_card.py        # Standardized result output
 ├── scripts/
+│   ├── run_adaptive_multisignal_backtest.py   # NEW: AMS strategy, 7 signals
 │   ├── run_20year_institutional_backtest.py  # PRIMARY: 4 strategies, 20Y
 │   ├── run_deepseek_vs_default_backtest.py   # DeepSeek vs rule-based
 │   ├── run_llm_enhanced_backtest.py          # LLM-enhanced variations
@@ -324,11 +362,18 @@ Previous strategy iterations are preserved for reference but superseded by the 2
 
 ## References
 
+- Ang, A., Hodrick, R., Xing, Y. & Zhang, X. (2006). "The Cross-Section of Volatility and Expected Returns"
 - Bailey, D. & López de Prado, M. (2014). "The Deflated Sharpe Ratio"
+- Barroso, P. & Santa-Clara, P. (2015). "Momentum Has Its Moments"
+- Daniel, K. & Moskowitz, T. (2016). "Momentum Crashes"
+- George, T. & Hwang, C. (2004). "The 52-Week High and Momentum Investing"
+- Gervais, S., Kaniel, R. & Mingelgrin, D. (2001). "The High-Volume Return Premium"
 - Hansen, P.R. (2005). "A Test for Superior Predictive Ability"
 - Harvey, C. et al. (2016). "...and the Cross-Section of Expected Returns"
+- Jegadeesh, N. & Titman, S. (1993). "Returns to Buying Winners and Selling Losers"
 - López de Prado, M. (2018). *Advances in Financial Machine Learning*
 - McLean, R.D. & Pontiff, J. (2016). "Does Academic Research Destroy Stock Return Predictability?"
+- Moskowitz, T. & Grinblatt, M. (1999). "Do Industries Explain Momentum?"
 
 ---
 
