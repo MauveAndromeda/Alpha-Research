@@ -363,7 +363,7 @@ def score_stock(prices):
     # Vol-adjusted momentum (identical to original)
     if len(prices) >= 126:
         ret_6m = prices[-1] / prices[-126] - 1
-        returns_6m = np.diff(prices[-126:]) / prices[-127:-1]
+        returns_6m = np.diff(prices[-126:]) / prices[-126:-1]
         vol_6m = np.std(returns_6m) * np.sqrt(252)
         vol_adj = ret_6m / vol_6m if vol_6m > 0 else 0
     else:
