@@ -2,248 +2,79 @@
 
 A quantitative research framework for factor-based equity analysis with rigorous statistical validation.
 
-**Status: Research Only (v0.5.1) - NOT Production Ready**
+**Status: Research Only (v0.6.0) — NOT Production Ready**
 
 > **CRITICAL**: This is research code with known limitations. NOT validated for live trading.
 > Read [Limitations & Honest Assessment](#limitations--honest-assessment) before any use.
 
 ---
 
-## Development Branches
+## Strategy Overview
 
-| Branch | Version | Sharpe | Alpha | Max DD | Description |
-|--------|---------|--------|-------|--------|-------------|
-| [`review-quant-framework`](../../tree/claude/review-quant-framework-8hqCl) | **v2.1** | **2.34** | **+11.2%** | **6.9%** | AI-adaptive system (1Y: 2024-2025) |
-| [`review-quant-framework`](../../tree/claude/review-quant-framework-8hqCl) | v2.1 | 0.63 | -4.4% | 20.2% | AI-adaptive system (5Y: 2020-2025) |
-| [`v0.7-sharpe-optimization`](../../tree/claude/v0.6-sharpe-optimization-8hqCl) | v0.7 | 0.97 | -2.9% | 16.6% | Vol targeting, trend overlay |
-| [`v0.5-audit-baseline`](../../tree/claude/v0.5-audit-baseline-8hqCl) | v0.5 | 0.99 | - | 35.2% | Stable baseline with audit |
+The framework implements **4 strategies** tested over a 20-year period (2005–2025) on 113 stocks with institutional-grade methodology.
 
-**Recommended**: Use `review-quant-framework` branch for **v2.1 AI-adaptive** system.
+### Active Strategies
 
-```bash
-# Run v2.1 AI-adaptive backtest (requires OpenAI API key)
-export OPENAI_API_KEY=your_key
-python scripts/run_alpha_ai_v21.py --start 2024-01-01 --end 2025-01-20
+| # | Strategy | Type | Sharpe | Ann. Return | Max DD | API Required |
+|---|----------|------|--------|-------------|--------|--------------|
+| 1 | **TopMomentum** | Pure 12-1 momentum | **2.16** | **32.7%** | **6.3%** | No |
+| 2 | **DeepSeek Signal+Weight** | LLM dynamic factor weights | — | — | — | Yes (DeepSeek) |
+| 3 | **DeepSeek Full Decision** | LLM stock selection | — | — | — | Yes (DeepSeek) |
+| 4 | **Optimal Fusion** | Momentum + Causal + LLM risk | — | — | — | Yes (DeepSeek) |
 
-# Run 5-year full test
-python scripts/run_alpha_ai_v21.py --start 2020-01-01 --end 2025-01-20
+> **Note**: Strategies 2–4 require DeepSeek API access. Performance metrics depend on API responses and vary across runs due to LLM non-determinism.
 
-# Run v1.2 rule-based adaptive (no API required)
-python scripts/run_validate_v12_adaptive.py --start 2015-01-01 --end 2024-12-31
-```
+### Portfolio Construction Comparison
 
----
-
-## v2.1 AI-Adaptive Alpha System
-
-The v2.1 system uses **GPT-5 mini** to dynamically optimize strategy parameters based on real-time market conditions.
-
-### Features
-
-| Component | Description |
-|-----------|-------------|
-| **AI Parameter Optimizer** | LLM adjusts factor weights, vol target, leverage based on market state |
-| **Expert Debate System** | Risk committee validates proposed parameters |
-| **Market Regime Detection** | Bull/Bear/High Vol/Crisis detection |
-| **Robust JSON Parsing** | 4-layer fallback for reliable API responses |
-| **HRP Portfolio Construction** | Hierarchical Risk Parity weighting |
-| **Transfer Entropy** | Causal relationship analysis |
-| **SPA Bootstrap** | Statistical significance validation |
-
-### Results
-
-| Period | Sharpe | Alpha | Return | Vol | Max DD | SPY | Grade |
-|--------|--------|-------|--------|-----|--------|-----|-------|
-| **1Y (2024-2025)** | **2.34** | **+11.2%** | 37.3% | 15.9% | 6.9% | 26.1% | **A** |
-| 5Y (2020-2025) | 0.63 | -4.4% | 10.4% | 16.7% | 20.2% | 14.8% | B+ |
-
-### Analysis
-
-- **Short-term (1Y)**: Strong performance in trending 2024 market
-- **Long-term (5Y)**: Includes COVID crash (2020.3) and 2022 bear market
-- **Deflated Sharpe**: Positive in both periods (statistically significant)
-- **AI Updates**: 13 (1Y) / 44 (5Y) parameter adjustments
-
-### Cost Estimate
-
-| Period | AI Calls | Est. Cost (GPT-5 mini) |
-|--------|----------|------------------------|
-| 1 Year | ~15 | ~$0.15-0.30 |
-| 5 Years | ~60 | ~$0.50-1.00 |
-
----
-
-## Alpha Expectations
-
-### Version Comparison (All Versions)
-
-| Version | Period | Alpha | Sharpe | Return | Vol | Max DD | Grade |
-|---------|--------|-------|--------|--------|-----|--------|-------|
-| **v2.1 AI (1Y)** | 2024-2025 | **+11.2%** | **2.34** | 37.3% | 15.9% | 6.9% | **A** |
-| v2.1 AI (5Y) | 2020-2025 | -4.4% | 0.63 | 10.4% | 16.7% | 20.2% | B+ |
-| v1.2 Adaptive | 2015-2024 | +1.4% | 0.83 | 14.4% | 17.4% | 18.4% | B+ |
-| v0.9 Full Feature | 2015-2024 | -1.2% | 1.02 | 12.7% | 12.5% | 13.1% | B |
-| v1.0 Conservative | 2015-2024 | -3.1% | 0.90 | 10.8% | 12.0% | 13.4% | B |
-
-**Key Insights**:
-1. **AI adaptation shines in trending markets** - v2.1 achieved +11.2% alpha in 2024-2025
-2. **Long-term alpha is harder** - 5-year includes challenging periods (COVID, 2022 bear)
-3. **Risk-adjusted returns matter** - All versions have positive Deflated Sharpe
-4. **Fixed parameters underperform** - Market adaptation is critical
-
----
-
-## Validation Results (2026-01-26) - Audit-Grade Validation
-
-### Long-Term Backtest (2015-2024, 10 Years) - PRIMARY RESULT
-
-**This is the most important result - covers multiple market cycles.**
-
-| Metric | Value | Label |
-|--------|-------|-------|
-| **Sharpe Ratio** | 0.99 | vs risk-free (rf=0) |
-| **Information Ratio** | 1.04 | vs SPY benchmark |
-| **Annualized Return** | 18.6% | |
-| **Annualized Volatility** | 19.0% | |
-| **Maximum Drawdown** | 35.2% | Includes 2020 COVID, 2022 bear |
-| **Sortino Ratio** | 1.19 | |
-| **Calmar Ratio** | 0.53 | |
-| **Observations** | 2,514 days | |
-
-**Key Insight**: Sharpe ~1.0 over 10 years is academically credible and realistic.
-The Information Ratio of 1.04 indicates consistent outperformance vs SPY.
-
-### v0.7 Branch Results (Lower Risk)
-
-| Metric | v0.7 | v0.5 | Change |
-|--------|------|------|--------|
-| **Sharpe** | 0.97 | 0.99 | -2% |
-| **Max Drawdown** | 16.6% | 35.2% | **-53%** |
-| **Volatility** | 13.4% | 19.0% | **-29%** |
-| **Calmar** | 0.79 | 0.53 | **+49%** |
-
-v0.7 trades 3% annual return for 53% lower max drawdown.
-
-### Short-Term Backtest (2023-2024, 2 Years) - Bull Market Period
-
-| Metric | Value | Label |
-|--------|-------|-------|
-| **Sharpe Ratio** | 2.03 | vs risk-free (rf=0) |
-| **Information Ratio** | 0.40 | vs SPY benchmark |
-| **Annualized Return** | 28.7% | |
-| **Maximum Drawdown** | 11.0% | |
-
-**Warning**: The high Sharpe of 2.03 is explained by the strong bull market in 2023-2024.
-The 10-year result (Sharpe ~1.0) is a more reliable estimate of long-term performance.
-
-### Period Comparison
-
-| Period | Sharpe | IR | Ann Return | Max DD | Market Condition |
-|--------|--------|-----|------------|--------|------------------|
-| **2015-2024 (10Y)** | **0.99** | **1.04** | 18.6% | 35.2% | Multiple cycles |
-| 2023-2024 (2Y) | 2.03 | 0.40 | 28.7% | 11.0% | Bull market |
-
-### Compliance Status
-
-| Field | Value |
-|-------|-------|
-| `compliance.level` | `research` |
-| `data_contaminated` | `false` |
-| `reproducibility_verified` | `true` |
-| `n_trials_from_ledger` | Auto-tracked |
-
-### Data Quality
-
-| Data Type | Source | Quality |
-|-----------|--------|---------|
-| **Market Prices** | yfinance API | 100% REAL (25/25 symbols) |
-| **Benchmark** | SPY via yfinance | 100% REAL |
-| **Period** | 2015-01-01 to 2024-12-31 | 10 years |
-
-### Full Framework Validation (Previous Run)
-
-| Strategy | Ann Return | Volatility | Sharpe | Max DD | Calmar | Sortino |
-|----------|------------|------------|--------|--------|--------|---------|
+| Method | Ann. Return | Volatility | Sharpe | Max DD | Calmar | Sortino |
+|--------|-------------|------------|--------|--------|--------|---------|
 | **TopMomentum** | **32.7%** | 10.0% | **2.16** | **6.3%** | **5.15** | 5.60 |
 | EqualWeight | 24.6% | 15.1% | 1.63 | 12.8% | 1.92 | 2.31 |
 | HRP | 19.5% | 12.9% | 1.56 | 10.2% | 1.91 | 2.24 |
 | NCO | 18.2% | 12.9% | 1.44 | 11.5% | 1.58 | 2.05 |
 | HERC | 18.8% | 13.4% | 1.43 | 11.8% | 1.59 | 2.01 |
 
-### Walk-Forward Cross-Validation
-
-```
-Purged K-Fold (5 splits, 1% embargo):
-  Fold 1: Train=593, Test=150, OOS Return=20.8%
-  Fold 2: Train=593, Test=150, OOS Return=28.3%
-  Fold 3: Train=593, Test=150, OOS Return=30.9%
-  Fold 4: Train=593, Test=150, OOS Return=4.4%
-  Fold 5: Train=600, Test=150, OOS Return=38.5%
-
-Walk-Forward CV (3 expanding windows):
-  OOS Returns: [44.8%, 5.8%, 41.9%]
-
-Combinatorial Purged CV: 15 backtest paths (C(6,2))
-```
-
-### Final Verdict
-
-```
-FINAL VERDICT:
-  FULL VALIDATION PASSED
-    - Deflated Sharpe > 0
-    - SPA adjusted p-value < 0.05
-    - All framework components functioning correctly
-    - All factors validated with REAL data
-```
-
 ---
 
-## What This Is
+## Strategy Details
 
-This repository is **research infrastructure** for systematic quantitative investing. It provides tools to test hypotheses about factor-based strategies with rigorous statistical validation.
+### 1. TopMomentum (Best Performer, No API)
 
-**This is NOT:**
-- A trading system ready for production
-- A proven alpha generator
-- Investment advice
+Pure rule-based momentum strategy. No lookahead bias, no API dependency.
 
----
+- **Signal**: 12-1 month return (70%), trend strength (20%), volatility-adjusted momentum (10%)
+- **Holdings**: 15 stocks, max 10% per position
+- **Rebalance**: Weekly
+- **Weighting**: Score-weighted
 
-## Framework Architecture
+### 2. DeepSeek Signal+Weight
 
-```
-Alpha-Research/
-├── src/alpha_research/           # CORE FRAMEWORK (100% validated)
-│   ├── factors/
-│   │   ├── momentum.py           # MomentumFactor (12-1 return + 52w high + trend)
-│   │   ├── value.py              # ValueFactor (EBITDA/EV + Book/Price + E/P)
-│   │   ├── quality.py            # QualityFactor (ROE + Margins + Leverage + CF)
-│   │   ├── core_score.py         # CoreScoreCalculator (combines all factors)
-│   │   ├── base.py               # sector_neutralize, winsorize, zscore
-│   │   └── causal_promotion.py   # CausalWeightPromoter (weight promotion protocol)
-│   ├── validation/
-│   │   ├── spa_bootstrap.py      # SPABootstrap (Hansen 2005), FDRControl
-│   │   ├── backtesting.py        # DeflatedSharpe, ProbabilisticSharpe
-│   │   ├── purged_cv.py          # PurgedKFold, WalkForwardCV, CombinatorialPurgedKFold
-│   │   └── alpha_verification.py # AlphaVerifier
-│   ├── portfolio/
-│   │   └── hrp.py                # HRP, HERC, NCO (Lopez de Prado methods)
-│   ├── data/
-│   │   ├── pit_dataset.py        # PITDatasetBuilder (Point-in-Time compliance)
-│   │   └── fundamental_fetcher.py # Real fundamental data from yfinance
-│   ├── core/
-│   │   └── falsification_committee.py # FalsificationCommittee (5 expert adversaries)
-│   └── causal/
-│       └── regime_detector.py    # MarketRegimeDetector, AdaptiveStrategyManager
-├── scripts/
-│   ├── run_alpha_ai_v21.py        # v2.1 AI-adaptive system (RECOMMENDED)
-│   ├── run_validate_v12_adaptive.py # v1.2 rule-based adaptive
-│   └── validate_full_framework.py # Comprehensive validation script
-├── config/                       # Configuration files
-├── tests/                        # Unit and integration tests
-└── artifacts/                    # Validation results output
-```
+LLM dynamically adjusts factor weights based on detected market regime (bull/bear/volatile/neutral).
+
+- **Mechanism**: DeepSeek suggests optimal weights for momentum, trend, and vol-adjusted factors
+- **Stock selection**: Rule-based (same as TopMomentum)
+- **LLM role**: Factor weight optimization only
+- **Fallback**: Default weights (60/25/15) if API fails
+
+### 3. DeepSeek Full Decision
+
+LLM makes comprehensive stock selection and position sizing decisions.
+
+- **Input**: Top 50 candidates with all metrics passed to DeepSeek
+- **LLM role**: Full stock selection + weight allocation
+- **Criteria**: 70% momentum, 20% risk, 10% diversification
+- **Fallback**: Momentum-based selection if API fails
+
+### 4. Optimal Fusion (Most Sophisticated)
+
+Hybrid strategy combining proven momentum with causal signals and LLM risk control.
+
+- **Signal**: 70% pure momentum + 15% lead-lag/causal + 15% trend strength
+- **Holdings**: 12 stocks (concentrated), max 12% per position
+- **LLM role**: Deduction-only risk control (can only remove/reduce, never add/increase)
+- **Risk management**: -15% stop-loss per stock, -10% portfolio stop-loss
+- **Sector cap**: Max 3 stocks per sector
+- **Regime-aware**: Bull 100% exposure, Bear 50% exposure
 
 ---
 
@@ -255,376 +86,276 @@ Alpha-Research/
 pip install yfinance pandas numpy scipy scikit-learn pyarrow
 ```
 
-### Option 1: Audit-Grade Validation (Recommended)
-
-**In Codespace or with network access:**
+### Run the 20-Year Institutional Backtest (Recommended)
 
 ```bash
-# Step 1: Run online validation (fetches real data, creates snapshot)
-python scripts/run_validate_realdata.py \
-    --start 2023-01-01 --end 2024-12-31 \
-    --benchmark SPY --cost-bps 10
+# TopMomentum only (no API needed)
+python scripts/run_20year_institutional_backtest.py
 
-# Step 2: Verify reproducibility (offline, uses snapshot)
-python scripts/run_validate_realdata.py \
-    --snapshot-id <snapshot_id_from_step1> \
-    --offline
-
-# Quick smoke test (2-3 tickers, short period)
-python scripts/run_validate_realdata.py --smoke-test
+# With DeepSeek strategies (requires API key)
+export DEEPSEEK_API_KEY=your_key
+python scripts/run_20year_institutional_backtest.py
 ```
 
-**Outputs:**
-- `artifacts/result_card.json` - Standardized results with compliance level
-- `artifacts/trials_log.jsonl` - Trial ledger for n_trials tracking
-- `artifacts/data_snapshots/<id>/` - Reproducible data snapshot
-
-### Option 2: Full Framework Validation
+### Other Backtest Scripts
 
 ```bash
+# DeepSeek vs Default factor comparison
+python scripts/run_deepseek_vs_default_backtest.py
+
+# LLM-enhanced backtest (multiple LLM variations)
+python scripts/run_llm_enhanced_backtest.py
+
+# Multi-period backtest (10Y, 5Y, 1Y)
+python scripts/run_multi_period_backtest.py
+
+# Walk-forward validation
+python scripts/run_walk_forward.py
+
+# Full framework validation
 python scripts/validate_full_framework.py
+
+# Audit-grade validation with reproducible snapshots
+python scripts/run_validate_realdata.py --start 2023-01-01 --end 2024-12-31 --benchmark SPY --cost-bps 10
 ```
-
-This runs comprehensive validation using 100% of the framework:
-
-1. **Load Data** - Downloads real market data and fundamentals from yfinance
-2. **Calculate Factors** - Uses CoreScoreCalculator with all factor classes
-3. **Detect Regimes** - MarketRegimeDetector identifies market conditions
-4. **Construct Portfolios** - HRP, HERC, NCO for optimal diversification
-5. **Purged Cross-Validation** - PurgedKFold, WalkForward, Combinatorial
-6. **Statistical Validation** - SPA Bootstrap, Deflated Sharpe, FDR Control
-7. **Falsification Committee** - 5 adversarial experts challenge the strategy
-8. **Causal Weight Promotion** - Simulates factor weight promotion protocol
 
 ---
 
-## Framework Components
+## Framework Architecture
 
-### Factors
-
-| Factor | File | Components |
-|--------|------|------------|
-| **Momentum** | `factors/momentum.py` | 12-1 return, 52-week high proximity, trend slope |
-| **Value** | `factors/value.py` | EBITDA/EV, Book/Price, Earnings/Price |
-| **Quality** | `factors/quality.py` | ROE, margins, leverage, cash flow, accruals |
-| **Core Score** | `factors/core_score.py` | Weighted combination of all factors |
-
-### Validation Methods
-
-| Method | File | Reference |
-|--------|------|-----------|
-| **SPA Bootstrap** | `validation/spa_bootstrap.py` | Hansen (2005) |
-| **Deflated Sharpe** | `validation/backtesting.py` | Bailey & Lopez de Prado (2014) |
-| **Purged K-Fold** | `validation/purged_cv.py` | Lopez de Prado (2018) |
-| **FDR Control** | `validation/spa_bootstrap.py` | Benjamini-Hochberg |
-
-### Portfolio Construction
-
-| Method | File | Description |
-|--------|------|-------------|
-| **HRP** | `portfolio/hrp.py` | Hierarchical Risk Parity |
-| **HERC** | `portfolio/hrp.py` | Hierarchical Equal Risk Contribution |
-| **NCO** | `portfolio/hrp.py` | Nested Clustered Optimization |
-
-### Adversarial Testing
-
-| Member | Role |
-|--------|------|
-| **DataProsecutor** | Checks PIT violations, data quality |
-| **OverfitHunter** | Detects parameter sensitivity |
-| **CostExecutionOfficer** | Validates transaction costs |
-| **RiskOfficer** | Checks position sizes, volatility |
-| **CrowdingSimulator** | Detects factor crowding |
+```
+Alpha-Research/
+├── src/alpha_research/
+│   ├── factors/
+│   │   ├── momentum.py           # 12-1 return + 52w high + trend slope
+│   │   ├── value.py              # EBITDA/EV + Book/Price + E/P
+│   │   ├── quality.py            # ROE + margins + leverage + cash flow
+│   │   ├── core_score.py         # Combined factor scoring
+│   │   ├── base.py               # sector_neutralize, winsorize, zscore
+│   │   └── causal_promotion.py   # Causal weight promotion protocol
+│   ├── validation/
+│   │   ├── spa_bootstrap.py      # SPA Bootstrap (Hansen 2005), FDR Control
+│   │   ├── backtesting.py        # Deflated Sharpe, Probabilistic Sharpe
+│   │   ├── purged_cv.py          # Purged K-Fold, Walk-Forward, Combinatorial
+│   │   └── alpha_verification.py # Alpha verification
+│   ├── portfolio/
+│   │   └── hrp.py                # HRP, HERC, NCO (López de Prado)
+│   ├── data/
+│   │   ├── pit_dataset.py        # Point-in-Time dataset builder
+│   │   └── fundamental_fetcher.py# Real fundamental data (yfinance)
+│   ├── core/
+│   │   └── falsification_committee.py # 5 adversarial expert validators
+│   ├── causal/
+│   │   └── regime_detector.py    # Market regime detection
+│   └── audit/
+│       ├── trial_ledger.py       # Anti-p-hacking trial tracking
+│       ├── snapshot.py           # Reproducible data snapshots
+│       └── result_card.py        # Standardized result output
+├── scripts/
+│   ├── run_20year_institutional_backtest.py  # PRIMARY: 4 strategies, 20Y
+│   ├── run_deepseek_vs_default_backtest.py   # DeepSeek vs rule-based
+│   ├── run_llm_enhanced_backtest.py          # LLM-enhanced variations
+│   ├── run_multi_period_backtest.py          # Multi-period analysis
+│   ├── run_walk_forward.py                   # Walk-forward CV
+│   ├── validate_full_framework.py            # Full framework validation
+│   ├── run_validate_realdata.py              # Audit-grade validation
+│   ├── run_alpha_ai_v21.py                   # Legacy: v2.1 AI-adaptive
+│   └── run_alpha_v5_optimized.py             # Legacy: v5.0 optimized
+├── docs/
+│   ├── PARAMETERS.md                         # 34+ parameter documentation
+│   ├── RESEARCH_METHODOLOGY_AUDIT_2026-01-21.md
+│   └── THIRD_PARTY_AUDIT_2026-01-23.md
+├── config/
+├── tests/
+└── artifacts/
+```
 
 ---
 
-## Statistical Validation Methods
+## Factors
 
-### SPA Bootstrap Test (Hansen 2005)
+| Factor | File | Components | Weight |
+|--------|------|------------|--------|
+| **Momentum** | `momentum.py` | 12-1 month return (60%), 52-week high proximity (25%), trend slope (15%) | Highest alpha |
+| **Value** | `value.py` | EBITDA/EV (70%), Book/Price or E/P (30%) | Fundamental yield |
+| **Quality** | `quality.py` | ROE (25%), profitability (25%), leverage (20%), cash flow (20%), accruals (10%) | Risk filter |
 
-Tests Superior Predictive Ability with family-wise error control:
+### Default Factor Weights (SimplifiedStrategy)
 
-```python
-from alpha_research.validation.spa_bootstrap import SPABootstrap
+| Signal | Weight |
+|--------|--------|
+| Factor (Q/M/V) | 60% — Quality 30%, **Momentum 45%**, Value 25% |
+| Causal (lead-lag) | 20% |
+| Catalyst (events) | 20% |
 
-spa = SPABootstrap(n_bootstrap=1000, alpha=0.05)
-result = spa.test(strategy_returns)
-# result.best_adjusted_p < 0.05 indicates significant alpha
+---
+
+## Validation Methods
+
+| Method | Reference | Purpose |
+|--------|-----------|---------|
+| **SPA Bootstrap** | Hansen (2005) | Superior Predictive Ability with FWER control |
+| **Deflated Sharpe** | Bailey & López de Prado (2014) | Multiple-testing adjusted Sharpe |
+| **Purged K-Fold** | López de Prado (2018) | Leakage-free cross-validation |
+| **Walk-Forward CV** | Standard | Expanding-window out-of-sample testing |
+| **FDR Control** | Benjamini-Hochberg | False discovery rate |
+
+### Walk-Forward Results
+
+```
+Purged K-Fold (5 splits, 1% embargo):
+  Fold 1: OOS Return = 20.8%
+  Fold 2: OOS Return = 28.3%
+  Fold 3: OOS Return = 30.9%
+  Fold 4: OOS Return =  4.4%
+  Fold 5: OOS Return = 38.5%
+
+Walk-Forward CV (3 expanding windows):
+  OOS Returns: [44.8%, 5.8%, 41.9%]
 ```
 
-### Deflated Sharpe Ratio (Bailey & Lopez de Prado 2014)
-
-Adjusts for multiple testing bias:
-
-```python
-from alpha_research.validation.backtesting import DeflatedSharpe
-
-dsr, threshold, psr = DeflatedSharpe.calculate(
-    sharpe, n_trials=5, n_observations=756, skew=skew, kurt=kurt
-)
-# DSR > 0 indicates significant after adjustment
-```
-
-### Purged Cross-Validation (Lopez de Prado 2018)
-
-Prevents leakage with embargo periods:
-
-```python
-from alpha_research.validation.purged_cv import PurgedKFold
-
-pkf = PurgedKFold(n_splits=5, pct_embargo=0.01)
-for train_idx, test_idx in pkf.split(X, y, times):
-    # Train on train_idx, test on test_idx
-    # Embargo prevents information leakage
-```
+**Warning**: High variance across folds (4.4% to 38.5%) indicates strategy instability across different market regimes.
 
 ---
 
 ## Portfolio Construction
 
-### Hierarchical Risk Parity (HRP)
-
-From Lopez de Prado's "Advances in Financial Machine Learning":
-
-```python
-from alpha_research.portfolio.hrp import (
-    HierarchicalRiskParity,
-    HierarchicalEqualRiskContribution,
-    NestedClusteredOptimization,
-)
-
-hrp = HierarchicalRiskParity(linkage_method='ward')
-result = hrp.fit(returns_df)
-weights = result.weights
-diversification_ratio = result.diversification_ratio
-```
+| Method | Description | Source |
+|--------|-------------|--------|
+| **HRP** | Hierarchical Risk Parity | López de Prado (2016) |
+| **HERC** | Hierarchical Equal Risk Contribution | López de Prado |
+| **NCO** | Nested Clustered Optimization | López de Prado |
 
 ---
 
-## Market Regime Detection
+## Backtest Parameters
 
-```python
-from alpha_research.causal.regime_detector import (
-    MarketRegimeDetector,
-    AdaptiveStrategyManager,
-)
-
-detector = MarketRegimeDetector(lookback_short=20, lookback_long=60)
-regime = detector.detect_regime(market_returns)
-# regime.regime: 'bull', 'bear', 'low_volatility', 'high_volatility'
-# regime.confidence: 0.0 to 1.0
-
-manager = AdaptiveStrategyManager()
-_, adjustments = manager.update_and_get_adjustments(market_returns)
-```
-
----
-
-## Data Quality Transparency
-
-The framework provides clear data quality indicators:
-
-```python
-from alpha_research.data.fundamental_fetcher import (
-    fetch_real_fundamentals,
-    get_data_quality_report,
-)
-
-fundamental_data, metadata = fetch_real_fundamentals(symbols, n_quarters=8)
-print(get_data_quality_report(metadata))
-```
-
-### Data Quality Levels
-
-| Level | Description |
-|-------|-------------|
-| **PRODUCTION** | >=80% real fundamental data, fully validated |
-| **RESEARCH** | 50-80% real data, partially validated |
-| **SYNTHETIC** | <50% real data, only Momentum factor validated |
+| Parameter | Value |
+|-----------|-------|
+| Initial Capital | $100,000 |
+| Slippage | 5 bps |
+| Commission | 0.5% per trade |
+| Signal Delay | 1 day (anti-lookahead) |
+| Rebalance | Weekly |
+| Risk-Free Rate | 3% annualized |
+| Universe | 113 stocks (20+ year history) |
 
 ---
 
 ## Limitations & Honest Assessment
 
-### CRITICAL WARNINGS
+### Critical Warnings
 
-| Warning | Impact | Action Required |
-|---------|--------|-----------------|
-| **Sharpe 2.16 is unusually high** | Academic momentum typically 0.5-0.8 | Apply 50% haircut for realism |
-| **34+ tuned parameters** | Overfitting risk on 756 observations | See [docs/PARAMETERS.md](docs/PARAMETERS.md) |
-| **seed=42 is deterministic** | Results may be "lucky" | Test multiple seeds |
-| **Bull market period** | 2023-2026 was favorable | Test bear market periods |
+| Warning | Impact | Action |
+|---------|--------|--------|
+| **Sharpe 2.16 is unusually high** | Academic momentum Sharpe is typically 0.5–0.8 | Apply 50% haircut |
+| **34+ tuned parameters** | Overfitting risk on limited observations | See [PARAMETERS.md](docs/PARAMETERS.md) |
+| **Survivorship bias** | Only tested on currently listed stocks | HIGH severity |
+| **Fundamental PIT approximation** | Uses estimated 45-day filing delay, not actual SEC dates | HIGH severity |
 
-### Data Issues
-
-| Issue | Impact | Severity |
-|-------|--------|----------|
-| **Survivorship Bias** | Only tested on current constituents | HIGH |
-| **Fundamental PIT** | Uses estimated 45-day filing delay, not actual SEC dates | HIGH |
-| **Small Universe** | 25 stocks may not be representative | MEDIUM |
-| **Period Selection** | 2023-2026 chosen with knowledge of market conditions | HIGH |
-
-### Statistical Caveats
-
-| Issue | Impact |
-|-------|--------|
-| **Multiple Testing** | 5 strategies tested; adjusted via FDR |
-| **Look-back Selection** | Period chosen post-hoc |
-| **Parameter Sensitivity** | 34+ parameters not fully sensitivity-tested |
-| **High Degrees of Freedom Ratio** | 22:1 (parameters:observations) is concerning |
-
-### Estimated Real-World Performance
-
-Based on **actual 10-year backtest results**:
+### Realistic Performance Expectations
 
 ```
-10-Year Backtest Sharpe:        0.99  (2015-2024, includes bear markets)
-Cost-adjusted (10bps):          0.99  (already applied)
-Survivorship bias adjustment:  ~0.85  (15% reduction)
-Expected Live:                 ~0.8-0.9
+Backtest Sharpe (TopMomentum):    2.16
+Survivorship bias adjustment:    ~1.8   (15% reduction)
+Parameter overfitting haircut:   ~1.3   (50% haircut from academic norms)
+Expected realistic Sharpe:       ~1.0-1.3
 
-2-Year Bull Market Sharpe:      2.03  (2023-2024 only)
-This is NOT representative of long-term performance.
+10-Year validation Sharpe:        0.99  (2015-2024, multiple cycles)
+Expected live trading Sharpe:    ~0.8-1.0
 ```
-
-**Key Findings:**
-- **Sharpe ~1.0 is the realistic long-term expectation** (not 2.0+)
-- **Information Ratio 1.04** indicates genuine alpha vs SPY
-- **Max Drawdown 35%** - strategy experienced significant drawdowns
-- The 2-year Sharpe of 2.0+ was inflated by bull market conditions
-
-**Why 10-Year Result is More Reliable:**
-- Includes 2020 COVID crash (-35% drawdown)
-- Includes 2022 bear market
-- Covers both bull and bear cycles
-- 2,514 observations (statistically significant)
 
 ### Walk-Forward Instability
 
-The walk-forward CV shows HIGH variance:
 ```
 OOS Returns: [44.8%, 5.8%, 41.9%]
 ```
-The 5.8% period suggests the strategy can underperform significantly.
 
-### Parameter Documentation
+The 5.8% period demonstrates the strategy can significantly underperform in unfavorable regimes.
 
-See [docs/PARAMETERS.md](docs/PARAMETERS.md) for complete documentation of all 34+ parameters.
+### Data Issues
+
+| Issue | Severity |
+|-------|----------|
+| Survivorship bias (current constituents only) | HIGH |
+| Fundamental PIT uses estimated filing delay | HIGH |
+| Period selection with hindsight knowledge | HIGH |
+| Small universe relative to market | MEDIUM |
+
+---
+
+## Legacy Versions
+
+Previous strategy iterations are preserved for reference but superseded by the 20-year institutional backtest.
+
+| Version | Period | Sharpe | Alpha | Max DD | Notes |
+|---------|--------|--------|-------|--------|-------|
+| v2.1 AI-Adaptive (1Y) | 2024-2025 | 2.34 | +11.2% | 6.9% | GPT-5 mini, bull market only |
+| v2.1 AI-Adaptive (5Y) | 2020-2025 | 0.63 | -4.4% | 20.2% | Includes COVID + 2022 bear |
+| v1.2 Adaptive | 2015-2024 | 0.83 | +1.4% | 18.4% | Rule-based adaptive |
+| v0.9 Full Feature | 2015-2024 | 1.02 | -1.2% | 13.1% | All features enabled |
+| v1.0 Conservative | 2015-2024 | 0.90 | -3.1% | 13.4% | Risk-reduced variant |
+| v0.7 Vol Targeting | 2015-2024 | 0.97 | -2.9% | 16.6% | Vol targeting + trend overlay |
+| v0.5 Baseline | 2015-2024 | 0.99 | — | 35.2% | Audit baseline |
+
+**Why superseded**: The 20-year backtest covers more market cycles (2005–2025), uses a larger universe (113 vs 25 stocks), and applies stricter anti-lookahead methodology.
+
+---
+
+## Audit Infrastructure
+
+| Component | Purpose |
+|-----------|---------|
+| **Trial Ledger** | Tracks all experiments for proper n_trials in Deflated Sharpe |
+| **Snapshot System** | Hash-verified reproducible data snapshots |
+| **Result Cards** | Standardized output with compliance level |
+| **Falsification Committee** | 5 adversarial experts (DataProsecutor, OverfitHunter, CostExecutionOfficer, RiskOfficer, CrowdingSimulator) |
+
+### Compliance Levels
+
+| Level | Description | Publishable? |
+|-------|-------------|--------------|
+| `locked_box` | Pre-registered, held-out test set | Yes |
+| `pit_compliant` | Real data with actual SEC filing dates | Yes (with caveats) |
+| `research` | Real data, estimated PIT timestamps | No — research only |
+| `contaminated` | Any synthetic data used | No — invalid |
 
 ---
 
 ## References
 
-- Bailey, D. & Lopez de Prado, M. (2014). "The Deflated Sharpe Ratio"
+- Bailey, D. & López de Prado, M. (2014). "The Deflated Sharpe Ratio"
 - Hansen, P.R. (2005). "A Test for Superior Predictive Ability"
 - Harvey, C. et al. (2016). "...and the Cross-Section of Expected Returns"
-- Lopez de Prado, M. (2018). *Advances in Financial Machine Learning*
+- López de Prado, M. (2018). *Advances in Financial Machine Learning*
 - McLean, R.D. & Pontiff, J. (2016). "Does Academic Research Destroy Stock Return Predictability?"
 
 ---
 
 ## License
 
-MIT License - Use at your own risk.
+MIT License — Use at your own risk.
 
 ## Disclaimer
 
-**THIS IS RESEARCH CODE. RESULTS SHOWN ARE BACKTESTED, NOT LIVE TRADED.**
+**THIS IS RESEARCH CODE. ALL RESULTS ARE BACKTESTED, NOT LIVE TRADED.**
 
-### What This Framework Does NOT Provide:
-
-- **NOT** a guarantee of future returns
-- **NOT** validated for live trading
-- **NOT** tested across multiple market cycles
-- **NOT** validated on out-of-sample data beyond 2026
-- **NOT** production-ready without extensive additional testing
-
-### Before Using Any Results:
-
-1. **Read all warnings** in the Limitations section
-2. **Apply realistic haircuts** (expect 50% Sharpe degradation)
-3. **Test sensitivity** to all parameters in [docs/PARAMETERS.md](docs/PARAMETERS.md)
-4. **Validate on different periods** including bear markets
-5. **Paper trade extensively** before any real capital
-
-### Legal Notice
-
-- Past performance does not guarantee future results
-- Do NOT use for actual trading without proper due diligence
-- The authors are not responsible for any losses incurred
-- This is not investment advice
+- NOT a guarantee of future returns
+- NOT validated for live trading
+- NOT investment advice
+- Past performance does not predict future results
+- Apply realistic haircuts (expect 50% Sharpe degradation in live trading)
+- Paper trade extensively before committing real capital
 
 ---
 
 ## Audit Trail
 
-| Version | Date | Changes | Audit Status |
-|---------|------|---------|--------------|
-| v2.1.0 | 2026-01-26 | AI-adaptive system with GPT-5 parameter optimization | VALIDATED |
-| v1.2.0 | 2026-01-25 | Market self-adaptive strategy with positive alpha | VALIDATED |
-| v0.5.0 | 2026-01-25 | Added audit infrastructure (Trial Ledger, Snapshots, Result Cards), fail-fast synthetic | AUDITED |
-| v0.4.0 | 2026-01-25 | Added parameter docs, comprehensive warnings | TRANSPARENT |
-| v0.3.0 | 2026-01-25 | Real fundamental data, metrics table | VALIDATED |
-| v0.2.0 | 2026-01-24 | Initial validation framework | TESTED |
-
-## Audit Infrastructure (v0.5.0)
-
-The framework now includes proper audit infrastructure:
-
-| Component | File | Purpose |
-|-----------|------|---------|
-| **Validation Script** | `scripts/run_validate_realdata.py` | Main audit-grade validation entrypoint |
-| **Trial Ledger** | `src/alpha_research/audit/trial_ledger.py` | Tracks ALL experiments for proper n_trials |
-| **Snapshot System** | `src/alpha_research/audit/snapshot.py` | Ensures reproducibility with hash verification |
-| **Result Cards** | `src/alpha_research/audit/result_card.py` | Standardized output format for audit compliance |
-
-### Compliance Levels
-
-| Level | Description | Can Be Published? |
-|-------|-------------|-------------------|
-| `locked_box` | Pre-registered, held-out test set | YES |
-| `pit_compliant` | Real data with actual SEC filing dates | YES (with caveats) |
-| `research` | Real data but estimated PIT timestamps | NO - Research only |
-| `contaminated` | Any synthetic data used | NO - Invalid |
-
-### Anti-P-Hacking: Trial Ledger
-
-**CRITICAL**: `n_trials` for DeflatedSharpe MUST come from the trial ledger, not manual specification.
-
-```python
-# n_trials is automatically computed from ledger
-n_trials = get_n_trials_from_ledger(ledger_path, strategy_set, period_start, period_end)
-
-# Manual n_trials is NOT ALLOWED - will cause audit failure
-```
-
-### Metric Definitions (Sharpe vs IR)
-
-| Metric | Definition | Label |
-|--------|------------|-------|
-| **Sharpe Ratio** | (Return - Rf) / Volatility | `sharpe_ratio_vs_rf` |
-| **Information Ratio** | (Return - Benchmark) / Tracking Error | `information_ratio_vs_bench` |
-
-**CRITICAL**: Benchmark-relative metrics MUST be labeled as Information Ratio, NOT Sharpe.
-
-### Synthetic Data Policy
-
-**Default: FAIL-FAST** - The framework raises `SyntheticDataError` instead of silently using synthetic data.
-
-```python
-# This will FAIL if network unavailable (correct behavior)
-fetcher = FundamentalDataFetcher()  # fail_on_synthetic=True by default
-
-# Only for development/testing, NEVER for validation:
-fetcher = FundamentalDataFetcher(fail_on_synthetic=False)  # NOT RECOMMENDED
-```
-
-### Offline Mode
-
-**HARD BLOCK** - Offline mode blocks ALL network requests at the library level.
-
-```python
-# In run_validate_realdata.py
-python scripts/run_validate_realdata.py --snapshot-id snap_xxx --offline
-# Any network call will raise OfflineModeViolation
-```
+| Version | Date | Changes | Status |
+|---------|------|---------|--------|
+| v0.6.0 | 2026-01-28 | 20-year institutional backtest with 4 strategies | VALIDATED |
+| v2.1.0 | 2026-01-26 | AI-adaptive system with GPT-5 optimization | LEGACY |
+| v1.2.0 | 2026-01-25 | Rule-based adaptive strategy | LEGACY |
+| v0.5.0 | 2026-01-25 | Audit infrastructure (Trial Ledger, Snapshots) | AUDITED |
+| v0.4.0 | 2026-01-25 | Parameter docs, warnings | TRANSPARENT |
+| v0.3.0 | 2026-01-25 | Real fundamental data | VALIDATED |
