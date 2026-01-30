@@ -336,18 +336,18 @@ def score_momentum(prices, horizon='long'):
     Returns (score, raw_momentum) or (None, None) if insufficient data.
     """
     if prices is None:
-        return None, None
+        return None, None, False
 
     n = len(prices)
 
     if horizon == 'short':
-        if n < 10: return None, None
+        if n < 10: return None, None, False
         mom = prices[-1] / prices[-5] - 1
     elif horizon == 'medium':
-        if n < 30: return None, None
+        if n < 30: return None, None, False
         mom = (prices[-5] / prices[-22] - 1)  # 1-month ex last week
     else:  # long (12-1)
-        if n < 252: return None, None
+        if n < 252: return None, None, False
         r12 = prices[-22] / prices[-252] - 1 if prices[-252] > 0 else 0
         r1 = prices[-1] / prices[-22] - 1 if prices[-22] > 0 else 0
         mom = r12 - r1
