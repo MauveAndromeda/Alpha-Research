@@ -574,6 +574,10 @@ class LongShortEngine:
 
     def check_portfolio_stop(self, d, idx):
         """Portfolio-level stop → go to all cash."""
+        if self.is_in_cooldown(d):
+            return
+        if not self.positions:
+            return
         n = self.nav(idx, d)
         dd = self.portfolio_dd(n)
         if dd > STOP_LOSS_PORTFOLIO:
@@ -590,6 +594,11 @@ class LongShortEngine:
         """Rebalance to target long and short positions."""
         if self.is_in_cooldown(d):
             return
+
+        # Reset HWM after cooldown expires (fresh start)
+        if self.cooldown_until is not None and d >= self.cooldown_until:
+            self.hwm = self.nav(idx, d)
+            self.cooldown_until = None
 
         current_nav = self.nav(idx, d)
         if current_nav <= 0:
