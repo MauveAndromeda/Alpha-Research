@@ -102,24 +102,29 @@ VARIANTS = [
     # Reference long-only strategies
     'pure_long',         # Pure momentum long only (baseline)
     'conc_fvt_long',     # Best from V4: concentrated + fast VT
-    # Long-short variants
-    'ls_spy_beta',       # Long mom + Short SPY (constant beta hedge)
+    # V5 original L/S
     'ls_spy_adaptive',   # Long mom + Short SPY (only when vol high)
     'ls_spy_fvt',        # Long mom + Short SPY + fast vol targeting
-    'ls_bottom',         # Long top mom + Short bottom mom
-    'ls_bottom_fvt',     # Long top + Short bottom + fast vol targeting
-    'ls_spy_sma',        # Long mom + Short SPY when below SMA200
+    # V5 improved L/S
+    'ls_conc_adaptive',  # Conc10 + SPY adaptive hedge
+    'ls_conc_adp_fvt',   # Conc10 + SPY adaptive + FastVT
+    'ls_dynhedge',       # Dynamic hedge ratio (vol-proportional)
+    'ls_conc_dynhedge',  # Conc10 + dynamic hedge
+    'ls_conc_dyn_fvt',   # Conc10 + dynamic hedge + FastVT
+    'ls_lever_hedge',    # 1.3x leverage long + adaptive SPY hedge + FastVT
 ]
 
 VARIANT_NAMES = {
     'pure_long': 'Pure Long (baseline)',
     'conc_fvt_long': 'Conc10+FastVT (V4d)',
-    'ls_spy_beta': 'L/S: SPY Beta Hedge',
     'ls_spy_adaptive': 'L/S: SPY Adaptive',
     'ls_spy_fvt': 'L/S: SPY + FastVT',
-    'ls_bottom': 'L/S: Bottom Mom',
-    'ls_bottom_fvt': 'L/S: Bottom + FastVT',
-    'ls_spy_sma': 'L/S: SPY SMA Hedge',
+    'ls_conc_adaptive': 'L/S: Conc+Adaptive',
+    'ls_conc_adp_fvt': 'L/S: Conc+Adp+FVT',
+    'ls_dynhedge': 'L/S: DynHedge',
+    'ls_conc_dynhedge': 'L/S: Conc+DynHedge',
+    'ls_conc_dyn_fvt': 'L/S: Conc+Dyn+FVT',
+    'ls_lever_hedge': 'L/S: 1.3x+Adp+FVT',
 }
 
 
@@ -652,6 +657,24 @@ class LongShortEngine:
         vol = np.std(rets) * np.sqrt(252)
         return vol > VOL_TARGET
 
+    def dynamic_hedge_ratio(self, idx, d):
+        """
+        Dynamic hedge: hedge ratio proportional to realized vol.
+        - Vol <= 10%: no hedge (calm market, let longs run)
+        - Vol = 15% (target): hedge 30%
+        - Vol = 30%: hedge 60%
+        - Vol >= 50%: hedge 100%
+        Formula: ratio = clip((vol - 0.10) / 0.40, 0, 1.0)
+        This is NOT fitted — it's a linear scaling from structural vol levels.
+        """
+        spy_p = idx.prices('SPY', d)
+        if spy_p is None or len(spy_p) < 22:
+            return 0.0
+        rets = np.diff(spy_p[-22:]) / spy_p[-22:-1]
+        vol = np.std(rets) * np.sqrt(252)
+        ratio = (vol - 0.10) / 0.40
+        return max(0.0, min(1.0, ratio))
+
     def record(self, d, idx, prev_nav):
         # Deduct daily borrow cost
         borrow = self._daily_borrow_cost(idx, d)
@@ -726,13 +749,26 @@ def run_single(variant, idx, bt_start, bt_end):
     prev_nav = DEFAULT_CAPITAL
 
     is_long_only = variant in ('pure_long', 'conc_fvt_long')
-    use_fast_vt = variant in ('conc_fvt_long', 'ls_spy_fvt', 'ls_bottom_fvt')
-    use_spy_short = variant in ('ls_spy_beta', 'ls_spy_adaptive', 'ls_spy_fvt', 'ls_spy_sma')
-    use_bottom_short = variant in ('ls_bottom', 'ls_bottom_fvt')
-    n_hold = 10 if variant == 'conc_fvt_long' else N_HOLDINGS
+    use_fast_vt = variant in (
+        'conc_fvt_long', 'ls_spy_fvt',
+        'ls_conc_adp_fvt', 'ls_conc_dyn_fvt', 'ls_lever_hedge',
+    )
+    use_concentrated = variant in (
+        'conc_fvt_long', 'ls_conc_adaptive', 'ls_conc_adp_fvt',
+        'ls_conc_dynhedge', 'ls_conc_dyn_fvt', 'ls_lever_hedge',
+    )
+    use_dynamic_hedge = variant in (
+        'ls_dynhedge', 'ls_conc_dynhedge', 'ls_conc_dyn_fvt',
+    )
+    use_adaptive_hedge = variant in (
+        'ls_spy_adaptive', 'ls_spy_fvt',
+        'ls_conc_adaptive', 'ls_conc_adp_fvt', 'ls_lever_hedge',
+    )
+    use_leverage = variant in ('ls_lever_hedge',)
+    n_hold = 10 if use_concentrated else N_HOLDINGS
 
-    # Short sizing: what fraction of long exposure to hedge
-    HEDGE_RATIO = 0.50  # Short 50% of long exposure (partial hedge)
+    HEDGE_RATIO = 0.50  # For fixed/adaptive hedge
+    LEVERAGE = 1.3 if use_leverage else 1.0
 
     for d in cal:
         # Daily fast vol targeting
@@ -777,40 +813,34 @@ def run_single(variant, idx, bt_start, bt_end):
                 if len(selected_longs) >= n_hold:
                     break
 
-            # Bottom momentum for shorts (negative momentum preferred)
-            bottoms = sorted(scored, key=lambda x: x['momentum'])[:N_SHORTS]
-
             # Compute allocations
-            long_alloc = current_nav * engine.vol_scale
+            long_alloc = current_nav * engine.vol_scale * LEVERAGE
 
             # --- LONG SIDE ---
             engine.rebalance_long(d, selected_longs, idx, long_alloc)
 
             # --- SHORT SIDE ---
             if is_long_only:
-                # No short
                 pass
-            elif use_spy_short:
-                should_hedge = True
-                if variant == 'ls_spy_adaptive':
-                    # Only hedge when vol elevated
-                    should_hedge = engine.spy_vol_elevated(idx, d)
-                elif variant == 'ls_spy_sma':
-                    # Only hedge when SPY below SMA200
-                    should_hedge = engine.spy_below_sma200(idx, d)
-
+            elif use_dynamic_hedge:
+                # Hedge ratio scales with realized vol
+                dyn_ratio = engine.dynamic_hedge_ratio(idx, d)
+                if dyn_ratio > 0.02:
+                    short_alloc = long_alloc * dyn_ratio
+                    engine.rebalance_short_spy(d, idx, short_alloc)
+                else:
+                    if engine.positions.get('SPY', 0) < 0:
+                        engine.execute_trade(d, 'SPY', 0, idx)
+                    engine.short_weights = {}
+            elif use_adaptive_hedge:
+                should_hedge = engine.spy_vol_elevated(idx, d)
                 if should_hedge:
                     short_alloc = long_alloc * HEDGE_RATIO
                     engine.rebalance_short_spy(d, idx, short_alloc)
                 else:
-                    # Close any existing SPY short
                     if engine.positions.get('SPY', 0) < 0:
                         engine.execute_trade(d, 'SPY', 0, idx)
                     engine.short_weights = {}
-
-            elif use_bottom_short:
-                short_alloc = long_alloc * HEDGE_RATIO
-                engine.rebalance_short_stocks(d, bottoms, idx, short_alloc)
 
         prev_nav = engine.record(d, idx, prev_nav)
 
