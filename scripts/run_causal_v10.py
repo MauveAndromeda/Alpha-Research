@@ -375,6 +375,37 @@ def score_stock(prices):
     return mom, vol
 
 
+def momentum_crash_guard(idx, dt):
+    """Detect momentum crash risk: when recent losers start outperforming recent
+    winners sharply, momentum is reversing. Scale down equity exposure.
+
+    Based on Daniel & Moskowitz (2016) "Momentum Crashes".
+    Uses SPY drawdown + vol spike as proxy.
+
+    Returns: scale factor 0.3 to 1.0 (1.0 = normal, 0.3 = max defense)
+    """
+    # SPY drawdown from 63-day high
+    spy_prices = idx.prices('SPY', dt)
+    if spy_prices is None or len(spy_prices) < 63:
+        return 1.0
+    recent = spy_prices[-63:]
+    dd = 1.0 - recent[-1] / max(recent)
+
+    # Vol spike: 10d vol vs 63d vol
+    vol_10 = idx.realized_vol('SPY', dt, 10)
+    vol_63 = idx.realized_vol('SPY', dt, 63)
+    vol_ratio = vol_10 / max(vol_63, 0.01)
+
+    # Combined crash signal
+    if dd > 0.15 and vol_ratio > 1.5:
+        return 0.30  # Severe: cut to 30%
+    elif dd > 0.10 and vol_ratio > 1.3:
+        return 0.50  # Moderate: cut to 50%
+    elif dd > 0.08 or vol_ratio > 1.5:
+        return 0.70  # Mild: cut to 70%
+    return 1.0
+
+
 # =============================================================================
 # FACTOR 1: Supply Chain Propagation
 # =============================================================================
@@ -509,29 +540,44 @@ def pre_inclusion_boost(sym, mom, vol, idx, dt):
 # =============================================================================
 
 class CausalLLM:
-    """DeepSeek R1 for causal reasoning. Stocks are ANONYMIZED."""
+    """DeepSeek R1 for causal reasoning. Stocks are ANONYMIZED.
+
+    V11 improvements:
+    1. Two-stage prompting: R1 reasons first, then a cheap model extracts JSON
+    2. Regex fallback: extract fields individually from free text
+    3. Retry with simplified prompt on failure
+    4. Response validation with safe defaults
+    """
+
+    # Default neutral response when R1 fails completely
+    NEUTRAL = {
+        'regime_forecast': 'stable',
+        'stock_allocation_adj': 0.0,
+        'bond_allocation_adj': 0.0,
+        'gold_allocation_adj': 0.0,
+        'top_stock_ids': [],
+        'avoid_stock_ids': [],
+        'confidence': 3,
+        'reasoning': 'LLM parse failed — using neutral defaults',
+        '_fallback': True,
+    }
 
     def __init__(self):
         self.cache_dir = Path.home() / ".alpha_research" / "llm_cache_v10"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.call_count = 0
         self.total_tokens = 0
+        self.parse_ok = 0
+        self.parse_fail = 0
 
-    def _call_r1(self, prompt, max_retries=3):
+    def _call_api(self, messages, model=DEEPSEEK_R1_MODEL, max_tokens=2000,
+                  temperature=0.1, max_retries=3):
+        """Generic API call with retry. Returns (content, reasoning, usage)."""
         import requests
-        ck = hashlib.md5(prompt.encode()).hexdigest()[:16]
-        cf = self.cache_dir / f"v10_{ck}.json"
-        if cf.exists():
-            try:
-                with open(cf) as f: return json.load(f)
-            except Exception: pass
-
         headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}",
                    "Content-Type": "application/json"}
-        payload = {"model": DEEPSEEK_R1_MODEL,
-                   "messages": [{"role": "user", "content": prompt}],
-                   "temperature": 0.1, "max_tokens": 2000}
-
+        payload = {"model": model, "messages": messages,
+                   "temperature": temperature, "max_tokens": max_tokens}
         for attempt in range(max_retries):
             try:
                 resp = requests.post(DEEPSEEK_R1_URL, headers=headers,
@@ -541,30 +587,64 @@ class CausalLLM:
                     msg = data['choices'][0]['message']
                     content = msg.get('content', '') or ''
                     reasoning = msg.get('reasoning_content', '') or ''
-                    if not content.strip() and reasoning:
-                        content = reasoning
                     usage = data.get('usage', {})
                     self.call_count += 1
                     self.total_tokens += usage.get('total_tokens', 0)
-                    result = {'content': content, 'usage': usage}
-                    try:
-                        with open(cf, 'w') as f: json.dump(result, f)
-                    except Exception: pass
-                    return result
+                    return content, reasoning, usage
+                elif resp.status_code == 429:
+                    time.sleep(5 * (attempt + 1))
+                else:
+                    logger.warning(f"API {resp.status_code}: {resp.text[:200]}")
             except Exception as e:
-                logger.warning(f"R1 attempt {attempt+1}: {e}")
-            if attempt < max_retries - 1: time.sleep(2 ** (attempt+1))
-        return None
+                logger.warning(f"API attempt {attempt+1}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** (attempt + 1))
+        return None, None, {}
+
+    def _call_r1(self, prompt, max_retries=3):
+        """Call R1 with caching."""
+        ck = hashlib.md5(prompt.encode()).hexdigest()[:16]
+        cf = self.cache_dir / f"v10_{ck}.json"
+        if cf.exists():
+            try:
+                with open(cf) as f: return json.load(f)
+            except Exception: pass
+
+        content, reasoning, usage = self._call_api(
+            [{"role": "user", "content": prompt}],
+            model=DEEPSEEK_R1_MODEL, max_retries=max_retries)
+        if content is None and reasoning is None:
+            return None
+
+        # R1 puts its answer in reasoning_content, content is often empty
+        result = {'content': content, 'reasoning': reasoning, 'usage': usage}
+        try:
+            with open(cf, 'w') as f: json.dump(result, f)
+        except Exception: pass
+        return result
 
     def _extract_json(self, text):
+        """Multi-strategy JSON extraction."""
+        if not text or not text.strip():
+            return None
         text = text.strip()
+
+        # Strategy 1: Direct parse
         try: return json.loads(text)
         except Exception: pass
+
+        # Strategy 2: Code block extraction
         for pat in [r'```json\s*(.*?)\s*```', r'```\s*(.*?)\s*```']:
             m = re.search(pat, text, re.DOTALL)
             if m:
                 try: return json.loads(m.group(1).strip())
                 except Exception: pass
+
+        # Strategy 3: Find all JSON objects, return the one with most expected keys
+        expected_keys = {'regime_forecast', 'stock_allocation_adj', 'bond_allocation_adj',
+                         'gold_allocation_adj', 'top_stock_ids', 'avoid_stock_ids',
+                         'confidence', 'reasoning'}
+        best, best_score = None, 0
         depth, start = 0, None
         for i, c in enumerate(text):
             if c == '{':
@@ -574,22 +654,153 @@ class CausalLLM:
                 depth -= 1
                 if depth == 0 and start is not None:
                     cand = text[start:i+1]
-                    try: return json.loads(cand)
-                    except Exception:
-                        try: return json.loads(re.sub(r',\s*([}\]])', r'\1', cand))
-                        except Exception: start = None
+                    for attempt_text in [cand, re.sub(r',\s*([}\]])', r'\1', cand)]:
+                        try:
+                            obj = json.loads(attempt_text)
+                            score = len(set(obj.keys()) & expected_keys)
+                            if score > best_score:
+                                best, best_score = obj, score
+                        except Exception: pass
+                    start = None
+
+        if best and best_score >= 2:
+            return best
+
+        return None
+
+    def _extract_from_text(self, text):
+        """Regex fallback: extract individual fields from R1's free-text reasoning.
+        R1 often writes things like 'regime_forecast should be "stable"' or
+        'stock_allocation_adj: -0.10' in its chain-of-thought."""
+        result = {}
+
+        # Regime forecast
+        m = re.search(r'regime[_\s]*forecast["\s:]*["\']?(expansion|stable|contraction|crisis)',
+                       text, re.IGNORECASE)
+        if m: result['regime_forecast'] = m.group(1).lower()
+
+        # Numeric adjustments
+        for field in ['stock_allocation_adj', 'bond_allocation_adj', 'gold_allocation_adj']:
+            m = re.search(rf'{field}["\s:]*([+-]?\d*\.?\d+)', text, re.IGNORECASE)
+            if m:
+                try:
+                    v = float(m.group(1))
+                    if -0.5 <= v <= 0.5: result[field] = v
+                except Exception: pass
+
+        # Confidence
+        m = re.search(r'confidence["\s:]*(\d+)', text, re.IGNORECASE)
+        if m:
+            try:
+                v = int(m.group(1))
+                if 1 <= v <= 10: result['confidence'] = v
+            except Exception: pass
+
+        # Stock IDs
+        ids = re.findall(r'Stock_\d{3}', text)
+        if ids:
+            # top stocks: look near "top" or "best" or "recommend"
+            top_section = re.search(r'(?:top|best|recommend|strong)[^.]{0,200}', text, re.IGNORECASE)
+            avoid_section = re.search(r'(?:avoid|weak|worst|underperform)[^.]{0,200}', text, re.IGNORECASE)
+            if top_section:
+                top_ids = re.findall(r'Stock_\d{3}', top_section.group(0))
+                if top_ids: result['top_stock_ids'] = list(dict.fromkeys(top_ids))[:5]
+            if avoid_section:
+                avoid_ids = re.findall(r'Stock_\d{3}', avoid_section.group(0))
+                if avoid_ids: result['avoid_stock_ids'] = list(dict.fromkeys(avoid_ids))[:3]
+
+        # Reasoning: grab last substantial sentence
+        m = re.search(r'(?:conclusion|therefore|overall|in summary)[:\s]*([^.]+\.)', text, re.IGNORECASE)
+        if m: result['reasoning'] = m.group(1).strip()[:200]
+
+        return result if len(result) >= 2 else None
+
+    def _validate_response(self, parsed):
+        """Clamp values to safe ranges and fill missing fields."""
+        defaults = {
+            'regime_forecast': 'stable',
+            'stock_allocation_adj': 0.0,
+            'bond_allocation_adj': 0.0,
+            'gold_allocation_adj': 0.0,
+            'top_stock_ids': [],
+            'avoid_stock_ids': [],
+            'confidence': 5,
+            'reasoning': '',
+        }
+        result = {}
+        for k, dv in defaults.items():
+            result[k] = parsed.get(k, dv)
+
+        # Clamp numeric ranges
+        result['stock_allocation_adj'] = max(-0.20, min(0.10, float(result.get('stock_allocation_adj', 0))))
+        result['bond_allocation_adj'] = max(-0.10, min(0.20, float(result.get('bond_allocation_adj', 0))))
+        result['gold_allocation_adj'] = max(-0.10, min(0.15, float(result.get('gold_allocation_adj', 0))))
+        result['confidence'] = max(1, min(10, int(result.get('confidence', 5))))
+
+        # Validate regime
+        if result['regime_forecast'] not in ('expansion', 'stable', 'contraction', 'crisis'):
+            result['regime_forecast'] = 'stable'
+
+        # Ensure lists
+        for field in ('top_stock_ids', 'avoid_stock_ids'):
+            if not isinstance(result[field], list):
+                result[field] = []
+
+        return result
+
+    def _two_stage_extract(self, r1_result):
+        """Try to extract JSON using deepseek-chat (cheap, fast, good at formatting)
+        from R1's reasoning output."""
+        reasoning = r1_result.get('reasoning', '') or ''
+        content = r1_result.get('content', '') or ''
+        combined = content + '\n' + reasoning
+
+        if len(combined.strip()) < 20:
+            return None
+
+        # Truncate to avoid blowing context
+        combined = combined[-4000:]
+
+        extract_prompt = f"""Extract a JSON object from the following analysis text.
+
+REQUIRED FORMAT (return ONLY this JSON, nothing else):
+{{"regime_forecast": "expansion|stable|contraction|crisis",
+"stock_allocation_adj": <number between -0.20 and +0.10>,
+"bond_allocation_adj": <number between -0.10 and +0.20>,
+"gold_allocation_adj": <number between -0.10 and +0.15>,
+"top_stock_ids": [<list of Stock_XXX IDs>],
+"avoid_stock_ids": [<list of Stock_XXX IDs>],
+"confidence": <integer 1-10>,
+"reasoning": "<1 sentence summary>"}}
+
+ANALYSIS TEXT:
+{combined}
+
+Return ONLY the JSON object:"""
+
+        content2, _, usage = self._call_api(
+            [{"role": "user", "content": extract_prompt}],
+            model="deepseek-chat",  # cheap model, good at structured output
+            max_tokens=500, temperature=0.0, max_retries=2)
+
+        if content2:
+            parsed = self._extract_json(content2)
+            if parsed:
+                return parsed
         return None
 
     def analyze_causal(self, stock_data, macro_data, chain_data):
         """
         ANONYMIZED analysis — no real ticker names.
-        stock_data: list of {id: "Stock_001", sector: "Sector_A", mom_12m, mom_1m, vol, supply_score}
-        macro_data: regime prediction inputs
-        chain_data: anonymized supply chain signals
+        Multi-layer parsing: JSON → two-stage → regex → neutral defaults.
         """
         prompt = f"""You are a quantitative analyst. Analyze anonymized market data and provide allocation guidance.
 
-IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no explanation.
+CRITICAL: After your reasoning, you MUST end your response with a JSON code block:
+```json
+{{"regime_forecast": "...", "stock_allocation_adj": ..., ...}}
+```
+
 Stock identities are hidden — use only the numerical data provided.
 
 MACRO LEADING INDICATORS:
@@ -607,26 +818,52 @@ TASKS:
 3. Should overall equity allocation be increased or decreased?
 4. Which sectors (by letter code) are most/least attractive?
 
-Respond with:
+You MUST end with this exact JSON structure in a ```json block:
+```json
 {{"regime_forecast": "expansion|stable|contraction|crisis",
 "stock_allocation_adj": <-0.20 to +0.10>,
 "bond_allocation_adj": <-0.10 to +0.20>,
 "gold_allocation_adj": <-0.10 to +0.15>,
-"top_stock_ids": [<best 3-5 stock IDs>],
-"avoid_stock_ids": [<worst 2-3 stock IDs>],
+"top_stock_ids": ["Stock_XXX", "Stock_YYY"],
+"avoid_stock_ids": ["Stock_ZZZ"],
 "confidence": <1-10>,
-"reasoning": "<2 sentences>"}}"""
+"reasoning": "<2 sentences>"}}
+```"""
 
         result = self._call_r1(prompt)
         if result is None:
-            return None
+            self.parse_fail += 1
+            return self.NEUTRAL.copy()
 
-        parsed = self._extract_json(result['content'])
-        if parsed is None:
-            logger.warning(f"R1 parse fail ({len(result['content'])} chars)")
-            return None
+        # Layer 1: Try JSON extraction from content field
+        for text_field in ['content', 'reasoning']:
+            text = result.get(text_field, '') or ''
+            if text.strip():
+                parsed = self._extract_json(text)
+                if parsed and 'regime_forecast' in parsed:
+                    self.parse_ok += 1
+                    logger.info(f"R1 parsed OK via {text_field} (JSON)")
+                    return self._validate_response(parsed)
 
-        return parsed
+        # Layer 2: Two-stage — use deepseek-chat to extract from R1's reasoning
+        parsed = self._two_stage_extract(result)
+        if parsed:
+            self.parse_ok += 1
+            logger.info("R1 parsed OK via two-stage (deepseek-chat extraction)")
+            return self._validate_response(parsed)
+
+        # Layer 3: Regex extraction from reasoning text
+        combined = (result.get('content', '') or '') + '\n' + (result.get('reasoning', '') or '')
+        parsed = self._extract_from_text(combined)
+        if parsed:
+            self.parse_ok += 1
+            logger.info(f"R1 parsed OK via regex ({len(parsed)} fields)")
+            return self._validate_response(parsed)
+
+        # Layer 4: Neutral fallback — never skip a month
+        self.parse_fail += 1
+        logger.warning(f"R1 all parse layers failed ({len(combined)} chars) — using neutral defaults")
+        return self.NEUTRAL.copy()
 
 
 # =============================================================================
@@ -886,6 +1123,16 @@ def run_backtest(mode, idx, start, end, llm=None):
                 sec_cnt[sec] = sec_cnt.get(sec, 0) + 1
                 if len(selected) >= N_HOLDINGS: break
 
+            # Momentum crash guard (Daniel & Moskowitz 2016)
+            crash_scale = momentum_crash_guard(idx, sd)
+            if crash_scale < 1.0:
+                # Shift equity to cash
+                cut = sw * (1.0 - crash_scale)
+                sw -= cut
+                cw += cut
+                t = sw+bw+gw+cw
+                sw /= t; bw /= t; gw /= t; cw /= t
+
             # Build positions
             scale = vscale
             investable = nav * (1.0 - cw) * scale
@@ -1088,6 +1335,11 @@ def main():
 
     print(f"\n  R1 API: {llm.call_count} calls, {llm.total_tokens:,} tokens, "
           f"~${llm.total_tokens*0.000004:.2f}")
+    total_parse = llm.parse_ok + llm.parse_fail
+    if total_parse > 0:
+        print(f"  R1 Parse: {llm.parse_ok}/{total_parse} OK "
+              f"({llm.parse_ok/total_parse:.0%}), "
+              f"{llm.parse_fail} fallback to neutral")
     print(f"\n{'=' * 100}")
 
 
