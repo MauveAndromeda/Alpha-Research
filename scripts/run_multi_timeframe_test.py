@@ -20,10 +20,8 @@ Date: 2026-01-31
 =============================================================================
 """
 
-import asyncio
 import hashlib
 import logging
-import re
 import sys
 import warnings
 from datetime import date, timedelta
@@ -68,15 +66,23 @@ DEEPSEEK_R1_MODEL = "deepseek-reasoner"
 TIMEFRAMES = [3, 5, 10, 15, 20]
 END_DATE = date(2025, 12, 31)
 
+# V4 parameters
+FAST_VOL_LOOKBACK = 10   # Faster vol targeting (vs 21d standard)
+N_HOLDINGS_CONC = 10     # Concentrated portfolio
+
 # Strategy variants
 VARIANTS = [
     'pure',          # Pure momentum, equal weight
     'sma200',        # SMA200 regime filter
     'dualmom',       # Dual momentum + inverse-vol weighting
-    'voltarget',     # Daily vol targeting
+    'voltarget',     # Daily vol targeting (21d)
     'sma200_vt',     # SMA200 + vol targeting combined
-    'sma200_r1',     # SMA200 + R1 overlay
-    'voltarget_r1',  # Vol targeting + R1 overlay
+    # V4 improved variants
+    'fast_vt',       # V4a: Faster vol targeting (10d lookback)
+    'trend_mom',     # V4b: Per-stock trend confirmation (price > SMA200)
+    'sma200_fvt',    # V4c: SMA200 + fast vol targeting
+    'conc_fvt',      # V4d: 10 holdings + fast vol targeting
+    'trend_fvt',     # V4e: Per-stock trend + fast vol targeting
 ]
 
 VARIANT_NAMES = {
@@ -85,8 +91,11 @@ VARIANT_NAMES = {
     'dualmom': 'Dual Mom + InvVol',
     'voltarget': 'Daily Vol Target',
     'sma200_vt': 'SMA200 + VolTarget',
-    'sma200_r1': 'SMA200 + R1',
-    'voltarget_r1': 'VolTarget + R1',
+    'fast_vt': 'V4a: FastVT (10d)',
+    'trend_mom': 'V4b: TrendConfirm',
+    'sma200_fvt': 'V4c: SMA200+FastVT',
+    'conc_fvt': 'V4d: Conc10+FastVT',
+    'trend_fvt': 'V4e: Trend+FastVT',
 }
 
 
@@ -382,18 +391,23 @@ def build_sector_map(symbols):
 # =============================================================================
 
 def score_stock(prices):
-    """12-1 momentum score."""
+    """12-1 momentum score + trend flag."""
     if prices is None or len(prices) < 260:
-        return None, None
+        return None, None, False
     p_now = prices[-MOM_SKIP]
     p_12m = prices[-MOM_LOOKBACK]
     if p_12m <= 0:
-        return None, None
+        return None, None, False
     mom = p_now / p_12m - 1
     n = min(63, len(prices) - 1)
     rets = np.diff(prices[-n-1:]) / prices[-n-1:-1]
     vol = np.std(rets) * np.sqrt(252) if len(rets) > 0 else 0.3
-    return mom, vol
+    # Per-stock trend: current price above its own SMA200
+    above_sma200 = False
+    if len(prices) >= SMA_WINDOW:
+        sma = np.mean(prices[-SMA_WINDOW:])
+        above_sma200 = prices[-1] > sma
+    return mom, vol, above_sma200
 
 
 # =============================================================================
@@ -529,16 +543,18 @@ class BacktestEngine:
         return 1.0      # BULL: above SMA200
 
     # --- Vol targeting ---
-    def compute_vol_scale(self):
-        if len(self.nav_history) < VOL_LOOKBACK + 1:
+    def compute_vol_scale(self, fast=False):
+        lookback = FAST_VOL_LOOKBACK if fast else VOL_LOOKBACK
+        min_scale = 0.05 if fast else 0.10
+        if len(self.nav_history) < lookback + 1:
             return 1.0
-        recent = np.array(self.nav_history[-VOL_LOOKBACK - 1:])
+        recent = np.array(self.nav_history[-lookback - 1:])
         rets = np.diff(recent) / recent[:-1]
         realized_vol = np.std(rets) * np.sqrt(252)
         if realized_vol < 0.01:
             return 1.5
         scale = VOL_TARGET / realized_vol
-        return max(0.10, min(1.50, scale))
+        return max(min_scale, min(1.50, scale))
 
     # --- NAV ---
     def nav(self, idx, d):
@@ -709,7 +725,7 @@ class BacktestEngine:
 # Run single backtest
 # =============================================================================
 
-async def run_single(variant, idx, bt_start, bt_end):
+def run_single(variant, idx, bt_start, bt_end):
     """Run a single strategy variant over a specific period."""
     cal = trading_calendar(bt_start, bt_end)
     rebal_dates = set(monthly_rebalance_dates(bt_start, bt_end))
@@ -717,82 +733,26 @@ async def run_single(variant, idx, bt_start, bt_end):
     if len(cal) < 60:
         return None
 
-    # Map R1 variants to their base variant
-    base_variant = variant.replace('_r1', '')
-    engine = BacktestEngine(base_variant)
-    prev_nav = DEFAULT_CAPITAL
-    use_voltarget = base_variant in ('voltarget', 'sma200_vt')
-    use_sma200 = base_variant in ('sma200', 'sma200_vt')
-    use_r1 = variant.endswith('_r1')
+    # Determine variant features
+    use_fast_vt = variant in ('fast_vt', 'sma200_fvt', 'conc_fvt', 'trend_fvt')
+    use_std_vt = variant in ('voltarget', 'sma200_vt')
+    use_any_vt = use_fast_vt or use_std_vt
+    use_sma200 = variant in ('sma200', 'sma200_vt', 'sma200_fvt')
+    use_trend_filter = variant in ('trend_mom', 'trend_fvt')
+    use_concentrated = variant in ('conc_fvt',)
+    n_hold = N_HOLDINGS_CONC if use_concentrated else N_HOLDINGS
 
-    r1 = R1Analyzer() if use_r1 else None
+    engine = BacktestEngine(variant)
+    prev_nav = DEFAULT_CAPITAL
     last_signals = []
 
     for d in cal:
         # Daily vol targeting
-        if use_voltarget and len(engine.nav_history) > VOL_LOOKBACK + 1:
-            new_scale = engine.compute_vol_scale()
-
-            # R1 override
-            if r1 and r1.should_call(d):
-                r1.last_call_date = d
-                spy_p = idx.prices('SPY', d)
-                spy_vol, spy_dd = 0.15, 0.0
-                if spy_p is not None and len(spy_p) > 60:
-                    sr = np.diff(spy_p[-22:]) / spy_p[-22:-1]
-                    spy_vol = np.std(sr) * np.sqrt(252)
-                    pk = np.max(spy_p[-60:])
-                    spy_dd = (pk - spy_p[-1]) / pk
-
-                r1_result = await r1.analyze(
-                    {
-                        'dd': engine.portfolio_dd(engine.nav(idx, d)),
-                        'n_holdings': len(engine.positions),
-                        'avg_mom': np.mean([s.get('momentum', 0) for s in last_signals]) if last_signals else 0,
-                        'effective_exposure': new_scale,
-                    },
-                    {
-                        'port_vol': VOL_TARGET / new_scale if new_scale > 0 else 0.3,
-                        'vol_scale': new_scale,
-                        'spy_vol': spy_vol,
-                        'spy_dd': spy_dd,
-                    },
-                )
-                if r1_result is not None:
-                    new_scale = min(new_scale, r1_result)
-
-            engine.scale_positions(d, idx, new_scale)
-
-        # R1 for SMA200 variant (monthly, at rebalance)
-        if use_sma200 and use_r1 and not use_voltarget and d in rebal_dates:
-            if r1 and r1.should_call(d):
-                r1.last_call_date = d
-                spy_p = idx.prices('SPY', d)
-                spy_vol, spy_dd = 0.15, 0.0
-                if spy_p is not None and len(spy_p) > 60:
-                    sr = np.diff(spy_p[-22:]) / spy_p[-22:-1]
-                    spy_vol = np.std(sr) * np.sqrt(252)
-                    pk = np.max(spy_p[-60:])
-                    spy_dd = (pk - spy_p[-1]) / pk
-
-                current_exposure = engine.spy_regime(idx, d)
-                r1_result = await r1.analyze(
-                    {
-                        'dd': engine.portfolio_dd(engine.nav(idx, d)),
-                        'n_holdings': len(engine.positions),
-                        'avg_mom': np.mean([s.get('momentum', 0) for s in last_signals]) if last_signals else 0,
-                        'effective_exposure': current_exposure,
-                    },
-                    {
-                        'port_vol': 0.15,
-                        'vol_scale': current_exposure,
-                        'spy_vol': spy_vol,
-                        'spy_dd': spy_dd,
-                    },
-                )
-                # R1 can reduce exposure further
-                if r1_result is not None and r1_result < current_exposure:
-                    engine.vol_scale = r1_result / current_exposure if current_exposure > 0 else 1.0
+        if use_any_vt:
+            lb = FAST_VOL_LOOKBACK if use_fast_vt else VOL_LOOKBACK
+            if len(engine.nav_history) > lb + 1:
+                new_scale = engine.compute_vol_scale(fast=use_fast_vt)
+                engine.scale_positions(d, idx, new_scale)
 
         # Monthly rebalance
         if d in rebal_dates:
@@ -807,8 +767,11 @@ async def run_single(variant, idx, bt_start, bt_end):
                 if sym == 'SPY':
                     continue
                 p = idx.prices(sym, signal_date)
-                mom, vol = score_stock(p)
+                mom, vol, above_sma = score_stock(p)
                 if mom is None or mom <= 0:
+                    continue
+                # Per-stock trend filter: only select stocks above their own SMA200
+                if use_trend_filter and not above_sma:
                     continue
                 scored.append({
                     'symbol': sym, 'momentum': mom, 'vol': vol,
@@ -817,7 +780,7 @@ async def run_single(variant, idx, bt_start, bt_end):
 
             scored.sort(key=lambda x: x['momentum'], reverse=True)
 
-            max_per_sector = max(2, int(N_HOLDINGS * MAX_SECTOR_PCT))
+            max_per_sector = max(2, int(n_hold * MAX_SECTOR_PCT))
             selected = []
             sector_counts = {}
             for s in scored:
@@ -826,7 +789,7 @@ async def run_single(variant, idx, bt_start, bt_end):
                     continue
                 selected.append(s)
                 sector_counts[sec] = sector_counts.get(sec, 0) + 1
-                if len(selected) >= N_HOLDINGS:
+                if len(selected) >= n_hold:
                     break
 
             last_signals = selected
@@ -837,23 +800,14 @@ async def run_single(variant, idx, bt_start, bt_end):
         prev_nav = engine.record(d, idx, prev_nav)
 
     name = VARIANT_NAMES[variant]
-    res = engine.results(name, bt_start, bt_end)
-
-    # Add R1 stats if used
-    if r1 and res:
-        st = r1.get_stats()
-        res['r1_calls'] = st['r1_calls']
-        res['r1_tokens'] = st['total_tokens']
-        res['r1_interventions'] = st['interventions']
-
-    return res
+    return engine.results(name, bt_start, bt_end)
 
 
 # =============================================================================
 # Main
 # =============================================================================
 
-async def main():
+def main():
     print("=" * 90)
     print("MULTI-TIMEFRAME STRATEGY COMPARISON — S&P 500")
     print("=" * 90)
@@ -894,20 +848,17 @@ async def main():
 
         for variant in VARIANTS:
             logger.info(f"  Running {VARIANT_NAMES[variant]} ({years}y)...")
-            res = await run_single(variant, idx, bt_start, actual_end)
+            res = run_single(variant, idx, bt_start, actual_end)
             if res:
                 res['years'] = years
                 res['variant'] = variant
                 all_results.append(res)
-                r1_info = ""
-                if 'r1_calls' in res:
-                    r1_info = f" | R1: {res['r1_calls']}calls/{res['r1_interventions']}ovr"
                 print(f"  {VARIANT_NAMES[variant]:25s} | "
                       f"Sharpe {res['sharpe']:+.2f} | "
                       f"Return {res['ann_return']:+.1%} | "
                       f"MaxDD {res['max_dd']:.1%} | "
                       f"Sortino {res['sortino']:+.2f} | "
-                      f"Calmar {res['calmar']:.2f}{r1_info}")
+                      f"Calmar {res['calmar']:.2f}")
 
     # Summary table
     print(f"\n\n{'=' * 90}")
@@ -1040,4 +991,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
