@@ -447,10 +447,18 @@ class LLMOrchestrator:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    content = data['choices'][0]['message']['content']
+                    msg = data['choices'][0]['message']
+                    # DeepSeek R1 puts reasoning in 'reasoning_content'
+                    # and final answer in 'content' (may be empty)
+                    content = msg.get('content', '') or ''
+                    reasoning_content = msg.get('reasoning_content', '') or ''
                     usage = data.get('usage', {})
                     self.call_count += 1
                     self.total_tokens += usage.get('total_tokens', 0)
+
+                    # If content is empty, try to extract JSON from reasoning
+                    if not content.strip() and reasoning_content:
+                        content = reasoning_content
 
                     result = {'content': content, 'usage': usage}
                     try:
@@ -597,15 +605,58 @@ Respond with exactly this JSON:
 
         return prompt
 
+    def _extract_json(self, text):
+        """Extract first valid JSON object from text, handling R1's verbose output."""
+        import re
+        # Try direct parse first
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+
+        # Try extracting from code blocks
+        for pattern in [r'```json\s*(.*?)\s*```', r'```\s*(.*?)\s*```']:
+            m = re.search(pattern, text, re.DOTALL)
+            if m:
+                try:
+                    return json.loads(m.group(1).strip())
+                except Exception:
+                    pass
+
+        # Find first { ... } block with balanced braces
+        depth = 0
+        start = None
+        for i, c in enumerate(text):
+            if c == '{':
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0 and start is not None:
+                    candidate = text[start:i+1]
+                    try:
+                        return json.loads(candidate)
+                    except Exception:
+                        # Try fixing common issues: trailing commas, unquoted keys
+                        try:
+                            # Remove trailing commas before } or ]
+                            fixed = re.sub(r',\s*([}\]])', r'\1', candidate)
+                            return json.loads(fixed)
+                        except Exception:
+                            start = None
+                            continue
+
+        return None
+
     def _parse_r1_response(self, result, quant_weights):
         try:
             content = result['content'].strip()
-            if '```json' in content:
-                content = content.split('```json')[1].split('```')[0].strip()
-            elif '```' in content:
-                content = content.split('```')[1].split('```')[0].strip()
-
-            parsed = json.loads(content)
+            parsed = self._extract_json(content)
+            if parsed is None:
+                logger.warning(f"R1: no JSON found in response ({len(content)} chars)")
+                return self._fallback_fusion({}, {}, {}, {}, quant_weights)
 
             sw = max(0.0, min(0.6, float(parsed.get('stock_weight', quant_weights[0]))))
             bw = max(0.0, min(0.5, float(parsed.get('bond_weight', quant_weights[1]))))
