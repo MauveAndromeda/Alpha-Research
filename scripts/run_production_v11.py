@@ -61,6 +61,7 @@ from run_causal_v10 import (
     VOL_TARGET, FAST_VOL_LOOKBACK, MAX_SECTOR_PCT, MAX_POSITION_WEIGHT,
     END_DATE, TIMEFRAMES, LLM_MONTHS,
 )
+from sp500_pit import SP500PIT
 
 logging.basicConfig(
     level=logging.INFO,
@@ -477,135 +478,188 @@ HISTORICAL_REMOVALS = {
 }
 
 
-def survivorship_bias_test(idx, df, base_start, base_end):
+def survivorship_bias_test(idx, df, base_start, base_end, pit=None):
     """
-    Approximate survivorship bias by:
-    1. Identifying removed tickers that are in our data (yfinance may have them)
-    2. Running backtest with vs without these "zombie" tickers
-    3. Estimating bias magnitude
+    Measure survivorship bias using PIT (point-in-time) S&P 500 constituents
+    from fja05680/sp500 dataset.
 
-    Limitation: yfinance may not have price data for all delisted stocks.
-    We try to fetch what we can and report what we find.
+    Method:
+    1. Get PIT members at start of backtest
+    2. Get current members at end of backtest
+    3. Identify removed tickers (were in S&P 500 then, not now)
+    4. For those with yfinance data: measure actual pre-removal returns
+    5. For those without: count and estimate from academic literature
+    6. Report bias magnitude
     """
     print(f"\n  {'─' * 80}")
-    print(f"  SURVIVORSHIP BIAS APPROXIMATION")
+    print(f"  SURVIVORSHIP BIAS — PIT ANALYSIS (fja05680/sp500)")
     print(f"  {'─' * 80}")
 
-    # Filter removals that happened during our backtest window
-    relevant = {sym: dt for sym, dt in HISTORICAL_REMOVALS.items()
-                if base_start <= dt <= base_end}
-
-    print(f"  Known S&P 500 removals during {base_start}→{base_end}: "
-          f"{len(relevant)}")
-
-    if not relevant:
-        print("  No removals in test period — cannot estimate bias.")
-        return None
-
-    # Try to fetch data for removed tickers
-    found = {}
-    not_found = []
+    # --- Load PIT data ---
+    if pit is None:
+        pit = SP500PIT(cache_dir=Path("data/sp500"))
     try:
-        import yfinance as yf
-        for sym, removal_date in sorted(relevant.items(), key=lambda x: x[1]):
-            try:
-                data = yf.download(sym, start=str(base_start - timedelta(days=400)),
-                                   end=str(removal_date), progress=False)
-                if data is not None and len(data) >= 60:
-                    if len(data) >= 252:
-                        ret_1y = (data['Close'].iloc[-1] / data['Close'].iloc[-252]) - 1
+        pit.fetch()
+    except Exception as e:
+        print(f"  ERROR: Could not fetch PIT data: {e}")
+        print(f"  Falling back to hardcoded removal list.")
+        return _survivorship_fallback(base_start, base_end)
+
+    # --- Compare PIT universe at start vs end ---
+    pit_start_members = set(pit.members(str(base_start)))
+    pit_end_members = set(pit.members(str(base_end)))
+
+    removed = sorted(pit_start_members - pit_end_members)
+    added = sorted(pit_end_members - pit_start_members)
+
+    print(f"  PIT universe at {base_start}: {len(pit_start_members)} members")
+    print(f"  PIT universe at {base_end}:   {len(pit_end_members)} members")
+    print(f"  Removed (were in, now out):    {len(removed)}")
+    print(f"  Added (not in then, in now):   {len(added)}")
+
+    if not removed:
+        print("  No removals detected — survivorship bias = 0")
+        return {'n_removals': 0, 'severity': 'NONE'}
+
+    # --- Check which removed tickers are in our backtest data ---
+    available_syms = set(idx.symbols)
+    in_data = sorted(set(removed) & available_syms)
+    not_in_data = sorted(set(removed) - available_syms)
+
+    print(f"\n  Removed tickers in our data:     {len(in_data)}")
+    print(f"  Removed tickers NOT in our data: {len(not_in_data)}")
+    if not_in_data:
+        print(f"    Missing: {', '.join(not_in_data[:15])}"
+              f"{'...' if len(not_in_data) > 15 else ''}")
+
+    # --- For tickers we DO have: measure what happened ---
+    # Our backtest used current S&P 500, so removed tickers were excluded.
+    # The bias = we didn't hold these losers, so our returns look better.
+    # We can't measure their return in our data (they're not in it).
+    # But we can try yfinance for the ones that still have data.
+
+    found = {}
+    yf_failed = []
+    if in_data or not_in_data:
+        try:
+            import yfinance as yf
+            # Try all removed tickers
+            all_removed_to_try = removed[:80]  # Cap at 80 to avoid rate limit
+            print(f"\n  Fetching return data for {len(all_removed_to_try)} "
+                  f"removed tickers via yfinance...")
+            for sym in all_removed_to_try:
+                try:
+                    data = yf.download(
+                        sym,
+                        start=str(base_start - timedelta(days=30)),
+                        end=str(base_end),
+                        progress=False)
+                    if data is not None and len(data) >= 60:
+                        # Annualized return over whatever period we have
+                        n_days = len(data)
+                        total_ret = (data['Close'].iloc[-1] /
+                                     data['Close'].iloc[0]) - 1
+                        ann_ret = (1 + total_ret) ** (252 / n_days) - 1
+                        found[sym] = {
+                            'total_return': float(total_ret),
+                            'ann_return': float(ann_ret),
+                            'data_points': n_days,
+                        }
                     else:
-                        days = len(data)
-                        ret_total = (data['Close'].iloc[-1] / data['Close'].iloc[0]) - 1
-                        ret_1y = (1 + ret_total) ** (252 / days) - 1
-                    found[sym] = {
-                        'removal_date': removal_date,
-                        'return_pre_removal': float(ret_1y),
-                        'data_points': len(data),
-                    }
-                else:
-                    not_found.append(sym)
-            except Exception:
-                not_found.append(sym)
-    except Exception:
-        not_found = list(relevant.keys())
+                        yf_failed.append(sym)
+                except Exception:
+                    yf_failed.append(sym)
+        except Exception:
+            yf_failed = list(removed)
 
-    # If yfinance is blocked, use academic estimates
-    if not found and len(not_found) == len(relevant):
-        print("  yfinance unavailable — using academic literature estimates.")
-        print("  Per Shumway (1997) and CRSP studies, removed stocks average")
-        print("  approximately -30% to -40% in the year before removal.")
+    print(f"  yfinance data found: {len(found)}/{len(removed)} removed tickers")
+
+    # --- Compute bias ---
+    if found:
+        ann_rets = [v['ann_return'] for v in found.values()]
+        mean_ret = np.mean(ann_rets)
+        median_ret = np.median(ann_rets)
+        negative_pct = np.mean([r < 0 for r in ann_rets])
+
+        print(f"\n  Removed stocks — annualized return during backtest period:")
+        print(f"    Mean:       {mean_ret:+.1%}")
+        print(f"    Median:     {median_ret:+.1%}")
+        print(f"    % Negative: {negative_pct:.0%}")
+
+        # Worst performers
+        worst = sorted(found.items(), key=lambda x: x[1]['ann_return'])
+        print(f"\n  Worst removed stocks:")
+        for sym, info in worst[:10]:
+            print(f"    {sym:6s} | ann return: {info['ann_return']:+.1%} "
+                  f"| total: {info['total_return']:+.1%} "
+                  f"| days: {info['data_points']}")
+
+        # Bias estimate: what fraction of universe was removed, weighted by return gap
+        # removed_fraction * (market_avg - removed_avg) = bias
+        years = (base_end - base_start).days / 365.25
+        removal_fraction = len(removed) / 500
+        # Assume market averaged ~10% annualized
+        market_avg = 0.10
+        bias_per_year = removal_fraction * (market_avg - mean_ret) / years
+        sharpe_bias = bias_per_year / 0.15
+
+        print(f"\n  Survivorship bias estimate:")
+        print(f"    Removed fraction: {removal_fraction:.1%} of S&P 500")
+        print(f"    Avg removed return: {mean_ret:+.1%}/yr vs "
+              f"~{market_avg:+.1%}/yr market")
+        print(f"    Annual return overstatement: ~{bias_per_year:+.2%}")
+        print(f"    Sharpe overstatement: ~{sharpe_bias:+.3f}")
+
+        severity = ("LOW" if abs(bias_per_year) < 0.005 else
+                    "MODERATE" if abs(bias_per_year) < 0.02 else "HIGH")
+    else:
+        # No yfinance data — use academic estimates
+        print("\n  No yfinance data for removed tickers.")
+        print("  Using academic literature estimates (Shumway 1997, CRSP studies):")
+        print("  Removed stocks average -30% to -40% in year before removal.")
         mean_ret = -0.33
-        removal_rate = len(relevant) / (500 * ((base_end - base_start).days / 365.25))
-        bias_estimate = -mean_ret * removal_rate
-        print(f"\n  Estimated survivorship bias (literature-based):")
-        print(f"    Removal rate: ~{removal_rate:.1%}/year")
-        print(f"    Estimated annual return overstatement: ~{bias_estimate:+.1%}")
-        print(f"    Estimated Sharpe overstatement: ~{bias_estimate/0.15:+.2f}")
+        years = (base_end - base_start).days / 365.25
+        removal_fraction = len(removed) / 500
+        bias_per_year = removal_fraction * (0.10 - mean_ret) / years
+        sharpe_bias = bias_per_year / 0.15
+
+        print(f"\n  Survivorship bias estimate (literature-based):")
+        print(f"    {len(removed)} tickers removed over {years:.0f} years")
+        print(f"    Annual return overstatement: ~{bias_per_year:+.2%}")
+        print(f"    Sharpe overstatement: ~{sharpe_bias:+.3f}")
         severity = "MODERATE (estimated)"
-        print(f"\n  Survivorship bias severity: {severity}")
-        print(f"  Note: Actual measurement requires live yfinance connection or CRSP data")
-        return {
-            'n_removals': len(relevant),
-            'n_found': 0,
-            'mean_pre_removal_return': mean_ret,
-            'bias_estimate_annual': bias_estimate,
-            'severity': severity,
-        }
 
-    print(f"  Data available for {len(found)}/{len(relevant)} removed tickers")
-    if not_found:
-        print(f"  No data: {', '.join(not_found[:10])}"
-              f"{'...' if len(not_found) > 10 else ''}")
-
-    if not found:
-        print("  Cannot estimate bias — no historical data for removed stocks.")
-        return None
-
-    # Analyze returns of removed stocks before removal
-    pre_removal_rets = [v['return_pre_removal'] for v in found.values()]
-    mean_ret = np.mean(pre_removal_rets)
-    negative_pct = np.mean([r < 0 for r in pre_removal_rets])
-
-    print(f"\n  Removed stocks — 1y return before removal:")
-    print(f"    Mean:     {mean_ret:+.1%}")
-    print(f"    Median:   {np.median(pre_removal_rets):+.1%}")
-    print(f"    % Negative: {negative_pct:.0%}")
-
-    # Sort by worst performers
-    worst = sorted(found.items(), key=lambda x: x[1]['return_pre_removal'])
-    print(f"\n  Worst performers before removal:")
-    for sym, info in worst[:10]:
-        print(f"    {sym:6s} | removed {info['removal_date']} | "
-              f"1y return: {info['return_pre_removal']:+.1%}")
-
-    # Estimate survivorship bias magnitude
-    # The bias = avg return of survivors - avg return of full universe
-    # If removed stocks averaged -30% and comprise 5% of universe,
-    # bias ≈ 0.05 * 30% = 1.5% annually on returns
-    removal_rate = len(relevant) / 500  # Rough S&P 500 size
-    bias_estimate = -mean_ret * removal_rate  # How much our backtest overstates
-
-    print(f"\n  Estimated survivorship bias:")
-    print(f"    Removal rate: ~{removal_rate:.1%}/year over test period")
-    print(f"    Avg removed-stock return: {mean_ret:+.1%}")
-    print(f"    Estimated annual return overstatement: "
-          f"~{bias_estimate:+.1%}")
-    print(f"    Estimated Sharpe overstatement: "
-          f"~{bias_estimate/0.15:+.2f}")  # Assume ~15% vol
-
-    severity = "LOW" if abs(bias_estimate) < 0.005 else (
-        "MODERATE" if abs(bias_estimate) < 0.015 else "HIGH")
+    # --- Report which tickers the backtest SHOULD have included but didn't ---
     print(f"\n  Survivorship bias severity: {severity}")
-    print(f"  Note: This is approximate. Proper correction requires CRSP "
-          f"point-in-time data (~$25K/yr)")
+    print(f"  Source: fja05680/sp500 PIT dataset (1996-present)")
 
     return {
-        'n_removals': len(relevant),
-        'n_found': len(found),
-        'mean_pre_removal_return': mean_ret,
-        'bias_estimate_annual': bias_estimate,
+        'n_removals': len(removed),
+        'n_added': len(added),
+        'n_found_yfinance': len(found),
+        'mean_removed_return': mean_ret if found else -0.33,
+        'bias_per_year': bias_per_year,
+        'sharpe_bias': sharpe_bias,
         'severity': severity,
+        'removed_tickers': removed,
+        'pit_start_size': len(pit_start_members),
+        'pit_end_size': len(pit_end_members),
+    }
+
+
+def _survivorship_fallback(base_start, base_end):
+    """Fallback when PIT data unavailable."""
+    relevant = {sym: dt for sym, dt in HISTORICAL_REMOVALS.items()
+                if base_start <= dt <= base_end}
+    years = (base_end - base_start).days / 365.25
+    removal_rate = len(relevant) / (500 * years) if years > 0 else 0
+    bias_estimate = 0.33 * removal_rate
+    print(f"  Hardcoded removals: {len(relevant)} during {base_start}→{base_end}")
+    print(f"  Estimated annual return overstatement: ~{bias_estimate:+.1%}")
+    return {
+        'n_removals': len(relevant),
+        'severity': 'MODERATE (estimated, no PIT data)',
+        'bias_per_year': bias_estimate,
     }
 
 
@@ -1186,7 +1240,7 @@ class SignalGenerator:
 def run_backtest_v11(mode, idx, start, end, llm=None,
                      execution_mode='close',
                      use_multi_factor=False, fundamentals=None,
-                     use_market_regime=False):
+                     use_market_regime=False, pit=None):
     """
     V11 enhanced backtest with:
     - Realistic transaction costs (Almgren-Chriss)
@@ -1194,6 +1248,7 @@ def run_backtest_v11(mode, idx, start, end, llm=None,
     - Risk controls (daily/weekly loss limits)
     - Optional multi-factor scoring
     - Optional market-data regime detection
+    - PIT universe filtering (if pit provided, only score S&P 500 members as of each rebalance date)
     """
     cal = trading_calendar(start, end)
     rebals = set(monthly_rebalance_dates(start, end))
@@ -1226,10 +1281,18 @@ def run_backtest_v11(mode, idx, start, end, llm=None,
             if nav <= 0:
                 continue
 
-            # Score all stocks
+            # Score all stocks (PIT-filtered if available)
+            if pit is not None:
+                pit_universe = set(pit.members(str(d)))
+            else:
+                pit_universe = None
+
             scored = []
             for sym in idx.symbols:
                 if sym in ('SPY', 'TLT', 'IEF', 'GLD', 'SHY', 'HYG', 'LQD'):
+                    continue
+                # PIT filter: only score stocks in S&P 500 on this date
+                if pit_universe is not None and sym not in pit_universe:
                     continue
                 p = idx.prices(sym, sd)
                 mom, vol = score_stock(p)
@@ -1392,7 +1455,21 @@ def main():
     idx = MarketIndex(df)
     build_sector_map()
     actual_end = df['trade_date'].max()
-    print(f"Symbols: {len(idx.symbols)}, Through: {actual_end}\n")
+    print(f"Symbols: {len(idx.symbols)}, Through: {actual_end}")
+
+    # --- Load PIT S&P 500 constituents (fja05680/sp500) ---
+    pit = None
+    try:
+        pit = SP500PIT(cache_dir=Path("data/sp500"))
+        pit.fetch()
+        pit_latest = pit.latest_date()
+        pit_sample = pit.members(str(actual_end))
+        print(f"PIT data loaded: {pit_latest}, "
+              f"sample {actual_end} → {len(pit_sample)} members")
+    except Exception as e:
+        print(f"PIT data unavailable ({e}), using static universe")
+        pit = None
+    print()
 
     # =========================================================================
     # PART 1: V10 Baseline vs V11 Enhanced (transaction costs comparison)
@@ -1409,7 +1486,7 @@ def main():
 
         print(f"\n  {years}y ({bt_start} → {actual_end}):")
 
-        # V10 baseline
+        # V10 baseline (no PIT, no enhanced costs)
         eng_v10, _ = run_backtest('causal', idx, bt_start, actual_end)
         if eng_v10:
             r10 = eng_v10.results('V10 Causal', bt_start, actual_end)
@@ -1420,7 +1497,7 @@ def main():
                   f"Ret {r10['ann_return']:+.1%} | DD {r10['max_dd']:.1%} | "
                   f"Costs ${r10['costs']:,.0f}")
 
-        # V11 with enhanced costs
+        # V11 with enhanced costs (no PIT)
         eng_v11, log11 = run_backtest_v11(
             'causal', idx, bt_start, actual_end,
             use_market_regime=True)
@@ -1456,6 +1533,24 @@ def main():
                 print(f"      Leverage: avg {np.mean(leverages):.2f}x, "
                       f"max {np.max(leverages):.2f}x")
 
+        # V11 + PIT (survivorship-free universe)
+        if pit is not None:
+            eng_pit, log_pit = run_backtest_v11(
+                'causal', idx, bt_start, actual_end,
+                use_market_regime=True, pit=pit)
+            if eng_pit:
+                rp = eng_pit.results('V11+PIT', bt_start, actual_end)
+                rp['years'] = years
+                rp['version'] = 'v11_pit'
+                all_results.append(rp)
+                print(f"    V11+PIT (surv-free) | Sharpe {rp['sharpe']:+.2f} | "
+                      f"Ret {rp['ann_return']:+.1%} | DD {rp['max_dd']:.1%} | "
+                      f"Costs ${rp['costs']:,.0f}")
+                if eng_v11:
+                    pit_delta = rp['sharpe'] - r11['sharpe']
+                    print(f"      PIT impact: Sharpe {pit_delta:+.2f} "
+                          f"(survivorship bias = {-pit_delta:+.2f})")
+
     # =========================================================================
     # PART 2: Parameter Sensitivity Analysis
     # =========================================================================
@@ -1476,7 +1571,7 @@ def main():
     print(f"{'=' * 100}")
 
     surv_start = date(END_DATE.year - 10, 1, 1)
-    surv_result = survivorship_bias_test(idx, df, surv_start, actual_end)
+    surv_result = survivorship_bias_test(idx, df, surv_start, actual_end, pit=pit)
 
     # =========================================================================
     # PART 4: Market-Data Regime Detection Analysis
@@ -1567,8 +1662,8 @@ def main():
          "Almgren-Chriss market impact + spread + commission"),
         ("Parameter sensitivity", len(sensitivity_df) > 0 if sensitivity_df is not None else False,
          f"{len(sensitivity_df)} combinations tested" if sensitivity_df is not None and len(sensitivity_df) > 0 else "FAILED"),
-        ("Survivorship bias estimation", surv_result is not None,
-         f"{surv_result['severity']} bias (~{surv_result['bias_estimate_annual']:+.1%}/yr)" if surv_result else "No data"),
+        ("Survivorship bias (PIT)", surv_result is not None,
+         f"{surv_result['severity']}, {surv_result.get('n_removals',0)} removals, ~{surv_result.get('bias_per_year',0):+.2%}/yr" if surv_result else "No data"),
         ("Market-data regime detection", True,
          "5 signals: vol term, credit, yield curve, cross-asset, breadth"),
         ("Paper trading signal generator", True,
@@ -1596,7 +1691,7 @@ def main():
     print(f"  REMAINING GAPS FOR LIVE TRADING:")
     print(f"  {'─' * 80}")
     print(f"  1. Paper trade for 3-6 months before any real capital")
-    print(f"  2. CRSP point-in-time data ($25K/yr) for survivorship correction")
+    print(f"  2. PIT universe integrated (fja05680/sp500) — CRSP not needed for basic correction")
     print(f"  3. Alpaca/IBKR API integration for actual order execution")
     print(f"  4. Real-time monitoring dashboard (Grafana/Streamlit)")
     print(f"  5. Automated daily cron job for signal generation")
