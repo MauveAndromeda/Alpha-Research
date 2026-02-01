@@ -40,6 +40,7 @@ Date: 2026-01-31
 import hashlib
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -76,7 +77,7 @@ FAST_VOL_LOOKBACK = 10
 MAX_SECTOR_PCT = 0.40
 MAX_POSITION_WEIGHT = 0.15
 
-DEEPSEEK_API_KEY = "sk-96a72b3dbe8847179659a6cb3c7b65c9"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-96a72b3dbe8847179659a6cb3c7b65c9")
 DEEPSEEK_R1_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_R1_MODEL = "deepseek-reasoner"
 
@@ -229,7 +230,7 @@ class DataFetcher:
 
     def fetch(self, symbols, start, end):
         cache_key = hashlib.md5(
-            f"sp500v10_{len(symbols)}_{start}_{end}".encode()
+            f"sp500v10_{'_'.join(sorted(symbols)[:5])}_{len(symbols)}_{start}_{end}".encode()
         ).hexdigest()[:12]
         cache_file = self.cache_dir / f"sp500v10_{cache_key}.parquet"
         if cache_file.exists():
@@ -367,8 +368,8 @@ def build_sector_map():
 
 def score_stock(prices):
     if prices is None or len(prices) < 260: return None, None
-    mom = prices[-MOM_SKIP] / prices[-MOM_LOOKBACK] - 1
     if prices[-MOM_LOOKBACK] <= 0: return None, None
+    mom = prices[-MOM_SKIP] / prices[-MOM_LOOKBACK] - 1
     n = min(63, len(prices)-1)
     r = np.diff(prices[-n-1:]) / prices[-n-1:-1]
     vol = np.std(r) * np.sqrt(252) if len(r) > 0 else 0.3
@@ -1496,7 +1497,7 @@ def bootstrap_sharpe_test(daily_returns, n_bootstrap=10000, confidence=0.95):
         mean_r = np.mean(sample)
         std_r = np.std(sample, ddof=1)
         if std_r > 0:
-            sharpes.append(mean_r / std_r * np.sqrt(252))
+            sharpes.append((mean_r - RISK_FREE_RATE/252) / std_r * np.sqrt(252))
 
     sharpes = np.array(sharpes)
     if len(sharpes) == 0:
@@ -1573,22 +1574,23 @@ def run_oos_international(end_date, years=10):
     SECTOR_MAP.update(intl_sectors)
 
     results = []
-    for test_years in [3, 5, 10]:
-        bt_start = max(date(end_date.year - test_years, end_date.month, 1),
-                       df['trade_date'].min() + timedelta(days=380))
-        if bt_start >= actual_end:
-            continue
+    try:
+        for test_years in [3, 5, 10]:
+            bt_start = max(date(end_date.year - test_years, end_date.month, 1),
+                           df['trade_date'].min() + timedelta(days=380))
+            if bt_start >= actual_end:
+                continue
 
-        # Run with simplified quant mode (no supply chain for intl)
-        eng, _ = run_backtest('quant', idx, bt_start, actual_end)
-        if eng:
-            r = eng.results(f"Intl {test_years}y", bt_start, actual_end)
-            r['years'] = test_years
-            r['market'] = 'International'
-            results.append(r)
-
-    # Restore
-    SECTOR_MAP = old_sector_map
+            # Run with simplified quant mode (no supply chain for intl)
+            eng, _ = run_backtest('quant', idx, bt_start, actual_end)
+            if eng:
+                r = eng.results(f"Intl {test_years}y", bt_start, actual_end)
+                r['years'] = test_years
+                r['market'] = 'International'
+                results.append(r)
+    finally:
+        # Restore global state even if exception occurs
+        SECTOR_MAP = old_sector_map
     return results
 
 
@@ -1746,9 +1748,9 @@ def run_institutional_audit(idx, df, all_results, actual_end):
         wf_pass = pct_positive >= 0.60 and avg_sharpe > 0
         print(f"    Walk-Forward: {'PASS ✓' if wf_pass else 'FAIL ✗'}")
 
-        # Store daily returns for bootstrap
+        # Store walk-forward result for verdict
         if mode == 'causal':
-            causal_daily = all_daily
+            wf_pct_positive = pct_positive
 
     # --- 3B: Deflated Sharpe & Bootstrap ---
     print(f"\n  {'─' * 80}")
@@ -1876,7 +1878,7 @@ def run_institutional_audit(idx, df, all_results, actual_end):
     print(f"  {'─' * 80}")
 
     verdicts = []
-    verdicts.append(("Walk-Forward >60% positive", pct_positive >= 0.60 if 'pct_positive' in dir() else False))
+    verdicts.append(("Walk-Forward >60% positive", wf_pct_positive >= 0.60 if 'wf_pct_positive' in dir() else False))
     verdicts.append(("Bias Audit >80%", n_pass / n_total >= 0.80))
     # DD check: use 15.5% threshold (15% + 0.5% tolerance for estimation noise)
     verdicts.append(("DD<15% on 3/5/10y (±0.5% tolerance)", all(
