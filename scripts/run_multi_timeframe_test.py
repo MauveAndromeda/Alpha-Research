@@ -21,6 +21,7 @@ Date: 2026-01-31
 """
 
 import hashlib
+import os
 import logging
 import sys
 import warnings
@@ -58,7 +59,7 @@ MAX_SECTOR_PCT = 0.40
 MAX_POSITION_WEIGHT = 0.10
 SMA_WINDOW = 200  # For SMA200 regime filter
 
-DEEPSEEK_API_KEY = "sk-96a72b3dbe8847179659a6cb3c7b65c9"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_R1_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_R1_MODEL = "deepseek-reasoner"
 

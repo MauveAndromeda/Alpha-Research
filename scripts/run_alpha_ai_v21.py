@@ -537,7 +537,7 @@ def compute_metrics(port_returns: pd.Series, bench_returns: pd.Series) -> Dict:
 
 def main():
     # Default API key (user provided)
-    DEFAULT_API_KEY = "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"
+    DEFAULT_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--start', default='2024-01-01')

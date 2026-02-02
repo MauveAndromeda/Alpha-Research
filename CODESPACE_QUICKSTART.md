@@ -29,11 +29,11 @@ python scripts/codespace_backtest.py --years 3 --capital 100000 --slippage 5 --r
 
 ## DeepSeek API 配置
 
-API Key 已硬编码在脚本中:
-- **位置**: `scripts/codespace_backtest.py` 第 50-52 行
-- **当前 Key**: `sk-cfd0929086bd4661a39ec7d4bb29ca`
+API Key 必须通过环境变量设置:
+- **环境变量**: `DEEPSEEK_API_KEY`
+- **当前 Key**: `<set via DEEPSEEK_API_KEY env var>`
 
-如需更换 API Key，直接修改脚本中的 `DEEPSEEK_API_KEY` 变量。
+如需配置 API Key，请设置环境变量 `export DEEPSEEK_API_KEY="your-key-here"`。
 
 ## 回测特性
 

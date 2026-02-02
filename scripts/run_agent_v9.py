@@ -37,6 +37,7 @@ Date: 2026-01-31
 """
 
 import hashlib
+import os
 import json
 import logging
 import sys
@@ -84,7 +85,7 @@ MAX_SECTOR_PCT = 0.40
 MAX_POSITION_WEIGHT = 0.15
 MAX_DD_LIMIT = 0.15
 
-DEEPSEEK_API_KEY = "sk-96a72b3dbe8847179659a6cb3c7b65c9"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
 TIMEFRAMES_QUANT = [3, 5, 10, 15, 20]
 LLM_TEST_MONTHS = 12

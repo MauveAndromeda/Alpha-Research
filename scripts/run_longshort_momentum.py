@@ -33,6 +33,7 @@ Date: 2026-01-30
 import argparse
 import asyncio
 import hashlib
+import os
 import json
 import logging
 import re
@@ -53,7 +54,7 @@ from scipy import stats
 # Configuration
 # =============================================================================
 
-DEEPSEEK_API_KEY = "sk-96a72b3dbe8847179659a6cb3c7b65c9"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_R1_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_R1_MODEL = "deepseek-reasoner"
 

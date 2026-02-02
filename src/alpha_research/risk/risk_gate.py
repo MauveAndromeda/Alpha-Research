@@ -98,6 +98,7 @@ class RiskGate:
         portfolio_var: Optional[float] = None,
         new_positions_corr: Optional[Dict[str, float]] = None,
         evaluation_date: Optional[date] = None,
+        now: Optional[datetime] = None,
     ) -> RiskDecision:
         """
         Evaluate risk limits and return decision.
@@ -111,8 +112,11 @@ class RiskGate:
         Returns:
             RiskDecision with action and parameters
         """
+        # Use provided `now` for deterministic backtesting; fall back to wall-clock.
+        _now = now if now is not None else datetime.now()
+
         if evaluation_date is None:
-            evaluation_date = datetime.now().date()
+            evaluation_date = _now.date() if hasattr(_now, 'date') else _now
 
         reasons = []
         errors = []
@@ -121,8 +125,8 @@ class RiskGate:
         self._update_nav_tracking(current_nav, evaluation_date)
 
         # Check cooldown
-        if self._cooldown_until and datetime.now() < self._cooldown_until:
-            remaining = (self._cooldown_until - datetime.now()).days
+        if self._cooldown_until and _now < self._cooldown_until:
+            remaining = (self._cooldown_until - _now).days
             return RiskDecision(
                 action=RiskAction.KILL_SWITCH,
                 scale_factor=0.0,
@@ -133,7 +137,7 @@ class RiskGate:
         # 1. Check drawdown
         dd_decision = self._check_drawdown()
         if dd_decision.action == RiskAction.KILL_SWITCH:
-            self._cooldown_until = datetime.now() + timedelta(days=self.cooldown_days)
+            self._cooldown_until = _now + timedelta(days=self.cooldown_days)
             dd_decision.cooldown_until = self._cooldown_until
             errors.append(ErrorCode.E_RISK_KILL_SWITCH_TRIGGERED)
             return dd_decision
