@@ -157,14 +157,20 @@ def main():
     artifacts_dir = _REPO_ROOT / "artifacts" / "atrp_l"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Fetch data
+    # 1. Fetch data (with fallback)
+    market_data = None
     if args.provider == "stooq":
-        market_data = fetch_stooq(ALL_SYMBOLS, start_date, end_date)
-    else:
+        try:
+            market_data = fetch_stooq(ALL_SYMBOLS, start_date, end_date)
+        except Exception as e:
+            logger.warning("Stooq failed (%s), falling back to yfinance", e)
+    if market_data is None or len(market_data) == 0:
+        if args.provider == "stooq":
+            logger.info("Stooq returned no data, trying yfinance fallback...")
         market_data = fetch_yfinance(ALL_SYMBOLS, start_date, end_date)
 
     if market_data is None or len(market_data) == 0:
-        logger.error("No market data fetched. Exiting.")
+        logger.error("No market data fetched from any provider. Exiting.")
         sys.exit(1)
 
     logger.info(

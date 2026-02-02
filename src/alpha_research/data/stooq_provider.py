@@ -1,15 +1,19 @@
 """
 Stooq data provider for Alpha Research Trading System.
 
-Uses pandas-datareader to fetch FREE market data from Stooq.
+Fetches FREE market data directly from Stooq CSV endpoint.
+No dependency on pandas-datareader (which is broken with pandas>=2).
 """
 
+import io
 import logging
+import time
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+import requests
 
 from alpha_research.data.providers import DataCache, DataProvider, RateLimiter, with_retry
 
@@ -24,26 +28,22 @@ _STOOQ_SUFFIX = {
     "AGG": "AGG.US", "QQQ": "QQQ.US", "IWM": "IWM.US",
 }
 
+_STOOQ_URL = "https://stooq.com/q/d/l/?s={ticker}&d1={d1}&d2={d2}&i=d"
+
 
 def _to_stooq_ticker(symbol: str) -> str:
     """Convert a standard ticker to Stooq format."""
     upper = symbol.upper().strip()
     if upper in _STOOQ_SUFFIX:
         return _STOOQ_SUFFIX[upper]
-    # Generic: append .US if no suffix present
     if "." not in upper:
         return f"{upper}.US"
     return upper
 
 
-def _from_stooq_ticker(stooq_ticker: str) -> str:
-    """Convert Stooq ticker back to standard format."""
-    return stooq_ticker.replace(".US", "").upper()
-
-
 class StooqDataProvider(DataProvider):
     """
-    FREE data provider using Stooq via pandas-datareader.
+    FREE data provider using Stooq CSV endpoint (no pandas-datareader needed).
 
     Features:
     - Disk caching via DataCache
@@ -56,19 +56,16 @@ class StooqDataProvider(DataProvider):
         self,
         cache_enabled: bool = True,
         cache_ttl_hours: int = 12,
-        rate_limit: float = 1.0,
+        rate_limit: float = 0.5,
     ):
-        try:
-            import pandas_datareader  # noqa: F401
-        except ImportError:
-            raise ImportError(
-                "pandas-datareader is required. Install with: pip install pandas-datareader"
-            )
-
         self.cache_enabled = cache_enabled
         self.cache = DataCache(default_ttl_hours=cache_ttl_hours) if cache_enabled else None
         self.rate_limiter = RateLimiter(requests_per_second=rate_limit)
         self._provider_name = "stooq"
+        self._session = requests.Session()
+        self._session.headers.update({
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+        })
 
     def get_market_data(
         self,
@@ -100,6 +97,7 @@ class StooqDataProvider(DataProvider):
             try:
                 recs = self._fetch_symbol(symbol, start_date, end_date, asof_time)
                 all_records.extend(recs)
+                logger.info("Stooq: %s -> %d rows", symbol, len(recs))
             except Exception as e:
                 logger.warning("Stooq fetch failed for %s: %s", symbol, e)
                 failed.append(symbol)
@@ -116,7 +114,7 @@ class StooqDataProvider(DataProvider):
 
         return df
 
-    @with_retry(max_attempts=3, base_delay=2.0, exponential=True)
+    @with_retry(max_attempts=3, base_delay=3.0, exponential=True)
     def _fetch_symbol(
         self,
         symbol: str,
@@ -124,39 +122,56 @@ class StooqDataProvider(DataProvider):
         end_date: date,
         asof_time: datetime,
     ) -> List[Dict]:
-        from pandas_datareader.data import DataReader
-
         if not self.rate_limiter.acquire(timeout=30.0):
             raise RuntimeError(f"Rate limit timeout for {symbol}")
 
-        stooq_ticker = _to_stooq_ticker(symbol)
-        raw = DataReader(stooq_ticker, "stooq", start_date, end_date)
+        stooq_ticker = _to_stooq_ticker(symbol).lower()
+        d1 = start_date.strftime("%Y%m%d")
+        d2 = end_date.strftime("%Y%m%d")
+        url = _STOOQ_URL.format(ticker=stooq_ticker, d1=d1, d2=d2)
+
+        resp = self._session.get(url, timeout=30)
+        resp.raise_for_status()
+
+        text = resp.text.strip()
+        if not text or "No data" in text or len(text) < 50:
+            logger.warning("Stooq: no data for %s", symbol)
+            return []
+
+        raw = pd.read_csv(io.StringIO(text))
 
         if raw is None or raw.empty:
             return []
 
-        # Stooq returns newest-first; sort ascending
-        raw = raw.sort_index()
+        # Normalise column names (Stooq returns Date,Open,High,Low,Close,Volume)
+        raw.columns = [c.strip().lower() for c in raw.columns]
+
+        if "date" not in raw.columns:
+            return []
+
+        raw["date"] = pd.to_datetime(raw["date"])
+        raw = raw.sort_values("date")
 
         records = []
         canonical = symbol.upper().strip()
-        for idx, row in raw.iterrows():
-            trade_date = idx.date() if hasattr(idx, "date") else idx
-            records.append(
-                {
-                    "symbol": canonical,
-                    "trade_date": trade_date,
-                    "date": trade_date,
-                    "open": float(row.get("Open", row.get("Close", 0))),
-                    "high": float(row.get("High", row.get("Close", 0))),
-                    "low": float(row.get("Low", row.get("Close", 0))),
-                    "close": float(row["Close"]),
-                    "volume": int(row.get("Volume", 0)),
-                    "adj_close": float(row["Close"]),
-                    "asof_time": asof_time,
-                    "available_at": asof_time,
-                }
-            )
+        for _, row in raw.iterrows():
+            trade_date = row["date"].date()
+            close_val = float(row.get("close", 0))
+            if close_val <= 0:
+                continue
+            records.append({
+                "symbol": canonical,
+                "trade_date": trade_date,
+                "date": trade_date,
+                "open": float(row.get("open", close_val)),
+                "high": float(row.get("high", close_val)),
+                "low": float(row.get("low", close_val)),
+                "close": close_val,
+                "volume": int(row.get("volume", 0)),
+                "adj_close": close_val,
+                "asof_time": asof_time,
+                "available_at": asof_time,
+            })
         return records
 
     def get_fundamental_data(
@@ -167,7 +182,6 @@ class StooqDataProvider(DataProvider):
         """Stooq does not provide fundamentals; return empty frame."""
         return pd.DataFrame()
 
-    # ------------------------------------------------------------------
     @staticmethod
     def _add_derived_fields(df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
