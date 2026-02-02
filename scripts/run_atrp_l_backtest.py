@@ -182,6 +182,21 @@ def main():
     )
 
     # 2. Run backtest
+    # ATRP-L has its own risk controls (trend filter, fast-vol, correlation regime),
+    # so we relax the engine-level RiskGate to avoid double-counting risk reduction.
+    # Default thresholds (8%/12%/15%) are calibrated for single-stock portfolios;
+    # a diversified multi-asset portfolio needs wider thresholds.
+    risk_gate_config = {
+        "drawdown": {
+            "level_1": {"mdd_threshold": 0.15, "scale_multiplier": 0.75},
+            "level_2": {"mdd_threshold": 0.20, "scale_multiplier": 0.50},
+            "kill_switch": {"mdd_threshold": 0.25, "cooldown_days": 10},
+        },
+        "var": {"var95_max": 0.08, "consecutive_days_to_trigger": 5, "reduce_multiplier": 0.50},
+        "correlation": {"max_new_position_corr_with_portfolio": 0.90},
+        "monthly_loss": {"threshold": -0.15},
+    }
+
     engine = BacktestEngine(
         initial_capital=args.capital,
         rebalance_frequency=args.rebalance,
@@ -195,6 +210,7 @@ def main():
         slippage_model=SlippageModel.FIXED,
         base_slippage_bps=args.cost_bps,
         max_position_weight=0.50,  # Multi-asset allows concentrated positions
+        risk_gate_config=risk_gate_config,
     )
 
     weights_fn = make_atrp_l_weights_fn(

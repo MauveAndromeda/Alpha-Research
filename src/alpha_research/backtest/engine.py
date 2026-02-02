@@ -178,6 +178,8 @@ class BacktestEngine:
         borrow_rate_annual: float = 0.05,
         # Cost override (flat bps per trade, alternative to per-share)
         cost_bps: Optional[float] = None,
+        # RiskGate configuration override
+        risk_gate_config: Optional[Dict] = None,
     ):
         # Validate anti-lookahead parameters (Constitutional requirement)
         if signal_delay_days < 1:
@@ -219,7 +221,7 @@ class BacktestEngine:
         # Components
         self.core_calculator = CoreScoreCalculator()
         self.portfolio_constructor = PortfolioConstructor()
-        self.risk_gate = RiskGate()
+        self.risk_gate = RiskGate(config=risk_gate_config) if risk_gate_config else RiskGate()
 
         # State
         self._cash = initial_capital
