@@ -161,21 +161,28 @@ class DataFetcher:
         logger.info(f"Downloading {symbols}...")
 
         all_records = []
-        for sym in symbols:
-            try:
-                data = yf.download(sym, start=fetch_start, end=end,
-                                   auto_adjust=True, progress=False)
-                if data.empty: continue
-                for idx_dt, row in data.iterrows():
-                    if pd.notna(row.get('Close')):
-                        all_records.append({
-                            'symbol': sym,
-                            'trade_date': idx_dt.date(),
-                            'close': float(row['Close']),
-                            'volume': int(row.get('Volume', 0))
-                        })
-            except Exception as e:
-                logger.warning(f"Failed to fetch {sym}: {e}")
+        # Download all at once
+        try:
+            data = yf.download(symbols, start=fetch_start, end=end,
+                               auto_adjust=True, progress=False, group_by='ticker')
+            if len(data) > 0:
+                for sym in symbols:
+                    try:
+                        if len(symbols) == 1:
+                            sc = data['Close'].dropna()
+                        else:
+                            sc = data[sym]['Close'].dropna()
+                        for idx_dt, price in sc.items():
+                            all_records.append({
+                                'symbol': sym,
+                                'trade_date': idx_dt.date(),
+                                'close': float(price),
+                                'volume': 0
+                            })
+                    except Exception as e2:
+                        logger.warning(f"Failed to parse {sym}: {e2}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch: {e}")
 
         if not all_records:
             raise RuntimeError("No data")
