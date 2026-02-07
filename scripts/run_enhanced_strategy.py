@@ -421,7 +421,9 @@ def run_baseline_comparison():
     end = datetime.now()
     start = end - timedelta(days=365*15)
 
-    data = yf.download('SPY', start=start, end=end, auto_adjust=True, progress=False)['Close']
+    data = yf.download('SPY', start=start, end=end, auto_adjust=True, progress=False)
+    if isinstance(data, pd.DataFrame) and 'Close' in data.columns:
+        data = data['Close']
     monthly = data.resample('ME').last()
 
     for years in [3, 5, 10]:
@@ -432,13 +434,16 @@ def run_baseline_comparison():
         test_data = monthly.iloc[-(lookback+1):]
         returns = test_data.pct_change().dropna()
 
-        ann_ret = (1 + returns.mean()) ** 12 - 1
-        ann_vol = returns.std() * np.sqrt(12)
+        mean_ret = float(returns.mean())
+        std_ret = float(returns.std())
+
+        ann_ret = (1 + mean_ret) ** 12 - 1
+        ann_vol = std_ret * np.sqrt(12)
         sharpe = ann_ret / ann_vol if ann_vol > 0 else 0
 
         cum = (1 + returns).cumprod()
         peak = cum.expanding().max()
-        dd = ((cum - peak) / peak).min()
+        dd = float(((cum - peak) / peak).min())
 
         print(f"  {years}y: Sharpe {sharpe:.2f} | Ret {ann_ret*100:.1f}% | DD {dd*100:.1f}%")
 
