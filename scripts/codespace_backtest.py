@@ -194,8 +194,8 @@ AGGRESSIVE_CONFIG = {
 # =============================================================================
 BALANCED_CONFIG = {
     'rebalance': 'monthly',          # 月度再平衡 (降低换手)
-    'target_holdings': 20,           # 持仓20支 (分散风险)
-    'max_position_weight': 0.08,     # 单一仓位最高8%
+    'target_holdings': 15,           # 持仓15支 (匹配可用数据)
+    'max_position_weight': 0.10,     # 单一仓位最高10%
     'momentum_lookback': 252,        # 12-1个月动量 (经典动量因子)
     'use_leveraged_etfs': False,
     'use_crypto': False,
@@ -203,7 +203,8 @@ BALANCED_CONFIG = {
     'factor_weights': {'quality': 0.35, 'momentum': 0.40, 'value': 0.25},
     'use_risk_parity': True,         # 启用风险平价加权
     'vol_target': 0.15,              # 目标年化波动率15%
-    'turnover_cap': 0.30,            # 单次换手上限30%
+    'turnover_cap': 0.25,            # 单次换手上限25% (更严格)
+    'min_weight_change': 0.03,       # 忽略小于3%的权重变化
 }
 
 # =============================================================================
@@ -247,11 +248,11 @@ if STRATEGY_MODE == 'AGGRESSIVE':
 elif STRATEGY_MODE == 'BALANCED':
     DRAWDOWN_CONTROL = {
         'enabled': True,
-        'defensive_allocation': 0.20,    # 20%防守资产
-        'max_equity_weight': 0.80,       # 80%股票
-        'drawdown_threshold': 0.10,      # 10%回撤触发减仓
-        'drawdown_scale_factor': 0.7,    # 回撤时减至70%仓位
-        'momentum_filter': True,
+        'defensive_allocation': 0.15,    # 15%防守资产 (减少频繁调整)
+        'max_equity_weight': 0.85,       # 85%股票
+        'drawdown_threshold': 0.15,      # 15%回撤触发减仓 (放宽阈值)
+        'drawdown_scale_factor': 0.80,   # 回撤时减至80%仓位 (更温和)
+        'momentum_filter': False,        # 禁用动量过滤 (减少换手)
     }
 else:  # CONSERVATIVE
     DRAWDOWN_CONTROL = {
@@ -1225,8 +1226,18 @@ class BacktestEngine:
             )
             return
 
-        # 选择前 N 名股票
-        top_scores = scores.nlargest(self.target_holdings, 'score_core')
+        # 选择前 N 名股票 (优先保留现有持仓以减少换手)
+        # 给现有持仓加分，减少不必要的换手
+        current_holdings = set(self._positions.keys()) - set(self.defensive_assets)
+        if current_holdings and STRATEGY_MODE != 'AGGRESSIVE':
+            # 现有持仓加 0.05 分 (约等于排名提升5-10位)
+            scores['holding_bonus'] = scores['symbol'].apply(
+                lambda s: 0.05 if s in current_holdings else 0
+            )
+            scores['score_adjusted'] = scores['score_core'] + scores['holding_bonus']
+            top_scores = scores.nlargest(self.target_holdings, 'score_adjusted')
+        else:
+            top_scores = scores.nlargest(self.target_holdings, 'score_core')
 
         # 3. 配置股票 (剩余配额)
         equity_nav = nav * equity_allocation
@@ -1280,6 +1291,25 @@ class BacktestEngine:
                 target_shares = int(target_value / current_prices[symbol])
                 if target_shares > 0:
                     target_positions[symbol] = target_shares
+
+        # 过滤小权重变化 (减少不必要交易)
+        min_weight_change = ACTIVE_CONFIG.get('min_weight_change', 0.0)
+        if min_weight_change > 0:
+            filtered_positions = {}
+            for symbol, shares in target_positions.items():
+                current_shares = self._positions.get(symbol, 0)
+                if symbol in current_prices and current_prices[symbol] > 0:
+                    current_value = current_shares * current_prices[symbol]
+                    target_value = shares * current_prices[symbol]
+                    weight_change = abs(target_value - current_value) / nav if nav > 0 else 0
+                    # 只保留变化超过阈值的，或者是新建仓/清仓
+                    if weight_change >= min_weight_change or current_shares == 0 or shares == 0:
+                        filtered_positions[symbol] = shares
+                    else:
+                        # 保持原有持仓
+                        if current_shares > 0:
+                            filtered_positions[symbol] = current_shares
+            target_positions = filtered_positions
 
         # 换手控制: 限制单次换手比例
         turnover_cap = ACTIVE_CONFIG.get('turnover_cap', 1.0)  # 默认无限制
