@@ -295,12 +295,21 @@ def strategy_crypto_momentum():
     positions = []
 
     for i in range(1, len(monthly_close)-1):
-        price = monthly_close.iloc[i]
-        ma50_val = monthly_ma50.iloc[i]
-        ma200_val = monthly_ma200.iloc[i]
+        try:
+            price = float(monthly_close.iloc[i])
+            ma50_raw = monthly_ma50.iloc[i]
+            ma200_raw = monthly_ma200.iloc[i]
+
+            # 处理可能是Series的情况
+            ma50_val = float(ma50_raw.iloc[0]) if hasattr(ma50_raw, 'iloc') else float(ma50_raw)
+            ma200_val = float(ma200_raw.iloc[0]) if hasattr(ma200_raw, 'iloc') else float(ma200_raw)
+        except:
+            ma50_val = np.nan
+            ma200_val = np.nan
+            price = 0
 
         # 趋势判断
-        if pd.isna(ma50_val) or pd.isna(ma200_val):
+        if np.isnan(ma50_val) or np.isnan(ma200_val) or price == 0:
             position = 0.5  # 数据不足，半仓
         elif price > ma50_val and ma50_val > ma200_val:
             position = 1.0  # 强趋势，全仓
@@ -310,7 +319,10 @@ def strategy_crypto_momentum():
             position = 0.0  # 趋势向下，空仓
 
         # 计算收益
-        next_price = monthly_close.iloc[i+1]
+        try:
+            next_price = float(monthly_close.iloc[i+1])
+        except:
+            next_price = price
         btc_ret = (next_price / price) - 1 if price > 0 else 0
 
         ret = position * btc_ret
@@ -326,7 +338,12 @@ def strategy_crypto_momentum():
         return None
 
     # BTC买入持有对比
-    btc_total = (monthly_close.iloc[-1] / monthly_close.iloc[1]) - 1 if len(monthly_close) > 1 else 0
+    try:
+        btc_end = float(monthly_close.iloc[-1])
+        btc_start = float(monthly_close.iloc[1])
+        btc_total = (btc_end / btc_start) - 1 if btc_start > 0 else 0
+    except:
+        btc_total = 0
 
     print(f"  期间: {metrics['n_months']}个月")
     print(f"  策略年化: {metrics['ann_ret']*100:+.1f}%")
