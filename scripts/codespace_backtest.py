@@ -172,23 +172,23 @@ BACKTEST_YEARS = 3
 AGGRESSIVE_MODE = True  # 开启激进模式
 
 AGGRESSIVE_CONFIG = {
-    'rebalance': 'daily',          # 日度再平衡 (抓短期趋势)
-    'target_holdings': 3,           # 超集中: 只持3支
-    'max_position_weight': 0.50,    # 单一仓位最高50%
-    'momentum_lookback': 10,        # 10日动量 (超短期)
+    'rebalance': 'weekly',          # 周度再平衡 (降低换手率!)
+    'target_holdings': 5,            # 持仓5支 (分散风险)
+    'max_position_weight': 0.35,     # 单一仓位最高35%
+    'momentum_lookback': 10,         # 10日动量
     'use_leveraged_etfs': True,
     'use_crypto': True,
-    'use_commodities': True,        # 使用商品
+    'use_commodities': True,
 }
 
-# 回撤控制参数 (优化版 - 降低DD同时保持高收益)
+# 回撤控制参数 (优化版 - 更激进的恢复)
 DRAWDOWN_CONTROL = {
-    'enabled': True,                # 启用回撤控制
-    'defensive_allocation': 0.0,    # 无防守资产
-    'max_equity_weight': 1.0,       # 100% 激进资产
-    'drawdown_threshold': 0.20,     # 20% 回撤触发减仓
-    'drawdown_scale_factor': 0.5,   # 回撤时减半仓位
-    'momentum_filter': True,        # 动量过滤 (趋势向下时减仓)
+    'enabled': True,                 # 启用回撤控制
+    'defensive_allocation': 0.0,     # 无防守资产
+    'max_equity_weight': 1.0,        # 100% 激进资产
+    'drawdown_threshold': 0.25,      # 25% 回撤触发减仓 (放宽)
+    'drawdown_scale_factor': 0.6,    # 回撤时减至60%仓位
+    'momentum_filter': True,         # 动量过滤
 }
 
 
