@@ -103,38 +103,52 @@ DEFENSIVE_ASSETS = [
 ]
 
 # =============================================================================
-# 🚀 激进版股票池 (杠杆ETF + 加密货币) - 目标: 年化10倍+
+# 🚀 超激进版股票池 (杠杆ETF + 商品期货 + 加密) - 目标: 年化100%+
 # =============================================================================
 
 AGGRESSIVE_UNIVERSE = [
-    # 3倍杠杆ETF (高波动高收益)
-    'TQQQ',   # 3x 纳斯达克100
-    'UPRO',   # 3x 标普500
-    'SOXL',   # 3x 半导体
-    'TECL',   # 3x 科技
+    # ========== 3倍杠杆股票ETF (核心) ==========
+    'TQQQ',   # 3x 纳斯达克100 (最佳流动性)
+    'SOXL',   # 3x 半导体 (AI热潮)
     'FNGU',   # 3x FANG+
-    'LABU',   # 3x 生物科技
-    'TNA',    # 3x 小盘股
-    'UDOW',   # 3x 道琼斯
-    'SPXL',   # 3x 标普500
-    'WEBL',   # 3x 互联网
+    'TECL',   # 3x 科技
+    'UPRO',   # 3x 标普500
 
-    # 加密货币 (通过ETF/信托)
+    # ========== 商品期货ETF (IBKR支持, 10倍+杠杆) ==========
+    # 原油 - 最高波动, IBKR CL期货可20倍杠杆
+    'USO',    # 原油ETF (1x)
+    'UCO',    # 2x 原油
+    'SCO',    # -2x 原油 (做空)
+
+    # 天然气 - 极高波动, IBKR NG期货可15倍杠杆
+    'UNG',    # 天然气ETF (1x)
+    'BOIL',   # 2x 天然气
+    'KOLD',   # -2x 天然气 (做空)
+
+    # 黄金/白银 - IBKR GC/SI期货可10倍杠杆
+    'GLD',    # 黄金ETF
+    'NUGT',   # 3x 金矿
+    'JNUG',   # 3x 初级金矿
+    'SLV',    # 白银ETF
+    'AGQ',    # 2x 白银
+
+    # 农产品 - IBKR ZC/ZS期货可10倍杠杆
+    'CORN',   # 玉米ETF
+    'SOYB',   # 大豆ETF
+    'WEAT',   # 小麦ETF
+
+    # ========== 加密货币 (高波动) ==========
     'BITO',   # 比特币期货ETF
-    'GBTC',   # Grayscale 比特币信托
-    'ETHE',   # Grayscale 以太坊信托
-    'MSTR',   # MicroStrategy (比特币代理)
+    'MSTR',   # MicroStrategy (比特币代理, 杠杆效应)
     'COIN',   # Coinbase
-    'MARA',   # Marathon Digital (比特币矿企)
-    'RIOT',   # Riot Platforms (比特币矿企)
-    'CLSK',   # CleanSpark (比特币矿企)
+    'MARA',   # 比特币矿企
+    'RIOT',   # 比特币矿企
 
-    # 高波动科技股
-    'NVDA', 'AMD', 'TSLA', 'PLTR', 'ARM', 'SMCI',
-
-    # 2倍杠杆 (稍保守)
-    'QLD',    # 2x 纳斯达克100
-    'SSO',    # 2x 标普500
+    # ========== 高波动科技股 ==========
+    'NVDA',   # 英伟达 (AI龙头)
+    'TSLA',   # 特斯拉
+    'AMD',    # AMD
+    'SMCI',   # 超微电脑
 ]
 
 # 完整股票池
@@ -152,27 +166,29 @@ DEFAULT_TARGET_HOLDINGS = 20
 BACKTEST_YEARS = 3
 
 # =============================================================================
-# 🚀 激进版参数 (目标: 年化10倍+, 可能归零!)
+# 🚀 超激进版参数 (目标: 年化100%+, 最大回撤<40%)
 # =============================================================================
 
 AGGRESSIVE_MODE = True  # 开启激进模式
 
 AGGRESSIVE_CONFIG = {
-    'rebalance': 'weekly',        # 周度再平衡抓趋势
-    'target_holdings': 5,          # 集中持仓5支
-    'max_position_weight': 0.30,   # 单一仓位最高30%
-    'momentum_lookback': 20,       # 20日动量 (更激进)
-    'use_leveraged_etfs': True,    # 使用杠杆ETF
-    'use_crypto': True,            # 使用加密货币
+    'rebalance': 'daily',          # 日度再平衡 (抓短期趋势)
+    'target_holdings': 3,           # 超集中: 只持3支
+    'max_position_weight': 0.50,    # 单一仓位最高50%
+    'momentum_lookback': 10,        # 10日动量 (超短期)
+    'use_leveraged_etfs': True,
+    'use_crypto': True,
+    'use_commodities': True,        # 使用商品
 }
 
-# 回撤控制参数 (激进版关闭)
+# 回撤控制参数 (优化版 - 降低DD同时保持高收益)
 DRAWDOWN_CONTROL = {
-    'enabled': False,              # 激进模式关闭回撤控制
-    'defensive_allocation': 0.0,   # 不配置防守资产
-    'max_equity_weight': 1.0,      # 100% 股票
-    'drawdown_threshold': 0.50,    # 50% 才触发 (几乎不触发)
-    'drawdown_scale_factor': 0.8,  # 只减少20%
+    'enabled': True,                # 启用回撤控制
+    'defensive_allocation': 0.0,    # 无防守资产
+    'max_equity_weight': 1.0,       # 100% 激进资产
+    'drawdown_threshold': 0.20,     # 20% 回撤触发减仓
+    'drawdown_scale_factor': 0.5,   # 回撤时减半仓位
+    'momentum_filter': True,        # 动量过滤 (趋势向下时减仓)
 }
 
 
@@ -629,33 +645,41 @@ def calculate_momentum_score(market_data: pd.DataFrame, symbol: str, as_of_date:
     prices = symbol_data['close'].values
 
     if AGGRESSIVE_MODE:
-        # 🚀 激进模式: 短期动量 (20日 + 5日)
+        # 🚀 超激进模式: 超短期动量 (10日 + 3日)
+        if len(prices) >= 10:
+            ret_10d = prices[-1] / prices[-10] - 1  # 10日收益
+        else:
+            ret_10d = 0
+
+        if len(prices) >= 3:
+            ret_3d = prices[-1] / prices[-3] - 1   # 3日收益 (超短期)
+        else:
+            ret_3d = 0
+
+        # 计算波动率调整动量 (高波动品种给更高分)
         if len(prices) >= 20:
-            ret_20d = prices[-1] / prices[-20] - 1  # 20日收益
+            volatility = np.std(np.diff(prices[-20:]) / prices[-20:-1]) * np.sqrt(252)
         else:
-            ret_20d = 0
+            volatility = 0.3  # 默认30%波动率
 
-        if len(prices) >= 5:
-            ret_5d = prices[-1] / prices[-5] - 1   # 5日收益
-        else:
-            ret_5d = 0
+        # 动量 = 趋势强度 (波动率调整)
+        raw_momentum = ret_10d + ret_3d * 0.8
+        # 高波动品种获得加成 (商品/加密货币优势)
+        momentum = raw_momentum * (1 + min(volatility, 1.0))
 
-        # 动量 = 短期趋势强度
-        momentum = ret_20d + ret_5d * 0.5  # 加权短期动量
-
-        # 激进评分: 更敏感的阈值
-        if momentum > 0.20:
-            score = 0.95
-        elif momentum > 0.10:
-            score = 0.85
-        elif momentum > 0.05:
-            score = 0.70
+        # 超激进评分: 只要涨就追
+        if momentum > 0.15:
+            score = 0.99  # 强趋势
+        elif momentum > 0.08:
+            score = 0.90
+        elif momentum > 0.03:
+            score = 0.75
         elif momentum > 0:
-            score = 0.55
-        elif momentum > -0.10:
-            score = 0.35
+            score = 0.60
+        elif momentum > -0.05:
+            score = 0.30  # 弱势减分
         else:
-            score = 0.1
+            score = 0.05  # 下跌重罚
     else:
         # 保守模式: 12个月收益 (剔除最近1个月)
         if len(prices) >= 252:
@@ -989,16 +1013,40 @@ class BacktestEngine:
         current_prices: Dict[str, float],
         symbols: List[str],
     ):
-        """执行再平衡 (优化版 - 包含防守资产和回撤控制)"""
+        """执行再平衡 (超激进版 - 动量过滤 + 回撤控制)"""
         # 获取当前 NAV 和回撤
         nav = self._calculate_nav(current_prices)
         self._current_drawdown = (self._high_water_mark - nav) / self._high_water_mark if self._high_water_mark > 0 else 0
 
-        # 回撤控制: 如果回撤超过阈值，降低股票仓位
+        # 计算整体市场动量 (使用TQQQ或第一个有数据的标的)
+        market_momentum = 0
+        for ref_symbol in ['TQQQ', 'SPY', 'QQQ']:
+            ref_data = market_data[
+                (market_data['symbol'] == ref_symbol) &
+                (market_data['trade_date'] <= current_date)
+            ].sort_values('trade_date')
+            if len(ref_data) >= 10:
+                ref_prices = ref_data['close'].values
+                market_momentum = ref_prices[-1] / ref_prices[-10] - 1
+                break
+
+        # 回撤控制: 如果回撤超过阈值，降低仓位
         equity_allocation = self.drawdown_control['max_equity_weight']
-        if self.drawdown_control['enabled'] and self._current_drawdown > self.drawdown_control['drawdown_threshold']:
-            equity_allocation *= self.drawdown_control['drawdown_scale_factor']
-            logger.info(f"  ⚠️ 回撤控制触发: {self._current_drawdown:.1%} > {self.drawdown_control['drawdown_threshold']:.0%}, 股票配置降至 {equity_allocation:.0%}")
+
+        if self.drawdown_control['enabled']:
+            # 1. 回撤触发减仓
+            if self._current_drawdown > self.drawdown_control['drawdown_threshold']:
+                equity_allocation *= self.drawdown_control['drawdown_scale_factor']
+                logger.info(f"  ⚠️ 回撤控制: {self._current_drawdown:.1%} > {self.drawdown_control['drawdown_threshold']:.0%}, 仓位降至 {equity_allocation:.0%}")
+
+            # 2. 动量过滤: 市场下跌时减仓 (保护资本)
+            if self.drawdown_control.get('momentum_filter', False):
+                if market_momentum < -0.05:  # 市场10日跌超5%
+                    equity_allocation *= 0.5
+                    logger.info(f"  📉 动量过滤: 市场动量 {market_momentum:.1%}, 仓位减半")
+                elif market_momentum < -0.02:  # 市场10日跌超2%
+                    equity_allocation *= 0.75
+                    logger.info(f"  📉 动量过滤: 市场动量 {market_momentum:.1%}, 仓位降至75%")
 
         # 防守资产配置 (固定比例)
         defensive_allocation = self.drawdown_control['defensive_allocation']
