@@ -149,7 +149,7 @@ def strategy_leveraged_momentum():
     if metrics is None:
         return None
 
-    print(f"  期间: {len(metrics['n_months'])}个月")
+    print(f"  期间: {metrics['n_months']}个月")
     print(f"  年化收益: {metrics['ann_ret']*100:+.1f}%")
     print(f"  年化波动: {metrics['ann_vol']*100:.1f}%")
     print(f"  夏普比率: {metrics['sharpe']:.2f}")
