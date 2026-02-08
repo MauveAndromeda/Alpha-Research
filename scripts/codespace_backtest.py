@@ -52,13 +52,10 @@ import pandas as pd
 # DeepSeek API 配置 (硬编码)
 # =============================================================================
 
-# DeepSeek API Key (环境变量优先，否则使用内置key)
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-fe73918921b34b23b8f26dec40571604")
-DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+# DeepSeek API Key (直接硬编码)
+DEEPSEEK_API_KEY = "sk-fe73918921b34b23b8f26dec40571604"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-chat"
-
-if not DEEPSEEK_API_KEY:
-    print("WARNING: DEEPSEEK_API_KEY not configured. LLM features will be disabled.")
 
 # =============================================================================
 # 日志配置
@@ -149,7 +146,7 @@ class DeepSeekClient:
     """DeepSeek API 客户端"""
 
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", DEEPSEEK_API_KEY)
+        self.api_key = api_key or DEEPSEEK_API_KEY
         self.model = DEEPSEEK_MODEL
         self.base_url = "https://api.deepseek.com/chat/completions"
         self._request_count = 0
