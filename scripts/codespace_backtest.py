@@ -52,13 +52,13 @@ import pandas as pd
 # DeepSeek API 配置 (硬编码)
 # =============================================================================
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+# DeepSeek API Key (环境变量优先，否则使用内置key)
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-fe73918921b34b23b8f26dec40571604")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = "deepseek-chat"
 
 if not DEEPSEEK_API_KEY:
-    print("WARNING: DEEPSEEK_API_KEY environment variable not set. LLM features will be disabled.")
-    print("Set it with: export DEEPSEEK_API_KEY=your_api_key")
+    print("WARNING: DEEPSEEK_API_KEY not configured. LLM features will be disabled.")
 
 # =============================================================================
 # 日志配置
@@ -73,6 +73,10 @@ logger = logging.getLogger(__name__)
 
 # =============================================================================
 # S&P 500 股票池 (60支代表性股票)
+# =============================================================================
+
+# =============================================================================
+# 股票池 (优化版: 股票 + 防守资产)
 # =============================================================================
 
 SP500_UNIVERSE = [
@@ -93,6 +97,17 @@ SP500_UNIVERSE = [
     'V', 'MA', 'DIS',
 ]
 
+# 防守资产 (债券 + 黄金) - 用于降低回撤
+DEFENSIVE_ASSETS = [
+    'IEF',   # 7-10年国债ETF
+    'TLT',   # 20+年国债ETF
+    'GLD',   # 黄金ETF
+    'SHY',   # 短期国债 (现金替代)
+]
+
+# 完整股票池
+FULL_UNIVERSE = SP500_UNIVERSE + DEFENSIVE_ASSETS
+
 # =============================================================================
 # 默认参数
 # =============================================================================
@@ -100,9 +115,20 @@ SP500_UNIVERSE = [
 DEFAULT_CAPITAL = 100000
 DEFAULT_SLIPPAGE_BPS = 5.0
 DEFAULT_COMMISSION = 0.005
-DEFAULT_REBALANCE = 'weekly'
-DEFAULT_TARGET_HOLDINGS = 25
+DEFAULT_REBALANCE = 'monthly'  # 改为月度降低换手率
+DEFAULT_TARGET_HOLDINGS = 20   # 减少持仓数量
 BACKTEST_YEARS = 3
+
+# =============================================================================
+# 回撤控制参数 (优化版)
+# =============================================================================
+DRAWDOWN_CONTROL = {
+    'enabled': True,
+    'defensive_allocation': 0.25,  # 25% 固定配置防守资产
+    'max_equity_weight': 0.75,     # 最大股票配置75%
+    'drawdown_threshold': 0.10,    # 回撤超过10%触发减仓
+    'drawdown_scale_factor': 0.5,  # 触发后仓位减半
+}
 
 
 # =============================================================================
@@ -721,7 +747,7 @@ class BacktestResult:
 
 
 class BacktestEngine:
-    """回测引擎"""
+    """回测引擎 (优化版 - 支持防守资产和回撤控制)"""
 
     def __init__(
         self,
@@ -735,6 +761,8 @@ class BacktestEngine:
         target_holdings: int = 25,
         signal_delay_days: int = 1,
         execution_price: str = "next_open",
+        defensive_assets: List[str] = None,
+        drawdown_control: Dict = None,
     ):
         self.initial_capital = initial_capital
         self.commission_per_share = commission_per_share
@@ -747,12 +775,23 @@ class BacktestEngine:
         self.signal_delay_days = signal_delay_days
         self.execution_price = execution_price
 
+        # 优化版参数
+        self.defensive_assets = defensive_assets or ['IEF', 'GLD']
+        self.drawdown_control = drawdown_control or {
+            'enabled': True,
+            'defensive_allocation': 0.25,
+            'max_equity_weight': 0.75,
+            'drawdown_threshold': 0.10,
+            'drawdown_scale_factor': 0.5,
+        }
+
         # 状态
         self._cash = initial_capital
         self._positions: Dict[str, int] = {}
         self._trades: List[TradeRecord] = []
         self._snapshots: List[DailySnapshot] = []
         self._high_water_mark = initial_capital
+        self._current_drawdown = 0.0
 
     def run(
         self,
@@ -866,30 +905,60 @@ class BacktestEngine:
         current_prices: Dict[str, float],
         symbols: List[str],
     ):
-        """执行再平衡"""
-        # 计算核心分数
+        """执行再平衡 (优化版 - 包含防守资产和回撤控制)"""
+        # 获取当前 NAV 和回撤
+        nav = self._calculate_nav(current_prices)
+        self._current_drawdown = (self._high_water_mark - nav) / self._high_water_mark if self._high_water_mark > 0 else 0
+
+        # 回撤控制: 如果回撤超过阈值，降低股票仓位
+        equity_allocation = self.drawdown_control['max_equity_weight']
+        if self.drawdown_control['enabled'] and self._current_drawdown > self.drawdown_control['drawdown_threshold']:
+            equity_allocation *= self.drawdown_control['drawdown_scale_factor']
+            logger.info(f"  ⚠️ 回撤控制触发: {self._current_drawdown:.1%} > {self.drawdown_control['drawdown_threshold']:.0%}, 股票配置降至 {equity_allocation:.0%}")
+
+        # 防守资产配置 (固定比例)
+        defensive_allocation = self.drawdown_control['defensive_allocation']
+        target_positions = {}
+
+        # 1. 先配置防守资产 (IEF, GLD 等)
+        defensive_weight = defensive_allocation / len(self.defensive_assets) if self.defensive_assets else 0
+        for symbol in self.defensive_assets:
+            if symbol in current_prices and current_prices[symbol] > 0:
+                target_value = nav * defensive_weight
+                target_shares = int(target_value / current_prices[symbol])
+                if target_shares > 0:
+                    target_positions[symbol] = target_shares
+
+        # 2. 过滤掉防守资产，只对股票计算分数
+        equity_symbols = [s for s in symbols if s not in self.defensive_assets]
+
+        # 计算核心分数 (只对股票)
         scores = calculate_core_scores(
-            market_data, fundamental_data, symbols, current_date
+            market_data, fundamental_data, equity_symbols, current_date
         )
 
         if scores is None or len(scores) == 0:
+            # 即使没有股票分数，也要执行防守资产配置
+            self._execute_trades(
+                current_date=current_date,
+                target_positions=target_positions,
+                current_prices=current_prices,
+                market_data=market_data,
+            )
             return
 
         # 选择前 N 名股票
         top_scores = scores.nlargest(self.target_holdings, 'score_core')
 
-        # 获取当前 NAV
-        nav = self._calculate_nav(current_prices)
-
-        # 计算目标持仓
-        target_positions = {}
+        # 3. 配置股票 (剩余配额)
+        equity_nav = nav * equity_allocation
         equal_weight = 1.0 / self.target_holdings
 
         for _, row in top_scores.iterrows():
             symbol = row['symbol']
             if symbol in current_prices and current_prices[symbol] > 0:
                 target_weight = min(equal_weight, self.max_position_weight)
-                target_value = nav * target_weight
+                target_value = equity_nav * target_weight
                 target_shares = int(target_value / current_prices[symbol])
                 if target_shares > 0:
                     target_positions[symbol] = target_shares
@@ -1333,7 +1402,9 @@ async def run_backtest_async(
         'end_date': str(end_date),
         'years': years,
         'initial_capital': capital,
-        'symbols_count': len(SP500_UNIVERSE),
+        'symbols_count': len(FULL_UNIVERSE),
+        'equity_symbols': len(SP500_UNIVERSE),
+        'defensive_symbols': len(DEFENSIVE_ASSETS),
         'slippage_bps': slippage_bps,
         'rebalance': rebalance,
         'data_mode': 'REAL_ONLY',
@@ -1343,20 +1414,22 @@ async def run_backtest_async(
         },
     }
 
-    # Step 1: 获取数据
+    # Step 1: 获取数据 (包含防守资产)
     print("\n" + "=" * 70)
-    print("步骤 1: 获取真实数据")
+    print("步骤 1: 获取真实数据 (股票 + 防守资产)")
     print("=" * 70)
 
-    market_data = fetch_market_data(SP500_UNIVERSE, start_date, end_date)
-    fundamental_data, fund_metadata = fetch_fundamental_data(SP500_UNIVERSE)
+    market_data = fetch_market_data(FULL_UNIVERSE, start_date, end_date)
+    fundamental_data, fund_metadata = fetch_fundamental_data(FULL_UNIVERSE)
 
     metadata['fundamental_data_quality'] = fund_metadata.get('data_quality', 'UNKNOWN')
     metadata['real_symbols'] = fund_metadata.get('real_symbols', 0)
+    metadata['defensive_assets'] = DEFENSIVE_ASSETS
+    metadata['drawdown_control'] = DRAWDOWN_CONTROL
 
-    # Step 2: 初始化回测引擎
+    # Step 2: 初始化回测引擎 (优化版)
     print("\n" + "=" * 70)
-    print("步骤 2: 初始化回测引擎 (防前视偏差)")
+    print("步骤 2: 初始化回测引擎 (优化版 - 防前视偏差 + 回撤控制)")
     print("=" * 70)
 
     engine = BacktestEngine(
@@ -1365,15 +1438,19 @@ async def run_backtest_async(
         slippage_model=SlippageModel.SQRT_VOLUME,
         base_slippage_bps=slippage_bps,
         rebalance_frequency=rebalance,
-        max_position_weight=0.05,
+        max_position_weight=0.08,  # 提高单一仓位上限
         target_holdings=DEFAULT_TARGET_HOLDINGS,
         signal_delay_days=1,
         execution_price='next_open',
+        defensive_assets=DEFENSIVE_ASSETS,
+        drawdown_control=DRAWDOWN_CONTROL,
     )
 
     print(f"  资金: ${capital:,.0f}")
     print(f"  滑点: {slippage_bps} bps")
     print(f"  再平衡: {rebalance}")
+    print(f"  防守资产配置: {DRAWDOWN_CONTROL['defensive_allocation']*100:.0f}%")
+    print(f"  回撤控制: 启用 (阈值 {DRAWDOWN_CONTROL['drawdown_threshold']*100:.0f}%)")
     print(f"  防前视偏差: signal_delay=1, execution=next_open")
 
     # Step 3: 运行回测
