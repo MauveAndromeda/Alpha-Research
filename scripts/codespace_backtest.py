@@ -102,29 +102,77 @@ DEFENSIVE_ASSETS = [
     'SHY',   # 短期国债 (现金替代)
 ]
 
+# =============================================================================
+# 🚀 激进版股票池 (杠杆ETF + 加密货币) - 目标: 年化10倍+
+# =============================================================================
+
+AGGRESSIVE_UNIVERSE = [
+    # 3倍杠杆ETF (高波动高收益)
+    'TQQQ',   # 3x 纳斯达克100
+    'UPRO',   # 3x 标普500
+    'SOXL',   # 3x 半导体
+    'TECL',   # 3x 科技
+    'FNGU',   # 3x FANG+
+    'LABU',   # 3x 生物科技
+    'TNA',    # 3x 小盘股
+    'UDOW',   # 3x 道琼斯
+    'SPXL',   # 3x 标普500
+    'WEBL',   # 3x 互联网
+
+    # 加密货币 (通过ETF/信托)
+    'BITO',   # 比特币期货ETF
+    'GBTC',   # Grayscale 比特币信托
+    'ETHE',   # Grayscale 以太坊信托
+    'MSTR',   # MicroStrategy (比特币代理)
+    'COIN',   # Coinbase
+    'MARA',   # Marathon Digital (比特币矿企)
+    'RIOT',   # Riot Platforms (比特币矿企)
+    'CLSK',   # CleanSpark (比特币矿企)
+
+    # 高波动科技股
+    'NVDA', 'AMD', 'TSLA', 'PLTR', 'ARM', 'SMCI',
+
+    # 2倍杠杆 (稍保守)
+    'QLD',    # 2x 纳斯达克100
+    'SSO',    # 2x 标普500
+]
+
 # 完整股票池
 FULL_UNIVERSE = SP500_UNIVERSE + DEFENSIVE_ASSETS
 
 # =============================================================================
-# 默认参数
+# 默认参数 (保守版)
 # =============================================================================
 
 DEFAULT_CAPITAL = 100000
 DEFAULT_SLIPPAGE_BPS = 5.0
 DEFAULT_COMMISSION = 0.005
-DEFAULT_REBALANCE = 'monthly'  # 改为月度降低换手率
-DEFAULT_TARGET_HOLDINGS = 20   # 减少持仓数量
+DEFAULT_REBALANCE = 'monthly'
+DEFAULT_TARGET_HOLDINGS = 20
 BACKTEST_YEARS = 3
 
 # =============================================================================
-# 回撤控制参数 (优化版)
+# 🚀 激进版参数 (目标: 年化10倍+, 可能归零!)
 # =============================================================================
+
+AGGRESSIVE_MODE = True  # 开启激进模式
+
+AGGRESSIVE_CONFIG = {
+    'rebalance': 'weekly',        # 周度再平衡抓趋势
+    'target_holdings': 5,          # 集中持仓5支
+    'max_position_weight': 0.30,   # 单一仓位最高30%
+    'momentum_lookback': 20,       # 20日动量 (更激进)
+    'use_leveraged_etfs': True,    # 使用杠杆ETF
+    'use_crypto': True,            # 使用加密货币
+}
+
+# 回撤控制参数 (激进版关闭)
 DRAWDOWN_CONTROL = {
-    'enabled': True,
-    'defensive_allocation': 0.25,  # 25% 固定配置防守资产
-    'max_equity_weight': 0.75,     # 最大股票配置75%
-    'drawdown_threshold': 0.10,    # 回撤超过10%触发减仓
-    'drawdown_scale_factor': 0.5,  # 触发后仓位减半
+    'enabled': False,              # 激进模式关闭回撤控制
+    'defensive_allocation': 0.0,   # 不配置防守资产
+    'max_equity_weight': 1.0,      # 100% 股票
+    'drawdown_threshold': 0.50,    # 50% 才触发 (几乎不触发)
+    'drawdown_scale_factor': 0.8,  # 只减少20%
 }
 
 
@@ -567,45 +615,76 @@ def calculate_quality_score(fundamental_data: pd.DataFrame, symbol: str) -> floa
 
 
 def calculate_momentum_score(market_data: pd.DataFrame, symbol: str, as_of_date: date) -> float:
-    """计算动量因子分数"""
+    """计算动量因子分数 (激进模式使用短期动量)"""
     symbol_data = market_data[
         (market_data['symbol'] == symbol) &
         (market_data['trade_date'] <= as_of_date)
     ].sort_values('trade_date')
 
-    if len(symbol_data) < 252:
+    # 激进模式只需要20日数据，保守模式需要252日
+    min_days = 20 if AGGRESSIVE_MODE else 252
+    if len(symbol_data) < min_days:
         return 0.5
 
     prices = symbol_data['close'].values
 
-    # 12个月收益 (剔除最近1个月)
-    if len(prices) >= 252:
-        ret_12m = prices[-22] / prices[-252] - 1
-    else:
-        ret_12m = 0
+    if AGGRESSIVE_MODE:
+        # 🚀 激进模式: 短期动量 (20日 + 5日)
+        if len(prices) >= 20:
+            ret_20d = prices[-1] / prices[-20] - 1  # 20日收益
+        else:
+            ret_20d = 0
 
-    # 1个月收益 (短期反转)
-    if len(prices) >= 22:
-        ret_1m = prices[-1] / prices[-22] - 1
-    else:
-        ret_1m = 0
+        if len(prices) >= 5:
+            ret_5d = prices[-1] / prices[-5] - 1   # 5日收益
+        else:
+            ret_5d = 0
 
-    # 动量 = 12个月收益 - 1个月收益
-    momentum = ret_12m - ret_1m
+        # 动量 = 短期趋势强度
+        momentum = ret_20d + ret_5d * 0.5  # 加权短期动量
 
-    # 归一化到 0-1
-    if momentum > 0.30:
-        score = 0.9
-    elif momentum > 0.15:
-        score = 0.7
-    elif momentum > 0:
-        score = 0.55
-    elif momentum > -0.15:
-        score = 0.45
-    elif momentum > -0.30:
-        score = 0.3
+        # 激进评分: 更敏感的阈值
+        if momentum > 0.20:
+            score = 0.95
+        elif momentum > 0.10:
+            score = 0.85
+        elif momentum > 0.05:
+            score = 0.70
+        elif momentum > 0:
+            score = 0.55
+        elif momentum > -0.10:
+            score = 0.35
+        else:
+            score = 0.1
     else:
-        score = 0.1
+        # 保守模式: 12个月收益 (剔除最近1个月)
+        if len(prices) >= 252:
+            ret_12m = prices[-22] / prices[-252] - 1
+        else:
+            ret_12m = 0
+
+        # 1个月收益 (短期反转)
+        if len(prices) >= 22:
+            ret_1m = prices[-1] / prices[-22] - 1
+        else:
+            ret_1m = 0
+
+        # 动量 = 12个月收益 - 1个月收益
+        momentum = ret_12m - ret_1m
+
+        # 归一化到 0-1
+        if momentum > 0.30:
+            score = 0.9
+        elif momentum > 0.15:
+            score = 0.7
+        elif momentum > 0:
+            score = 0.55
+        elif momentum > -0.15:
+            score = 0.45
+        elif momentum > -0.30:
+            score = 0.3
+        else:
+            score = 0.1
 
     return score
 
@@ -654,10 +733,15 @@ def calculate_core_scores(
     """
     计算核心分数
 
-    权重配置:
+    保守版权重:
     - 质量: 30%
     - 动量: 45%
     - 价值: 25%
+
+    激进版权重 (纯动量追涨):
+    - 质量: 5%
+    - 动量: 90%
+    - 价值: 5%
     """
     records = []
 
@@ -666,8 +750,11 @@ def calculate_core_scores(
         m_score = calculate_momentum_score(market_data, symbol, as_of_date)
         v_score = calculate_value_score(fundamental_data, symbol)
 
-        # 加权组合
-        score_core = 0.30 * q_score + 0.45 * m_score + 0.25 * v_score
+        # 加权组合 (激进版纯动量追涨)
+        if AGGRESSIVE_MODE:
+            score_core = 0.05 * q_score + 0.90 * m_score + 0.05 * v_score
+        else:
+            score_core = 0.30 * q_score + 0.45 * m_score + 0.25 * v_score
 
         records.append({
             'symbol': symbol,
@@ -1394,14 +1481,28 @@ async def run_backtest_async(
     end_date = date.today()
     start_date = end_date - timedelta(days=365 * years)
 
+    # 选择模式: 激进版 vs 保守版
+    if AGGRESSIVE_MODE:
+        universe = AGGRESSIVE_UNIVERSE
+        rebalance = AGGRESSIVE_CONFIG['rebalance']
+        target_holdings = AGGRESSIVE_CONFIG['target_holdings']
+        max_position_weight = AGGRESSIVE_CONFIG['max_position_weight']
+        defensive_assets = []  # 无防守资产
+        mode_name = "🚀 激进版 (杠杆ETF + 加密货币)"
+    else:
+        universe = FULL_UNIVERSE
+        target_holdings = DEFAULT_TARGET_HOLDINGS
+        max_position_weight = 0.08
+        defensive_assets = DEFENSIVE_ASSETS
+        mode_name = "保守版 (股票 + 防守资产)"
+
     metadata = {
         'start_date': str(start_date),
         'end_date': str(end_date),
         'years': years,
         'initial_capital': capital,
-        'symbols_count': len(FULL_UNIVERSE),
-        'equity_symbols': len(SP500_UNIVERSE),
-        'defensive_symbols': len(DEFENSIVE_ASSETS),
+        'symbols_count': len(universe),
+        'mode': 'AGGRESSIVE' if AGGRESSIVE_MODE else 'CONSERVATIVE',
         'slippage_bps': slippage_bps,
         'rebalance': rebalance,
         'data_mode': 'REAL_ONLY',
@@ -1411,22 +1512,25 @@ async def run_backtest_async(
         },
     }
 
-    # Step 1: 获取数据 (包含防守资产)
+    # Step 1: 获取数据
     print("\n" + "=" * 70)
-    print("步骤 1: 获取真实数据 (股票 + 防守资产)")
+    print(f"步骤 1: 获取真实数据 ({mode_name})")
     print("=" * 70)
 
-    market_data = fetch_market_data(FULL_UNIVERSE, start_date, end_date)
-    fundamental_data, fund_metadata = fetch_fundamental_data(FULL_UNIVERSE)
+    market_data = fetch_market_data(universe, start_date, end_date)
+    fundamental_data, fund_metadata = fetch_fundamental_data(universe)
 
     metadata['fundamental_data_quality'] = fund_metadata.get('data_quality', 'UNKNOWN')
     metadata['real_symbols'] = fund_metadata.get('real_symbols', 0)
-    metadata['defensive_assets'] = DEFENSIVE_ASSETS
     metadata['drawdown_control'] = DRAWDOWN_CONTROL
 
-    # Step 2: 初始化回测引擎 (优化版)
+    # Step 2: 初始化回测引擎
     print("\n" + "=" * 70)
-    print("步骤 2: 初始化回测引擎 (优化版 - 防前视偏差 + 回撤控制)")
+    if AGGRESSIVE_MODE:
+        print("步骤 2: 初始化回测引擎 (🚀 激进版 - 目标年化10倍+)")
+        print("  ⚠️  警告: 激进策略可能导致本金全部亏损!")
+    else:
+        print("步骤 2: 初始化回测引擎 (保守版)")
     print("=" * 70)
 
     engine = BacktestEngine(
@@ -1435,19 +1539,22 @@ async def run_backtest_async(
         slippage_model=SlippageModel.SQRT_VOLUME,
         base_slippage_bps=slippage_bps,
         rebalance_frequency=rebalance,
-        max_position_weight=0.08,  # 提高单一仓位上限
-        target_holdings=DEFAULT_TARGET_HOLDINGS,
+        max_position_weight=max_position_weight,
+        target_holdings=target_holdings,
         signal_delay_days=1,
         execution_price='next_open',
-        defensive_assets=DEFENSIVE_ASSETS,
+        defensive_assets=defensive_assets,
         drawdown_control=DRAWDOWN_CONTROL,
     )
 
     print(f"  资金: ${capital:,.0f}")
-    print(f"  滑点: {slippage_bps} bps")
+    print(f"  模式: {mode_name}")
     print(f"  再平衡: {rebalance}")
-    print(f"  防守资产配置: {DRAWDOWN_CONTROL['defensive_allocation']*100:.0f}%")
-    print(f"  回撤控制: 启用 (阈值 {DRAWDOWN_CONTROL['drawdown_threshold']*100:.0f}%)")
+    print(f"  持仓数: {target_holdings}")
+    print(f"  单一仓位上限: {max_position_weight*100:.0f}%")
+    if AGGRESSIVE_MODE:
+        print(f"  杠杆ETF: ✅")
+        print(f"  加密货币: ✅")
     print(f"  防前视偏差: signal_delay=1, execution=next_open")
 
     # Step 3: 运行回测
