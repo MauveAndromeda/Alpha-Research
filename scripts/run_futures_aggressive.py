@@ -80,14 +80,15 @@ def strategy_leveraged_trend(data, leverage=10):
     vix = data['VIX']['Close'].reindex(spy.index).ffill()
 
     # 信号: 1=多, -1=空, 0=观望
-    signal = pd.Series(0, index=spy.index)
+    signal = pd.Series(0.0, index=spy.index, dtype=float)
 
     # 趋势信号
-    signal[spy['Close'] > spy['MA20']] = 1
-    signal[spy['Close'] < spy['MA20']] = -1
+    signal[spy['Close'] > spy['MA20']] = 1.0
+    signal[spy['Close'] < spy['MA20']] = -1.0
 
     # VIX过滤: VIX>40时减仓
-    signal[vix > 40] = signal[vix > 40] * 0.3
+    vix_high = vix > 40
+    signal = signal.where(~vix_high, signal * 0.3)
 
     # 延迟一天避免look-ahead
     signal = signal.shift(1).fillna(0)
@@ -168,9 +169,9 @@ def strategy_volatility_breakout(data, leverage=8):
     spy['ATR'] = spy['TR'].rolling(20).mean()
 
     # 信号
-    signal = pd.Series(0, index=spy.index)
-    signal[spy['Close'] > spy['High20'].shift(1)] = 1  # 突破高点做多
-    signal[spy['Close'] < spy['Low20'].shift(1)] = -1  # 突破低点做空
+    signal = pd.Series(0.0, index=spy.index, dtype=float)
+    signal[spy['Close'] > spy['High20'].shift(1)] = 1.0  # 突破高点做多
+    signal[spy['Close'] < spy['Low20'].shift(1)] = -1.0  # 突破低点做空
 
     # 仓位调整: 低波动时加杠杆
     vol_factor = spy['ATR'].rolling(60).mean() / spy['ATR']
@@ -247,7 +248,7 @@ def strategy_multi_asset_momentum(data, leverage=5):
     best_asset = momentum.idxmax(axis=1)
 
     # 构建组合
-    portfolio_returns = pd.Series(0, index=returns.index)
+    portfolio_returns = pd.Series(0.0, index=returns.index, dtype=float)
 
     for i in range(21, len(returns)):
         date = returns.index[i]
@@ -255,7 +256,8 @@ def strategy_multi_asset_momentum(data, leverage=5):
         asset = best_asset.loc[prev_date]
 
         if pd.notna(asset) and asset in returns.columns:
-            portfolio_returns.loc[date] = returns.loc[date, asset]
+            ret_val = returns.loc[date, asset]
+            portfolio_returns.loc[date] = float(ret_val) if hasattr(ret_val, '__float__') else ret_val
 
     # 加杠杆
     leveraged_returns = portfolio_returns * leverage
@@ -266,7 +268,8 @@ def strategy_multi_asset_momentum(data, leverage=5):
 
     # VIX过滤
     vix = data['VIX']['Close'].reindex(leveraged_returns.index).ffill()
-    leveraged_returns[vix > 35] = leveraged_returns[vix > 35] * 0.3
+    vix_high = vix > 35
+    leveraged_returns = leveraged_returns.where(~vix_high, leveraged_returns * 0.3)
 
     # 指标
     leveraged_returns = leveraged_returns.dropna()
@@ -320,9 +323,9 @@ def strategy_intraday_momentum(data, leverage=15):
     spy['Intraday'] = (spy['Close'] - spy['Open']) / spy['Open']
 
     # 信号: 跟随缺口方向
-    signal = pd.Series(0, index=spy.index)
-    signal[spy['Gap'] > 0.002] = 1   # 高开>0.2%做多
-    signal[spy['Gap'] < -0.002] = -1  # 低开>0.2%做空
+    signal = pd.Series(0.0, index=spy.index, dtype=float)
+    signal[spy['Gap'] > 0.002] = 1.0   # 高开>0.2%做多
+    signal[spy['Gap'] < -0.002] = -1.0  # 低开>0.2%做空
 
     # 日内收益 (假设抓到50%的日内波动)
     capture_rate = 0.5
@@ -330,8 +333,8 @@ def strategy_intraday_momentum(data, leverage=15):
 
     # 实际情况: 方向判断正确率约55%
     correct = (signal.shift(1) * spy['Intraday']) > 0
-    adjusted_returns = raw_returns.copy()
-    adjusted_returns[~correct] = -adjusted_returns[~correct].abs() * 0.6  # 错误时亏更少
+    adjusted_returns = raw_returns.astype(float).copy()
+    adjusted_returns = adjusted_returns.where(correct, -adjusted_returns.abs() * 0.6)  # 错误时亏更少
 
     # 手续费 (日内交易手续费高)
     costs = TRANSACTION_COST * 2 * leverage  # 每天两次交易
