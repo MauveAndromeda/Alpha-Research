@@ -166,30 +166,102 @@ DEFAULT_TARGET_HOLDINGS = 20
 BACKTEST_YEARS = 3
 
 # =============================================================================
-# 🚀 超激进版参数 (目标: 年化100%+, 最大回撤<40%)
+# 策略模式选择
 # =============================================================================
+# 可选模式: 'AGGRESSIVE', 'BALANCED', 'CONSERVATIVE'
+STRATEGY_MODE = 'BALANCED'  # 默认使用平衡模式
 
-AGGRESSIVE_MODE = True  # 开启激进模式
+# 兼容性别名
+AGGRESSIVE_MODE = (STRATEGY_MODE == 'AGGRESSIVE')
+BALANCED_MODE = (STRATEGY_MODE == 'BALANCED')
 
+# =============================================================================
+# 🚀 激进版参数 (高风险高收益 - 不推荐实盘)
+# =============================================================================
 AGGRESSIVE_CONFIG = {
-    'rebalance': 'weekly',          # 周度再平衡 (降低换手率!)
-    'target_holdings': 5,            # 持仓5支 (分散风险)
+    'rebalance': 'weekly',           # 周度再平衡
+    'target_holdings': 5,            # 持仓5支
     'max_position_weight': 0.35,     # 单一仓位最高35%
     'momentum_lookback': 10,         # 10日动量
     'use_leveraged_etfs': True,
     'use_crypto': True,
     'use_commodities': True,
+    'factor_weights': {'quality': 0.05, 'momentum': 0.90, 'value': 0.05},
 }
 
-# 回撤控制参数 (优化版 - 更激进的恢复)
-DRAWDOWN_CONTROL = {
-    'enabled': True,                 # 启用回撤控制
-    'defensive_allocation': 0.0,     # 无防守资产
-    'max_equity_weight': 1.0,        # 100% 激进资产
-    'drawdown_threshold': 0.25,      # 25% 回撤触发减仓 (放宽)
-    'drawdown_scale_factor': 0.6,    # 回撤时减至60%仓位
-    'momentum_filter': True,         # 动量过滤
+# =============================================================================
+# ⚖️ 平衡版参数 (目标: 夏普>1.0, 回撤<15%, 换手率<200%)
+# =============================================================================
+BALANCED_CONFIG = {
+    'rebalance': 'monthly',          # 月度再平衡 (降低换手)
+    'target_holdings': 20,           # 持仓20支 (分散风险)
+    'max_position_weight': 0.08,     # 单一仓位最高8%
+    'momentum_lookback': 252,        # 12-1个月动量 (经典动量因子)
+    'use_leveraged_etfs': False,
+    'use_crypto': False,
+    'use_commodities': False,
+    'factor_weights': {'quality': 0.35, 'momentum': 0.40, 'value': 0.25},
+    'use_risk_parity': True,         # 启用风险平价加权
+    'vol_target': 0.15,              # 目标年化波动率15%
+    'turnover_cap': 0.30,            # 单次换手上限30%
 }
+
+# =============================================================================
+# 🛡️ 保守版参数 (稳健型)
+# =============================================================================
+CONSERVATIVE_CONFIG = {
+    'rebalance': 'quarterly',        # 季度再平衡 (最低换手)
+    'target_holdings': 25,           # 持仓25支
+    'max_position_weight': 0.05,     # 单一仓位最高5%
+    'momentum_lookback': 252,        # 12-1个月动量
+    'use_leveraged_etfs': False,
+    'use_crypto': False,
+    'use_commodities': False,
+    'factor_weights': {'quality': 0.40, 'momentum': 0.30, 'value': 0.30},
+    'use_risk_parity': True,
+    'vol_target': 0.10,              # 目标年化波动率10%
+    'turnover_cap': 0.20,            # 单次换手上限20%
+}
+
+# 根据模式选择配置
+def get_active_config():
+    if STRATEGY_MODE == 'AGGRESSIVE':
+        return AGGRESSIVE_CONFIG
+    elif STRATEGY_MODE == 'BALANCED':
+        return BALANCED_CONFIG
+    else:
+        return CONSERVATIVE_CONFIG
+
+ACTIVE_CONFIG = get_active_config()
+
+# 回撤控制参数 (根据模式调整)
+if STRATEGY_MODE == 'AGGRESSIVE':
+    DRAWDOWN_CONTROL = {
+        'enabled': True,
+        'defensive_allocation': 0.0,     # 无防守资产
+        'max_equity_weight': 1.0,
+        'drawdown_threshold': 0.25,
+        'drawdown_scale_factor': 0.6,
+        'momentum_filter': True,
+    }
+elif STRATEGY_MODE == 'BALANCED':
+    DRAWDOWN_CONTROL = {
+        'enabled': True,
+        'defensive_allocation': 0.20,    # 20%防守资产
+        'max_equity_weight': 0.80,       # 80%股票
+        'drawdown_threshold': 0.10,      # 10%回撤触发减仓
+        'drawdown_scale_factor': 0.7,    # 回撤时减至70%仓位
+        'momentum_filter': True,
+    }
+else:  # CONSERVATIVE
+    DRAWDOWN_CONTROL = {
+        'enabled': True,
+        'defensive_allocation': 0.30,    # 30%防守资产
+        'max_equity_weight': 0.70,
+        'drawdown_threshold': 0.08,      # 8%回撤触发减仓
+        'drawdown_scale_factor': 0.5,
+        'momentum_filter': True,
+    }
 
 
 # =============================================================================
@@ -631,45 +703,41 @@ def calculate_quality_score(fundamental_data: pd.DataFrame, symbol: str) -> floa
 
 
 def calculate_momentum_score(market_data: pd.DataFrame, symbol: str, as_of_date: date) -> float:
-    """计算动量因子分数 (激进模式使用短期动量)"""
+    """
+    计算动量因子分数
+
+    激进模式: 超短期动量 (10日+3日) - 高换手，追逐趋势
+    平衡/保守模式: 12-1个月动量 (经典学术因子) - 低换手，稳定
+    """
     symbol_data = market_data[
         (market_data['symbol'] == symbol) &
         (market_data['trade_date'] <= as_of_date)
     ].sort_values('trade_date')
 
-    # 激进模式只需要20日数据，保守模式需要252日
-    min_days = 20 if AGGRESSIVE_MODE else 252
+    # 激进模式只需要20日数据，平衡/保守模式需要252日
+    min_days = 20 if STRATEGY_MODE == 'AGGRESSIVE' else 252
     if len(symbol_data) < min_days:
         return 0.5
 
     prices = symbol_data['close'].values
 
-    if AGGRESSIVE_MODE:
-        # 🚀 超激进模式: 超短期动量 (10日 + 3日)
-        if len(prices) >= 10:
-            ret_10d = prices[-1] / prices[-10] - 1  # 10日收益
-        else:
-            ret_10d = 0
+    if STRATEGY_MODE == 'AGGRESSIVE':
+        # 🚀 激进模式: 超短期动量 (10日 + 3日)
+        ret_10d = prices[-1] / prices[-10] - 1 if len(prices) >= 10 else 0
+        ret_3d = prices[-1] / prices[-3] - 1 if len(prices) >= 3 else 0
 
-        if len(prices) >= 3:
-            ret_3d = prices[-1] / prices[-3] - 1   # 3日收益 (超短期)
-        else:
-            ret_3d = 0
-
-        # 计算波动率调整动量 (高波动品种给更高分)
+        # 波动率调整
         if len(prices) >= 20:
             volatility = np.std(np.diff(prices[-20:]) / prices[-20:-1]) * np.sqrt(252)
         else:
-            volatility = 0.3  # 默认30%波动率
+            volatility = 0.3
 
-        # 动量 = 趋势强度 (波动率调整)
         raw_momentum = ret_10d + ret_3d * 0.8
-        # 高波动品种获得加成 (商品/加密货币优势)
         momentum = raw_momentum * (1 + min(volatility, 1.0))
 
-        # 超激进评分: 只要涨就追
+        # 激进评分
         if momentum > 0.15:
-            score = 0.99  # 强趋势
+            score = 0.99
         elif momentum > 0.08:
             score = 0.90
         elif momentum > 0.03:
@@ -677,38 +745,59 @@ def calculate_momentum_score(market_data: pd.DataFrame, symbol: str, as_of_date:
         elif momentum > 0:
             score = 0.60
         elif momentum > -0.05:
-            score = 0.30  # 弱势减分
+            score = 0.30
         else:
-            score = 0.05  # 下跌重罚
+            score = 0.05
     else:
-        # 保守模式: 12个月收益 (剔除最近1个月)
+        # ⚖️ 平衡/保守模式: 经典 12-1 个月动量
+        # 这是学术界公认的最佳动量因子定义 (Jegadeesh & Titman, 1993)
+
+        # 12个月前到1个月前的累计收益 (排除最近1个月避免短期反转)
         if len(prices) >= 252:
-            ret_12m = prices[-22] / prices[-252] - 1
+            ret_12_1m = prices[-22] / prices[-252] - 1  # 252天前到22天前
+        elif len(prices) >= 126:
+            ret_12_1m = prices[-22] / prices[-126] - 1  # 6个月替代
         else:
-            ret_12m = 0
+            ret_12_1m = 0
 
-        # 1个月收益 (短期反转)
-        if len(prices) >= 22:
-            ret_1m = prices[-1] / prices[-22] - 1
+        # 52周最高价接近度 (辅助信号)
+        if len(prices) >= 252:
+            high_52w = np.max(prices[-252:])
+            high_proximity = prices[-1] / high_52w if high_52w > 0 else 0.5
         else:
-            ret_1m = 0
+            high_proximity = 0.5
 
-        # 动量 = 12个月收益 - 1个月收益
-        momentum = ret_12m - ret_1m
+        # 趋势斜率 (SMA50 相对变化)
+        if len(prices) >= 70:
+            sma50_today = np.mean(prices[-50:])
+            sma50_21d_ago = np.mean(prices[-70:-20])
+            trend_slope = sma50_today / sma50_21d_ago - 1 if sma50_21d_ago > 0 else 0
+        else:
+            trend_slope = 0
 
-        # 归一化到 0-1
-        if momentum > 0.30:
-            score = 0.9
+        # 综合动量分数 (加权组合)
+        # 60% 12-1个月收益 + 25% 52周高点接近度 + 15% 趋势斜率
+        momentum = 0.60 * ret_12_1m + 0.25 * (high_proximity - 0.5) + 0.15 * trend_slope
+
+        # 归一化到 0-1 (使用更平滑的映射)
+        if momentum > 0.40:
+            score = 0.95
+        elif momentum > 0.25:
+            score = 0.85
         elif momentum > 0.15:
-            score = 0.7
+            score = 0.75
+        elif momentum > 0.05:
+            score = 0.65
         elif momentum > 0:
             score = 0.55
-        elif momentum > -0.15:
+        elif momentum > -0.05:
             score = 0.45
-        elif momentum > -0.30:
-            score = 0.3
+        elif momentum > -0.15:
+            score = 0.35
+        elif momentum > -0.25:
+            score = 0.25
         else:
-            score = 0.1
+            score = 0.15
 
     return score
 
@@ -755,30 +844,29 @@ def calculate_core_scores(
     as_of_date: date,
 ) -> pd.DataFrame:
     """
-    计算核心分数
+    计算核心分数 (使用配置文件中的因子权重)
 
-    保守版权重:
-    - 质量: 30%
-    - 动量: 45%
-    - 价值: 25%
-
-    激进版权重 (纯动量追涨):
-    - 质量: 5%
-    - 动量: 90%
-    - 价值: 5%
+    激进版:   质量 5%  + 动量 90% + 价值 5%
+    平衡版:   质量 35% + 动量 40% + 价值 25%
+    保守版:   质量 40% + 动量 30% + 价值 30%
     """
     records = []
+
+    # 获取当前模式的因子权重
+    factor_weights = ACTIVE_CONFIG.get('factor_weights', {
+        'quality': 0.35, 'momentum': 0.40, 'value': 0.25
+    })
+    w_q = factor_weights.get('quality', 0.35)
+    w_m = factor_weights.get('momentum', 0.40)
+    w_v = factor_weights.get('value', 0.25)
 
     for symbol in symbols:
         q_score = calculate_quality_score(fundamental_data, symbol)
         m_score = calculate_momentum_score(market_data, symbol, as_of_date)
         v_score = calculate_value_score(fundamental_data, symbol)
 
-        # 加权组合 (激进版纯动量追涨)
-        if AGGRESSIVE_MODE:
-            score_core = 0.05 * q_score + 0.90 * m_score + 0.05 * v_score
-        else:
-            score_core = 0.30 * q_score + 0.45 * m_score + 0.25 * v_score
+        # 使用配置的权重
+        score_core = w_q * q_score + w_m * m_score + w_v * v_score
 
         records.append({
             'symbol': symbol,
@@ -1005,6 +1093,64 @@ class BacktestEngine:
 
         return nav
 
+    def _apply_turnover_control(
+        self,
+        target_positions: Dict[str, int],
+        current_prices: Dict[str, float],
+        nav: float,
+        turnover_cap: float,
+    ) -> Dict[str, int]:
+        """
+        应用换手率控制
+
+        如果目标组合换手率超过上限，则按比例缩减交易量，
+        使当前持仓逐步向目标持仓靠拢。
+        """
+        # 计算当前持仓价值
+        current_values = {}
+        for symbol, shares in self._positions.items():
+            if symbol in current_prices:
+                current_values[symbol] = shares * current_prices[symbol]
+
+        # 计算目标持仓价值
+        target_values = {}
+        for symbol, shares in target_positions.items():
+            if symbol in current_prices:
+                target_values[symbol] = shares * current_prices[symbol]
+
+        # 计算换手金额 (买入 + 卖出)
+        all_symbols = set(current_values.keys()) | set(target_values.keys())
+        total_turnover = 0
+        for symbol in all_symbols:
+            curr = current_values.get(symbol, 0)
+            tgt = target_values.get(symbol, 0)
+            total_turnover += abs(tgt - curr)
+
+        # 换手率 = 换手金额 / NAV
+        turnover_rate = total_turnover / nav if nav > 0 else 0
+
+        if turnover_rate <= turnover_cap:
+            # 换手率在限制内，直接返回目标持仓
+            return target_positions
+
+        # 换手率超限，按比例缩减
+        scale = turnover_cap / turnover_rate
+        adjusted_positions = {}
+
+        for symbol in all_symbols:
+            curr_shares = self._positions.get(symbol, 0)
+            tgt_shares = target_positions.get(symbol, 0)
+
+            # 按比例调整
+            delta = tgt_shares - curr_shares
+            adjusted_delta = int(delta * scale)
+            adjusted_shares = curr_shares + adjusted_delta
+
+            if adjusted_shares > 0:
+                adjusted_positions[symbol] = adjusted_shares
+
+        return adjusted_positions
+
     def _rebalance(
         self,
         current_date: date,
@@ -1084,16 +1230,63 @@ class BacktestEngine:
 
         # 3. 配置股票 (剩余配额)
         equity_nav = nav * equity_allocation
-        equal_weight = 1.0 / self.target_holdings
+
+        # 计算波动率用于风险平价加权
+        use_risk_parity = ACTIVE_CONFIG.get('use_risk_parity', False)
+        volatilities = {}
+
+        if use_risk_parity:
+            for _, row in top_scores.iterrows():
+                symbol = row['symbol']
+                symbol_data = market_data[
+                    (market_data['symbol'] == symbol) &
+                    (market_data['trade_date'] <= current_date)
+                ].sort_values('trade_date')
+
+                if len(symbol_data) >= 20:
+                    returns = symbol_data['close'].pct_change().dropna().tail(60)
+                    vol = returns.std() * np.sqrt(252) if len(returns) > 5 else 0.30
+                    volatilities[symbol] = max(vol, 0.10)  # 最小波动率10%
+                else:
+                    volatilities[symbol] = 0.30  # 默认30%
+
+            # 计算风险平价权重 (w_i ∝ 1/vol_i)
+            inv_vols = {s: 1.0 / v for s, v in volatilities.items()}
+            total_inv_vol = sum(inv_vols.values())
+            risk_parity_weights = {s: iv / total_inv_vol for s, iv in inv_vols.items()}
+        else:
+            # 等权重
+            equal_weight = 1.0 / self.target_holdings
+            risk_parity_weights = {row['symbol']: equal_weight for _, row in top_scores.iterrows()}
+
+        # 应用波动率目标缩放 (可选)
+        vol_target = ACTIVE_CONFIG.get('vol_target', None)
+        vol_scale = 1.0
+        if vol_target and volatilities:
+            # 计算组合预期波动率 (简化: 加权平均)
+            portfolio_vol = sum(
+                risk_parity_weights.get(s, 0) * volatilities.get(s, 0.30)
+                for s in risk_parity_weights
+            )
+            if portfolio_vol > 0:
+                vol_scale = min(vol_target / portfolio_vol, 1.5)  # 最大1.5倍杠杆
 
         for _, row in top_scores.iterrows():
             symbol = row['symbol']
             if symbol in current_prices and current_prices[symbol] > 0:
-                target_weight = min(equal_weight, self.max_position_weight)
+                base_weight = risk_parity_weights.get(symbol, 1.0 / self.target_holdings)
+                target_weight = min(base_weight * vol_scale, self.max_position_weight)
                 target_value = equity_nav * target_weight
                 target_shares = int(target_value / current_prices[symbol])
                 if target_shares > 0:
                     target_positions[symbol] = target_shares
+
+        # 换手控制: 限制单次换手比例
+        turnover_cap = ACTIVE_CONFIG.get('turnover_cap', 1.0)  # 默认无限制
+        if turnover_cap < 1.0:
+            target_positions = self._apply_turnover_control(
+                target_positions, current_prices, nav, turnover_cap
+            )
 
         # 执行交易
         self._execute_trades(
@@ -1529,20 +1722,28 @@ async def run_backtest_async(
     end_date = date.today()
     start_date = end_date - timedelta(days=365 * years)
 
-    # 选择模式: 激进版 vs 保守版
-    if AGGRESSIVE_MODE:
+    # 根据 STRATEGY_MODE 选择配置
+    if STRATEGY_MODE == 'AGGRESSIVE':
         universe = AGGRESSIVE_UNIVERSE
-        rebalance = AGGRESSIVE_CONFIG['rebalance']
-        target_holdings = AGGRESSIVE_CONFIG['target_holdings']
-        max_position_weight = AGGRESSIVE_CONFIG['max_position_weight']
+        rebalance = ACTIVE_CONFIG['rebalance']
+        target_holdings = ACTIVE_CONFIG['target_holdings']
+        max_position_weight = ACTIVE_CONFIG['max_position_weight']
         defensive_assets = []  # 无防守资产
         mode_name = "🚀 激进版 (杠杆ETF + 加密货币)"
-    else:
+    elif STRATEGY_MODE == 'BALANCED':
         universe = FULL_UNIVERSE
-        target_holdings = DEFAULT_TARGET_HOLDINGS
-        max_position_weight = 0.08
+        rebalance = ACTIVE_CONFIG['rebalance']
+        target_holdings = ACTIVE_CONFIG['target_holdings']
+        max_position_weight = ACTIVE_CONFIG['max_position_weight']
         defensive_assets = DEFENSIVE_ASSETS
-        mode_name = "保守版 (股票 + 防守资产)"
+        mode_name = "⚖️ 平衡版 (多因子 + 风险平价)"
+    else:  # CONSERVATIVE
+        universe = FULL_UNIVERSE
+        rebalance = ACTIVE_CONFIG['rebalance']
+        target_holdings = ACTIVE_CONFIG['target_holdings']
+        max_position_weight = ACTIVE_CONFIG['max_position_weight']
+        defensive_assets = DEFENSIVE_ASSETS
+        mode_name = "🛡️ 保守版 (稳健型)"
 
     metadata = {
         'start_date': str(start_date),
@@ -1550,9 +1751,13 @@ async def run_backtest_async(
         'years': years,
         'initial_capital': capital,
         'symbols_count': len(universe),
-        'mode': 'AGGRESSIVE' if AGGRESSIVE_MODE else 'CONSERVATIVE',
+        'mode': STRATEGY_MODE,
         'slippage_bps': slippage_bps,
         'rebalance': rebalance,
+        'factor_weights': ACTIVE_CONFIG.get('factor_weights', {}),
+        'use_risk_parity': ACTIVE_CONFIG.get('use_risk_parity', False),
+        'vol_target': ACTIVE_CONFIG.get('vol_target', None),
+        'turnover_cap': ACTIVE_CONFIG.get('turnover_cap', 1.0),
         'data_mode': 'REAL_ONLY',
         'anti_lookahead': {
             'signal_delay_days': 1,
@@ -1574,11 +1779,14 @@ async def run_backtest_async(
 
     # Step 2: 初始化回测引擎
     print("\n" + "=" * 70)
-    if AGGRESSIVE_MODE:
+    if STRATEGY_MODE == 'AGGRESSIVE':
         print("步骤 2: 初始化回测引擎 (🚀 激进版 - 目标年化10倍+)")
         print("  ⚠️  警告: 激进策略可能导致本金全部亏损!")
+    elif STRATEGY_MODE == 'BALANCED':
+        print("步骤 2: 初始化回测引擎 (⚖️ 平衡版 - 目标夏普>1.0)")
+        print("  ✅ 风险平价加权 + 换手控制 + 回撤保护")
     else:
-        print("步骤 2: 初始化回测引擎 (保守版)")
+        print("步骤 2: 初始化回测引擎 (🛡️ 保守版 - 稳健型)")
     print("=" * 70)
 
     engine = BacktestEngine(
@@ -1600,9 +1808,15 @@ async def run_backtest_async(
     print(f"  再平衡: {rebalance}")
     print(f"  持仓数: {target_holdings}")
     print(f"  单一仓位上限: {max_position_weight*100:.0f}%")
-    if AGGRESSIVE_MODE:
+    if STRATEGY_MODE == 'AGGRESSIVE':
         print(f"  杠杆ETF: ✅")
         print(f"  加密货币: ✅")
+    else:
+        fw = ACTIVE_CONFIG.get('factor_weights', {})
+        print(f"  因子权重: Q={fw.get('quality', 0):.0%} M={fw.get('momentum', 0):.0%} V={fw.get('value', 0):.0%}")
+        print(f"  风险平价: {'✅' if ACTIVE_CONFIG.get('use_risk_parity') else '❌'}")
+        print(f"  换手上限: {ACTIVE_CONFIG.get('turnover_cap', 1.0):.0%}")
+        print(f"  防守资产: {DRAWDOWN_CONTROL.get('defensive_allocation', 0):.0%}")
     print(f"  防前视偏差: signal_delay=1, execution=next_open")
 
     # Step 3: 运行回测
