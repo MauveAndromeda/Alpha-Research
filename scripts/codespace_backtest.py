@@ -173,19 +173,20 @@ AGGRESSIVE_MODE = (STRATEGY_MODE == 'AGGRESSIVE')
 BALANCED_MODE = (STRATEGY_MODE == 'BALANCED')
 
 # =============================================================================
-# 🚀 期货赌狗版参数 (目标: 年化10倍+ / 可能归零)
+# 🎰 梭哈版参数 (目标: 年化10倍+ / 本金归零概率极高)
 # =============================================================================
 AGGRESSIVE_CONFIG = {
-    'rebalance': 'daily',            # 日度再平衡 - 追涨杀跌
-    'target_holdings': 3,            # 只持3支 - 极度集中
-    'max_position_weight': 0.50,     # 单一仓位50% - 重仓出击
-    'momentum_lookback': 5,          # 5日动量 - 超短线
+    'rebalance': 'daily',            # 日度再平衡 - 每天追最强
+    'target_holdings': 2,            # 只持2支 - 极限集中
+    'max_position_weight': 0.70,     # 单一仓位70% - 近乎梭哈
+    'momentum_lookback': 3,          # 3日动量 - 极短线
     'use_leveraged_etfs': True,
     'use_crypto': True,
     'use_commodities': True,
     'factor_weights': {'quality': 0.0, 'momentum': 1.0, 'value': 0.0},  # 纯动量
-    'trend_follow': True,            # 趋势跟踪
-    'use_inverse_etfs': True,        # 允许做空ETF
+    'trend_follow': True,
+    'use_inverse_etfs': True,
+    'leverage_multiplier': 1.5,      # 模拟1.5倍杠杆
 }
 
 # =============================================================================
@@ -237,13 +238,13 @@ ACTIVE_CONFIG = get_active_config()
 # 回撤控制参数 (根据模式调整)
 if STRATEGY_MODE == 'AGGRESSIVE':
     DRAWDOWN_CONTROL = {
-        'enabled': True,
-        'defensive_allocation': 0.0,     # 无防守资产 - 全仓杠杆
+        'enabled': False,                # 禁用回撤控制 - 死扛到底
+        'defensive_allocation': 0.0,     # 无防守资产
         'max_equity_weight': 1.0,        # 100% 风险资产
-        'drawdown_threshold': 0.40,      # 40% 回撤才触发 (更激进)
-        'drawdown_scale_factor': 0.7,    # 回撤时仍保持70%仓位
-        'momentum_filter': True,         # 保留动量过滤避免大崩盘
-        'allow_short': True,             # 允许做空
+        'drawdown_threshold': 0.80,      # 80% 回撤才触发 (几乎不触发)
+        'drawdown_scale_factor': 0.9,    # 回撤时仍保持90%仓位
+        'momentum_filter': False,        # 禁用动量过滤 - 不减仓
+        'allow_short': True,
     }
 elif STRATEGY_MODE == 'BALANCED':
     DRAWDOWN_CONTROL = {
@@ -715,44 +716,44 @@ def calculate_momentum_score(market_data: pd.DataFrame, symbol: str, as_of_date:
         (market_data['trade_date'] <= as_of_date)
     ].sort_values('trade_date')
 
-    # 激进模式只需要20日数据，平衡/保守模式需要252日
-    min_days = 20 if STRATEGY_MODE == 'AGGRESSIVE' else 252
+    # 梭哈模式只需要5日数据，平衡/保守模式需要252日
+    min_days = 5 if STRATEGY_MODE == 'AGGRESSIVE' else 252
     if len(symbol_data) < min_days:
         return 0.5
 
     prices = symbol_data['close'].values
 
     if STRATEGY_MODE == 'AGGRESSIVE':
-        # 🚀 期货赌狗模式: 超短期动量 (5日 + 1日)
-        ret_5d = prices[-1] / prices[-5] - 1 if len(prices) >= 5 else 0
+        # 🎰 梭哈模式: 极短期动量 (3日 + 当日)
+        ret_3d = prices[-1] / prices[-3] - 1 if len(prices) >= 3 else 0
         ret_1d = prices[-1] / prices[-2] - 1 if len(prices) >= 2 else 0
 
-        # 波动率调整 - 高波动品种加分
-        if len(prices) >= 10:
-            volatility = np.std(np.diff(prices[-10:]) / prices[-10:-1]) * np.sqrt(252)
+        # 波动率调整 - 高波动品种大幅加分 (越波动越好)
+        if len(prices) >= 5:
+            volatility = np.std(np.diff(prices[-5:]) / prices[-5:-1]) * np.sqrt(252)
         else:
-            volatility = 0.5
+            volatility = 0.8
 
-        # 纯趋势追踪: 5日动量 + 1日加速度
-        raw_momentum = ret_5d * 1.2 + ret_1d * 0.5
-        # 高波动品种大幅加成 (期货/杠杆ETF优势)
-        momentum = raw_momentum * (1 + min(volatility * 1.5, 2.0))
+        # 梭哈追涨: 3日趋势 + 当日爆发
+        raw_momentum = ret_3d * 1.5 + ret_1d * 1.0
+        # 高波动品种超级加成 (越波动分越高)
+        momentum = raw_momentum * (1 + min(volatility * 2.5, 4.0))
 
-        # 超激进评分: 趋势越强分越高
-        if momentum > 0.20:
-            score = 1.0   # 爆发趋势
-        elif momentum > 0.10:
+        # 梭哈评分: 爆发就满分，不涨就零分
+        if momentum > 0.25:
+            score = 1.0   # 爆发 - 梭哈
+        elif momentum > 0.15:
             score = 0.95
-        elif momentum > 0.05:
-            score = 0.85
-        elif momentum > 0.02:
-            score = 0.70
+        elif momentum > 0.08:
+            score = 0.80
+        elif momentum > 0.03:
+            score = 0.60
         elif momentum > 0:
-            score = 0.55
-        elif momentum > -0.05:
-            score = 0.20  # 弱势大幅减分
+            score = 0.40
+        elif momentum > -0.03:
+            score = 0.10
         else:
-            score = 0.0   # 下跌直接清零
+            score = 0.0   # 下跌 - 不要
     else:
         # ⚖️ 平衡/保守模式: 经典 12-1 个月动量
         # 这是学术界公认的最佳动量因子定义 (Jegadeesh & Titman, 1993)
@@ -1763,7 +1764,7 @@ async def run_backtest_async(
         target_holdings = ACTIVE_CONFIG['target_holdings']
         max_position_weight = ACTIVE_CONFIG['max_position_weight']
         defensive_assets = []  # 无防守资产
-        mode_name = "🎰 期货赌狗版 (杠杆ETF + 商品期货 + 加密)"
+        mode_name = "💀 梭哈版 (3倍杠杆ETF + 期货 + 加密 | 目标10倍+)"
     elif STRATEGY_MODE == 'BALANCED':
         universe = FULL_UNIVERSE
         rebalance = ACTIVE_CONFIG['rebalance']
@@ -1814,8 +1815,8 @@ async def run_backtest_async(
     # Step 2: 初始化回测引擎
     print("\n" + "=" * 70)
     if STRATEGY_MODE == 'AGGRESSIVE':
-        print("步骤 2: 初始化回测引擎 (🎰 期货赌狗版 - 目标年化10倍+)")
-        print("  ⚠️  警告: 本金可能归零! 仅限小资金试错!")
+        print("步骤 2: 初始化回测引擎 (💀 梭哈版 - 目标年化10倍+)")
+        print("  ☠️  警告: 本金99%概率归零! 仅限赌狗小资金!")
     elif STRATEGY_MODE == 'BALANCED':
         print("步骤 2: 初始化回测引擎 (⚖️ 平衡版 - 目标夏普>1.0)")
         print("  ✅ 风险平价加权 + 换手控制 + 回撤保护")
