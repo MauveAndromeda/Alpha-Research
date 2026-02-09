@@ -169,7 +169,7 @@ BACKTEST_YEARS = 3
 # 策略模式选择
 # =============================================================================
 # 可选模式: 'AGGRESSIVE', 'BALANCED', 'CONSERVATIVE'
-STRATEGY_MODE = 'BALANCED'  # 默认使用平衡模式
+STRATEGY_MODE = 'AGGRESSIVE'  # 期货大佬版
 
 # 兼容性别名
 AGGRESSIVE_MODE = (STRATEGY_MODE == 'AGGRESSIVE')
