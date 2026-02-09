@@ -107,45 +107,43 @@ DEFENSIVE_ASSETS = [
 # =============================================================================
 
 AGGRESSIVE_UNIVERSE = [
-    # ========== 股指期货代理 (3倍杠杆ETF) ==========
-    'TQQQ',   # 3x 纳斯达克100 - 核心持仓
-    'SOXL',   # 3x 半导体 - AI浪潮
+    # ========== 股指期货代理 (3倍杠杆ETF) - 核心 ==========
+    'TQQQ',   # 3x 纳斯达克100 - 最佳流动性
+    'SOXL',   # 3x 半导体 - AI浪潮核心
     'UPRO',   # 3x 标普500
     'TNA',    # 3x 罗素2000小盘
-    'SPXL',   # 3x 标普500 (备选)
     'TECL',   # 3x 科技
     'FAS',    # 3x 金融
+    'LABU',   # 3x 生物科技 - 超高波动
 
-    # ========== 反向ETF (做空工具) ==========
-    'SQQQ',   # -3x 纳斯达克 (对冲/做空)
+    # ========== 反向ETF (做空/对冲) ==========
+    'SQQQ',   # -3x 纳斯达克
     'SPXU',   # -3x 标普500
     'SOXS',   # -3x 半导体
+    'TZA',    # -3x 罗素2000
 
-    # ========== 原油期货 (波动之王) ==========
-    'UCO',    # 2x 原油 - 高波动
-    'SCO',    # -2x 原油 (做空)
-    'USO',    # 1x 原油
-
-    # ========== 天然气期货 (极端波动) ==========
-    'BOIL',   # 2x 天然气 - 波动最大
-    'KOLD',   # -2x 天然气 (做空)
+    # ========== 天然气期货 (波动之王!) ==========
+    'BOIL',   # 2x 天然气 - 年化波动100%+
+    'KOLD',   # -2x 天然气
     'UNG',    # 1x 天然气
 
+    # ========== 原油期货 ==========
+    'UCO',    # 2x 原油
+    'SCO',    # -2x 原油
+    'USO',    # 1x 原油
+
     # ========== 贵金属期货 ==========
-    'NUGT',   # 2x 金矿 (黄金代理)
-    'DUST',   # -2x 金矿 (做空)
+    'NUGT',   # 2x 金矿
+    'DUST',   # -2x 金矿
+    'JNUG',   # 2x 初级金矿 - 超高波动
+    'JDST',   # -2x 初级金矿
     'AGQ',    # 2x 白银
-    'ZSL',    # -2x 白银 (做空)
+    'ZSL',    # -2x 白银
 
     # ========== 农产品期货 ==========
     'CORN',   # 玉米
     'WEAT',   # 小麦
     'SOYB',   # 大豆
-
-    # ========== 加密货币 (高波动) ==========
-    'BITO',   # 比特币期货ETF
-    'MSTR',   # MicroStrategy (比特币3倍代理)
-    'COIN',   # Coinbase
 ]
 
 # 完整股票池
@@ -178,15 +176,14 @@ BALANCED_MODE = (STRATEGY_MODE == 'BALANCED')
 AGGRESSIVE_CONFIG = {
     'rebalance': 'daily',            # 日度再平衡 - 每天追最强
     'target_holdings': 2,            # 只持2支 - 极限集中
-    'max_position_weight': 0.70,     # 单一仓位70% - 近乎梭哈
+    'max_position_weight': 0.80,     # 单一仓位80% - 梭哈
     'momentum_lookback': 3,          # 3日动量 - 极短线
     'use_leveraged_etfs': True,
-    'use_crypto': True,
+    'use_crypto': False,             # 不用加密货币
     'use_commodities': True,
     'factor_weights': {'quality': 0.0, 'momentum': 1.0, 'value': 0.0},  # 纯动量
     'trend_follow': True,
     'use_inverse_etfs': True,
-    'leverage_multiplier': 1.5,      # 模拟1.5倍杠杆
 }
 
 # =============================================================================
@@ -1764,7 +1761,7 @@ async def run_backtest_async(
         target_holdings = ACTIVE_CONFIG['target_holdings']
         max_position_weight = ACTIVE_CONFIG['max_position_weight']
         defensive_assets = []  # 无防守资产
-        mode_name = "💀 梭哈版 (3倍杠杆ETF + 期货 + 加密 | 目标10倍+)"
+        mode_name = "💀 梭哈版 (3倍杠杆ETF + 商品期货 | 目标10倍+)"
     elif STRATEGY_MODE == 'BALANCED':
         universe = FULL_UNIVERSE
         rebalance = ACTIVE_CONFIG['rebalance']
