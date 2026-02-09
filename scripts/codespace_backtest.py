@@ -103,52 +103,49 @@ DEFENSIVE_ASSETS = [
 ]
 
 # =============================================================================
-# 🚀 超激进版股票池 (杠杆ETF + 商品期货 + 加密) - 目标: 年化100%+
+# 🚀 超激进版股票池 (期货赌狗版 - 目标: 年化10倍+)
 # =============================================================================
 
 AGGRESSIVE_UNIVERSE = [
-    # ========== 3倍杠杆股票ETF (核心) ==========
-    'TQQQ',   # 3x 纳斯达克100 (最佳流动性)
-    'SOXL',   # 3x 半导体 (AI热潮)
-    'FNGU',   # 3x FANG+
-    'TECL',   # 3x 科技
+    # ========== 股指期货代理 (3倍杠杆ETF) ==========
+    'TQQQ',   # 3x 纳斯达克100 - 核心持仓
+    'SOXL',   # 3x 半导体 - AI浪潮
     'UPRO',   # 3x 标普500
+    'TNA',    # 3x 罗素2000小盘
+    'SPXL',   # 3x 标普500 (备选)
+    'TECL',   # 3x 科技
+    'FAS',    # 3x 金融
 
-    # ========== 商品期货ETF (IBKR支持, 10倍+杠杆) ==========
-    # 原油 - 最高波动, IBKR CL期货可20倍杠杆
-    'USO',    # 原油ETF (1x)
-    'UCO',    # 2x 原油
+    # ========== 反向ETF (做空工具) ==========
+    'SQQQ',   # -3x 纳斯达克 (对冲/做空)
+    'SPXU',   # -3x 标普500
+    'SOXS',   # -3x 半导体
+
+    # ========== 原油期货 (波动之王) ==========
+    'UCO',    # 2x 原油 - 高波动
     'SCO',    # -2x 原油 (做空)
+    'USO',    # 1x 原油
 
-    # 天然气 - 极高波动, IBKR NG期货可15倍杠杆
-    'UNG',    # 天然气ETF (1x)
-    'BOIL',   # 2x 天然气
+    # ========== 天然气期货 (极端波动) ==========
+    'BOIL',   # 2x 天然气 - 波动最大
     'KOLD',   # -2x 天然气 (做空)
+    'UNG',    # 1x 天然气
 
-    # 黄金/白银 - IBKR GC/SI期货可10倍杠杆
-    'GLD',    # 黄金ETF
-    'NUGT',   # 3x 金矿
-    'JNUG',   # 3x 初级金矿
-    'SLV',    # 白银ETF
+    # ========== 贵金属期货 ==========
+    'NUGT',   # 2x 金矿 (黄金代理)
+    'DUST',   # -2x 金矿 (做空)
     'AGQ',    # 2x 白银
+    'ZSL',    # -2x 白银 (做空)
 
-    # 农产品 - IBKR ZC/ZS期货可10倍杠杆
-    'CORN',   # 玉米ETF
-    'SOYB',   # 大豆ETF
-    'WEAT',   # 小麦ETF
+    # ========== 农产品期货 ==========
+    'CORN',   # 玉米
+    'WEAT',   # 小麦
+    'SOYB',   # 大豆
 
     # ========== 加密货币 (高波动) ==========
     'BITO',   # 比特币期货ETF
-    'MSTR',   # MicroStrategy (比特币代理, 杠杆效应)
+    'MSTR',   # MicroStrategy (比特币3倍代理)
     'COIN',   # Coinbase
-    'MARA',   # 比特币矿企
-    'RIOT',   # 比特币矿企
-
-    # ========== 高波动科技股 ==========
-    'NVDA',   # 英伟达 (AI龙头)
-    'TSLA',   # 特斯拉
-    'AMD',    # AMD
-    'SMCI',   # 超微电脑
 ]
 
 # 完整股票池
@@ -176,17 +173,19 @@ AGGRESSIVE_MODE = (STRATEGY_MODE == 'AGGRESSIVE')
 BALANCED_MODE = (STRATEGY_MODE == 'BALANCED')
 
 # =============================================================================
-# 🚀 激进版参数 (高风险高收益 - 不推荐实盘)
+# 🚀 期货赌狗版参数 (目标: 年化10倍+ / 可能归零)
 # =============================================================================
 AGGRESSIVE_CONFIG = {
-    'rebalance': 'weekly',           # 周度再平衡
-    'target_holdings': 5,            # 持仓5支
-    'max_position_weight': 0.35,     # 单一仓位最高35%
-    'momentum_lookback': 10,         # 10日动量
+    'rebalance': 'daily',            # 日度再平衡 - 追涨杀跌
+    'target_holdings': 3,            # 只持3支 - 极度集中
+    'max_position_weight': 0.50,     # 单一仓位50% - 重仓出击
+    'momentum_lookback': 5,          # 5日动量 - 超短线
     'use_leveraged_etfs': True,
     'use_crypto': True,
     'use_commodities': True,
-    'factor_weights': {'quality': 0.05, 'momentum': 0.90, 'value': 0.05},
+    'factor_weights': {'quality': 0.0, 'momentum': 1.0, 'value': 0.0},  # 纯动量
+    'trend_follow': True,            # 趋势跟踪
+    'use_inverse_etfs': True,        # 允许做空ETF
 }
 
 # =============================================================================
@@ -239,11 +238,12 @@ ACTIVE_CONFIG = get_active_config()
 if STRATEGY_MODE == 'AGGRESSIVE':
     DRAWDOWN_CONTROL = {
         'enabled': True,
-        'defensive_allocation': 0.0,     # 无防守资产
-        'max_equity_weight': 1.0,
-        'drawdown_threshold': 0.25,
-        'drawdown_scale_factor': 0.6,
-        'momentum_filter': True,
+        'defensive_allocation': 0.0,     # 无防守资产 - 全仓杠杆
+        'max_equity_weight': 1.0,        # 100% 风险资产
+        'drawdown_threshold': 0.40,      # 40% 回撤才触发 (更激进)
+        'drawdown_scale_factor': 0.7,    # 回撤时仍保持70%仓位
+        'momentum_filter': True,         # 保留动量过滤避免大崩盘
+        'allow_short': True,             # 允许做空
     }
 elif STRATEGY_MODE == 'BALANCED':
     DRAWDOWN_CONTROL = {
@@ -723,32 +723,36 @@ def calculate_momentum_score(market_data: pd.DataFrame, symbol: str, as_of_date:
     prices = symbol_data['close'].values
 
     if STRATEGY_MODE == 'AGGRESSIVE':
-        # 🚀 激进模式: 超短期动量 (10日 + 3日)
-        ret_10d = prices[-1] / prices[-10] - 1 if len(prices) >= 10 else 0
-        ret_3d = prices[-1] / prices[-3] - 1 if len(prices) >= 3 else 0
+        # 🚀 期货赌狗模式: 超短期动量 (5日 + 1日)
+        ret_5d = prices[-1] / prices[-5] - 1 if len(prices) >= 5 else 0
+        ret_1d = prices[-1] / prices[-2] - 1 if len(prices) >= 2 else 0
 
-        # 波动率调整
-        if len(prices) >= 20:
-            volatility = np.std(np.diff(prices[-20:]) / prices[-20:-1]) * np.sqrt(252)
+        # 波动率调整 - 高波动品种加分
+        if len(prices) >= 10:
+            volatility = np.std(np.diff(prices[-10:]) / prices[-10:-1]) * np.sqrt(252)
         else:
-            volatility = 0.3
+            volatility = 0.5
 
-        raw_momentum = ret_10d + ret_3d * 0.8
-        momentum = raw_momentum * (1 + min(volatility, 1.0))
+        # 纯趋势追踪: 5日动量 + 1日加速度
+        raw_momentum = ret_5d * 1.2 + ret_1d * 0.5
+        # 高波动品种大幅加成 (期货/杠杆ETF优势)
+        momentum = raw_momentum * (1 + min(volatility * 1.5, 2.0))
 
-        # 激进评分
-        if momentum > 0.15:
-            score = 0.99
-        elif momentum > 0.08:
-            score = 0.90
-        elif momentum > 0.03:
-            score = 0.75
+        # 超激进评分: 趋势越强分越高
+        if momentum > 0.20:
+            score = 1.0   # 爆发趋势
+        elif momentum > 0.10:
+            score = 0.95
+        elif momentum > 0.05:
+            score = 0.85
+        elif momentum > 0.02:
+            score = 0.70
         elif momentum > 0:
-            score = 0.60
+            score = 0.55
         elif momentum > -0.05:
-            score = 0.30
+            score = 0.20  # 弱势大幅减分
         else:
-            score = 0.05
+            score = 0.0   # 下跌直接清零
     else:
         # ⚖️ 平衡/保守模式: 经典 12-1 个月动量
         # 这是学术界公认的最佳动量因子定义 (Jegadeesh & Titman, 1993)
@@ -1759,7 +1763,7 @@ async def run_backtest_async(
         target_holdings = ACTIVE_CONFIG['target_holdings']
         max_position_weight = ACTIVE_CONFIG['max_position_weight']
         defensive_assets = []  # 无防守资产
-        mode_name = "🚀 激进版 (杠杆ETF + 加密货币)"
+        mode_name = "🎰 期货赌狗版 (杠杆ETF + 商品期货 + 加密)"
     elif STRATEGY_MODE == 'BALANCED':
         universe = FULL_UNIVERSE
         rebalance = ACTIVE_CONFIG['rebalance']
@@ -1810,8 +1814,8 @@ async def run_backtest_async(
     # Step 2: 初始化回测引擎
     print("\n" + "=" * 70)
     if STRATEGY_MODE == 'AGGRESSIVE':
-        print("步骤 2: 初始化回测引擎 (🚀 激进版 - 目标年化10倍+)")
-        print("  ⚠️  警告: 激进策略可能导致本金全部亏损!")
+        print("步骤 2: 初始化回测引擎 (🎰 期货赌狗版 - 目标年化10倍+)")
+        print("  ⚠️  警告: 本金可能归零! 仅限小资金试错!")
     elif STRATEGY_MODE == 'BALANCED':
         print("步骤 2: 初始化回测引擎 (⚖️ 平衡版 - 目标夏普>1.0)")
         print("  ✅ 风险平价加权 + 换手控制 + 回撤保护")
