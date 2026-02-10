@@ -169,17 +169,17 @@ AGGRESSIVE_MODE = (STRATEGY_MODE == 'AGGRESSIVE')
 BALANCED_MODE = (STRATEGY_MODE == 'BALANCED')
 
 # =============================================================================
-# 🎰 梭哈版参数 (目标: 年化10倍+ / 本金归零概率极高)
+# 🎰 赌命版参数 (目标: 年化100倍+ / 99.9%归零)
 # =============================================================================
 AGGRESSIVE_CONFIG = {
-    'rebalance': 'daily',            # 日度再平衡 - 每天追最强
-    'target_holdings': 2,            # 只持2支 - 极限集中
-    'max_position_weight': 0.80,     # 单一仓位80% - 梭哈
-    'momentum_lookback': 3,          # 3日动量 - 极短线
+    'rebalance': 'daily',            # 日度 - 每天追最强
+    'target_holdings': 1,            # 只持1支 - 全仓梭哈
+    'max_position_weight': 1.0,      # 100%单一仓位 - 赌命
+    'momentum_lookback': 1,          # 1日动量 - 追涨杀跌
     'use_leveraged_etfs': True,
-    'use_crypto': False,             # 不用加密货币
+    'use_crypto': False,
     'use_commodities': True,
-    'factor_weights': {'quality': 0.0, 'momentum': 1.0, 'value': 0.0},  # 纯动量
+    'factor_weights': {'quality': 0.0, 'momentum': 1.0, 'value': 0.0},
     'trend_follow': True,
     'use_inverse_etfs': True,
 }
