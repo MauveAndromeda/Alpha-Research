@@ -162,7 +162,7 @@ BACKTEST_YEARS = 3
 # 策略模式选择
 # =============================================================================
 # 可选模式: 'AGGRESSIVE', 'BALANCED', 'CONSERVATIVE'
-STRATEGY_MODE = 'AGGRESSIVE'  # 期货大佬版
+STRATEGY_MODE = 'BALANCED'  # 实盘部署版
 
 # 兼容性别名
 AGGRESSIVE_MODE = (STRATEGY_MODE == 'AGGRESSIVE')
@@ -185,21 +185,24 @@ AGGRESSIVE_CONFIG = {
 }
 
 # =============================================================================
-# ⚖️ 平衡版参数 (目标: 夏普>1.0, 回撤<15%, 换手率<200%)
+# ⚖️ 实盘部署版参数 (目标: 夏普>1.0, 回撤<20%, 换手率<300%)
 # =============================================================================
 BALANCED_CONFIG = {
     'rebalance': 'monthly',          # 月度再平衡 (降低换手)
-    'target_holdings': 15,           # 持仓15支 (匹配可用数据)
-    'max_position_weight': 0.10,     # 单一仓位最高10%
+    'target_holdings': 20,           # 持仓20支 (充分分散)
+    'max_position_weight': 0.08,     # 单一仓位最高8%
     'momentum_lookback': 252,        # 12-1个月动量 (经典动量因子)
     'use_leveraged_etfs': False,
     'use_crypto': False,
     'use_commodities': False,
-    'factor_weights': {'quality': 0.35, 'momentum': 0.40, 'value': 0.25},
+    'factor_weights': {'quality': 0.35, 'momentum': 0.35, 'value': 0.30},
     'use_risk_parity': True,         # 启用风险平价加权
-    'vol_target': 0.15,              # 目标年化波动率15%
-    'turnover_cap': 0.25,            # 单次换手上限25% (更严格)
-    'min_weight_change': 0.03,       # 忽略小于3%的权重变化
+    'vol_target': 0.12,              # 目标年化波动率12% (更保守)
+    'turnover_cap': 0.30,            # 单次换手上限30%
+    'min_weight_change': 0.02,       # 忽略小于2%的权重变化
+    # 实盘安全措施
+    'stop_loss': 0.15,               # 单只股票止损15%
+    'max_sector_weight': 0.30,       # 单一行业最高30%
 }
 
 # =============================================================================
@@ -244,11 +247,12 @@ if STRATEGY_MODE == 'AGGRESSIVE':
 elif STRATEGY_MODE == 'BALANCED':
     DRAWDOWN_CONTROL = {
         'enabled': True,
-        'defensive_allocation': 0.15,    # 15%防守资产 (减少频繁调整)
-        'max_equity_weight': 0.85,       # 85%股票
-        'drawdown_threshold': 0.15,      # 15%回撤触发减仓 (放宽阈值)
-        'drawdown_scale_factor': 0.80,   # 回撤时减至80%仓位 (更温和)
+        'defensive_allocation': 0.20,    # 20%防守资产 (IEF/GLD)
+        'max_equity_weight': 0.80,       # 80%股票
+        'drawdown_threshold': 0.12,      # 12%回撤触发减仓
+        'drawdown_scale_factor': 0.70,   # 回撤时减至70%仓位
         'momentum_filter': False,        # 禁用动量过滤 (减少换手)
+        'rebalance_defensive': True,     # 定期再平衡防守资产
     }
 else:  # CONSERVATIVE
     DRAWDOWN_CONTROL = {
