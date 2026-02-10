@@ -1842,7 +1842,9 @@ async def run_backtest_async(
     print(f"  单一仓位上限: {max_position_weight*100:.0f}%")
     if STRATEGY_MODE == 'AGGRESSIVE':
         print(f"  杠杆ETF: ✅")
-        print(f"  加密货币: ✅")
+        print(f"  商品期货: ✅")
+        print(f"  回撤控制: ❌ (禁用)")
+        print(f"  动量过滤: ❌ (禁用)")
     else:
         fw = ACTIVE_CONFIG.get('factor_weights', {})
         print(f"  因子权重: Q={fw.get('quality', 0):.0%} M={fw.get('momentum', 0):.0%} V={fw.get('value', 0):.0%}")
