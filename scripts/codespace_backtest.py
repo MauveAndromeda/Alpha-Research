@@ -1180,7 +1180,11 @@ class BacktestEngine:
         # 回撤控制: 如果回撤超过阈值，降低仓位
         equity_allocation = self.drawdown_control['max_equity_weight']
 
-        if self.drawdown_control['enabled']:
+        # 🎰 赌命模式: 完全跳过所有风控逻辑
+        if STRATEGY_MODE == 'AGGRESSIVE':
+            equity_allocation = 1.0  # 强制100%仓位
+            # 不做任何回撤控制和动量过滤
+        elif self.drawdown_control['enabled']:
             # 1. 回撤触发减仓
             if self._current_drawdown > self.drawdown_control['drawdown_threshold']:
                 equity_allocation *= self.drawdown_control['drawdown_scale_factor']
@@ -1759,7 +1763,7 @@ async def run_backtest_async(
         target_holdings = ACTIVE_CONFIG['target_holdings']
         max_position_weight = ACTIVE_CONFIG['max_position_weight']
         defensive_assets = []  # 无防守资产
-        mode_name = "💀 梭哈版 (3倍杠杆ETF + 商品期货 | 目标10倍+)"
+        mode_name = "💀 赌命版 (1支全仓100% | 油金钢杠杆ETF | 目标100倍+)"
     elif STRATEGY_MODE == 'BALANCED':
         universe = FULL_UNIVERSE
         rebalance = ACTIVE_CONFIG['rebalance']
@@ -1881,6 +1885,17 @@ async def run_backtest_async(
 
 
 def main():
+    # 🔍 强制验证配置 (调试用)
+    print("\n" + "=" * 70)
+    print("🔍 配置验证 (DRAWDOWN_CONTROL)")
+    print("=" * 70)
+    print(f"  STRATEGY_MODE: {STRATEGY_MODE}")
+    print(f"  回撤控制启用: {DRAWDOWN_CONTROL.get('enabled', 'N/A')}")
+    print(f"  回撤阈值: {DRAWDOWN_CONTROL.get('drawdown_threshold', 'N/A')}")
+    print(f"  动量过滤: {DRAWDOWN_CONTROL.get('momentum_filter', 'N/A')}")
+    print(f"  仓位缩减因子: {DRAWDOWN_CONTROL.get('drawdown_scale_factor', 'N/A')}")
+    print("=" * 70 + "\n")
+
     parser = argparse.ArgumentParser(
         description="Codespace 完整回测 - Alpha Research Trading System",
         formatter_class=argparse.RawDescriptionHelpFormatter,
