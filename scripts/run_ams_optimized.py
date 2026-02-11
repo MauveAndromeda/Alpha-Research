@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 DEFAULT_CAPITAL = 100_000
-RISK_FREE_RATE = 0.04  # 使用更高的无风险利率
+RISK_FREE_RATE = 0.02  # 使用历史平均无风险利率
 DEFAULT_SLIPPAGE_BPS = 5.0  # ETF滑点更低
 DEFAULT_COMMISSION = 0.0  # 大多数券商ETF免佣金
 
@@ -327,7 +327,7 @@ class MarketRegimeDetector:
     4. VIX < 15 = 平静 (正常持仓)
     """
 
-    def __init__(self, ma_period: int = 200, vix_panic: float = 30, vix_high: float = 25):
+    def __init__(self, ma_period: int = 200, vix_panic: float = 40, vix_high: float = 30):
         self.ma_period = ma_period
         self.vix_panic = vix_panic
         self.vix_high = vix_high
@@ -388,19 +388,19 @@ class MarketRegimeDetector:
             vix_regime = 'calm'
 
         # 计算股票敞口
-        # 核心逻辑: 趋势向下时大幅减仓
+        # 核心逻辑: 趋势向下时适度减仓，但不过度保守
         if trend == 'bear':
-            base_exposure = 0.2  # 熊市只保留20%敞口
+            base_exposure = 0.7  # 熊市保留70%敞口（趋势可能反转）
         else:
             base_exposure = 1.0
 
-        # VIX调整
+        # VIX调整 - 只在极端情况下减仓
         if vix_regime == 'panic':
-            vix_multiplier = 0.3
-        elif vix_regime == 'fear':
             vix_multiplier = 0.5
+        elif vix_regime == 'fear':
+            vix_multiplier = 0.7
         elif vix_regime == 'elevated':
-            vix_multiplier = 0.8
+            vix_multiplier = 0.9
         else:
             vix_multiplier = 1.0
 
@@ -445,16 +445,17 @@ class DrawdownController:
 
         dd = (self.hwm - nav) / self.hwm
 
-        if dd < 0.05:
+        # 更温和的回撤控制 - 避免过度减仓错过反弹
+        if dd < 0.08:
             return 1.0
-        elif dd < 0.10:
+        elif dd < 0.12:
+            return 0.85
+        elif dd < 0.18:
             return 0.7
-        elif dd < 0.15:
+        elif dd < 0.25:
             return 0.5
-        elif dd < 0.20:
-            return 0.25
         else:
-            return 0.1
+            return 0.3
 
     def reset(self):
         self.hwm = 0.0
@@ -702,7 +703,7 @@ class BacktestEngineOpt:
         # 初始化组件
         regime_detector = MarketRegimeDetector()
         dd_controller = DrawdownController()
-        signal_gen = SimpleSignalGenerator(min_momentum=-0.05)
+        signal_gen = SimpleSignalGenerator(min_momentum=-0.15)  # 更宽松的动量过滤
         portfolio_ctor = PortfolioConstructor()
 
         # 初始化状态
@@ -766,10 +767,11 @@ class BacktestEngineOpt:
                 # 应用敞口调整
                 target_weights = {k: v * total_exposure for k, v in target_weights.items()}
 
-                # 剩余转现金
+                # 剩余转现金 - 只在敞口受限时才放现金
                 cash_weight = 1.0 - sum(target_weights.values())
-                if cash_weight > 0.01 and CASH_PROXY in cur_prices:
-                    target_weights[CASH_PROXY] = cash_weight
+                if cash_weight > 0.15 and CASH_PROXY in cur_prices:
+                    # 只放一部分到现金，其余保持投资
+                    target_weights[CASH_PROXY] = cash_weight * 0.5
 
                 # 执行再平衡
                 trades, new_cash = self._rebalance(
