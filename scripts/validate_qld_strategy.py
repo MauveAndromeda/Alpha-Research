@@ -226,35 +226,27 @@ print(f"   换仓次数: {base_result['n_trades']}")
 # =============================================================================
 
 print("\n" + "=" * 80)
-print("📊 测试2: Walk-Forward 滚动验证 (3年训练 + 1年测试)")
+print("📊 测试2: 滚动窗口验证 (2年窗口)")
 print("=" * 80)
 
-monthly_prices = price_df.resample('ME').last()
-n_months = len(monthly_prices)
-train_months = 36  # 3年训练
-test_months = 12   # 1年测试
+# 使用2年滚动窗口进行验证
+window_days = 365 * 2 + 250  # 2年测试 + MA lookback
+step_days = 365  # 每年滚动一次
 
 wf_results = []
 print(f"\n{'测试期':^25} {'年化收益':>10} {'最大回撤':>10} {'夏普':>8}")
 print("-" * 60)
 
-for start in range(0, n_months - train_months - test_months, test_months):
-    train_end = start + train_months
-    test_end = train_end + test_months
+start_dates = pd.date_range(price_df.index[0], price_df.index[-1] - pd.Timedelta(days=window_days), freq='YS')
 
-    # 获取对应的日数据索引
-    train_start_date = monthly_prices.index[start]
-    test_start_date = monthly_prices.index[train_end]
-    test_end_date = monthly_prices.index[min(test_end, n_months - 1)]
+for start_date in start_dates:
+    end_date = start_date + pd.Timedelta(days=window_days)
+    test_df = price_df[(price_df.index >= start_date) & (price_df.index <= end_date)]
 
-    # 在训练期优化参数 (这里简化为固定参数)
-    # 在测试期评估
-    test_df = price_df[(price_df.index >= test_start_date) & (price_df.index <= test_end_date)]
-
-    if len(test_df) > 200:
+    if len(test_df) > 500:  # 需要足够数据
         r = backtest_qld_strategy(test_df)
-        if r:
-            period = f"{test_start_date.strftime('%Y-%m')} → {test_end_date.strftime('%Y-%m')}"
+        if r and r['n_months'] >= 12:
+            period = f"{start_date.strftime('%Y-%m')} → {end_date.strftime('%Y-%m')}"
             print(f"{period:<25} {r['ann_ret']*100:>+9.1f}% {r['max_dd']*100:>9.1f}% {r['sharpe']:>+7.2f}")
             wf_results.append(r)
 
@@ -262,9 +254,13 @@ if wf_results:
     avg_ret = np.mean([r['ann_ret'] for r in wf_results])
     avg_dd = np.mean([r['max_dd'] for r in wf_results])
     avg_sharpe = np.mean([r['sharpe'] for r in wf_results])
+    std_ret = np.std([r['ann_ret'] for r in wf_results])
 
     print(f"\n{'平均':<25} {avg_ret*100:>+9.1f}% {avg_dd*100:>9.1f}% {avg_sharpe:>+7.2f}")
-    print(f"\n✅ Walk-Forward验证: 策略在不同时期表现一致")
+    print(f"{'标准差':<25} {std_ret*100:>9.1f}%")
+    print(f"\n{'✅ 验证通过' if avg_sharpe > 0.5 else '⚠️ 收益波动较大'}: 平均夏普 {avg_sharpe:.2f}")
+else:
+    print("\n⚠️ 无足够数据进行滚动验证")
 
 # =============================================================================
 # 5. 市场周期分析
@@ -386,11 +382,12 @@ print(f"   结论: {'✅ 显著 (p < 0.05)' if p_sharpe < 0.05 else '❌ 不显�
 
 # 相对于SPY的超额收益检验
 spy_monthly = price_df['SPY'].resample('ME').last().pct_change().dropna()
-aligned_returns = monthly_returns.copy()
-aligned_spy = spy_monthly[aligned_returns.index].dropna()
-aligned_returns = aligned_returns[aligned_spy.index]
+# 使用相同长度的数据进行对比
+n_common = min(len(monthly_returns), len(spy_monthly))
+aligned_returns = monthly_returns.values[-n_common:]
+aligned_spy = spy_monthly.values[-n_common:]
 
-excess_returns = aligned_returns - aligned_spy.values[:len(aligned_returns)]
+excess_returns = aligned_returns - aligned_spy
 t_excess, p_excess = stats.ttest_1samp(excess_returns, 0)
 
 print(f"\n3. 超额收益检验 (vs SPY)")
