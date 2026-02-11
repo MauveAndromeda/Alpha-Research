@@ -414,11 +414,19 @@ for _ in range(n_bootstrap):
     sample = np.random.choice(monthly_returns.values, size=len(monthly_returns), replace=True)
     sample = pd.Series(sample)
 
-    ann_ret = (1 + sample.sum()) ** (12 / len(sample)) - 1
+    # Use geometric mean for proper compounding
+    cumulative = (1 + sample).cumprod()
+    total_return = cumulative.iloc[-1]
+
+    # Handle edge case where cumulative return goes negative
+    if total_return > 0:
+        ann_ret = total_return ** (12 / len(sample)) - 1
+    else:
+        ann_ret = -1.0  # Total loss
+
     ann_vol = sample.std() * np.sqrt(12)
     sharpe = (ann_ret - 0.03) / ann_vol if ann_vol > 0 else 0
 
-    cumulative = (1 + sample).cumprod()
     max_dd = ((cumulative - cumulative.expanding().max()) / cumulative.expanding().max()).min()
     calmar = ann_ret / abs(max_dd) if max_dd != 0 else 0
 
@@ -426,12 +434,20 @@ for _ in range(n_bootstrap):
     bootstrap_calmars.append(calmar)
     bootstrap_returns.append(ann_ret)
 
-print(f"\n年化收益 95% CI: [{np.percentile(bootstrap_returns, 2.5)*100:+.1f}%, {np.percentile(bootstrap_returns, 97.5)*100:+.1f}%]")
-print(f"夏普比率 95% CI: [{np.percentile(bootstrap_sharpes, 2.5):.2f}, {np.percentile(bootstrap_sharpes, 97.5):.2f}]")
-print(f"卡玛比率 95% CI: [{np.percentile(bootstrap_calmars, 2.5):.2f}, {np.percentile(bootstrap_calmars, 97.5):.2f}]")
+# Calculate percentiles
+ret_ci_low = np.percentile(bootstrap_returns, 2.5)
+ret_ci_high = np.percentile(bootstrap_returns, 97.5)
+sharpe_ci_low = np.percentile(bootstrap_sharpes, 2.5)
+sharpe_ci_high = np.percentile(bootstrap_sharpes, 97.5)
+calmar_ci_low = np.percentile(bootstrap_calmars, 2.5)
+calmar_ci_high = np.percentile(bootstrap_calmars, 97.5)
+
+print(f"\n年化收益 95% CI: [{ret_ci_low*100:+.1f}%, {ret_ci_high*100:+.1f}%]")
+print(f"夏普比率 95% CI: [{sharpe_ci_low:.2f}, {sharpe_ci_high:.2f}]")
+print(f"卡玛比率 95% CI: [{calmar_ci_low:.2f}, {calmar_ci_high:.2f}]")
 
 # 检查CI是否包含0
-if np.percentile(bootstrap_sharpes, 2.5) > 0:
+if sharpe_ci_low > 0:
     print(f"\n✅ 夏普比率95% CI不包含0，策略alpha稳健")
 else:
     print(f"\n⚠️ 夏普比率95% CI包含0，需谨慎")
@@ -503,7 +519,7 @@ print(f"""
 风险提示:
   - Monte Carlo 95%分位回撤: {np.percentile(max_drawdowns, 95)*100:.1f}%
   - 破产风险 (>50%回撤): {ruin_prob*100:.2f}%
-  - 95% CI下限收益: {np.percentile(bootstrap_returns, 2.5)*100:+.1f}%
+  - 95% CI下限收益: {ret_ci_low*100:+.1f}%
 
 结论: {'✅ 策略统计学上显著有效，可进入实盘准备' if p_value < 0.05 and p_sharpe < 0.05 else '⚠️ 需进一步验证'}
 """)
