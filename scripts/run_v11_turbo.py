@@ -77,7 +77,6 @@ MOM_3M_LOOKBACK = 63
 MOM_SKIP = 22                # skip most recent month (reversal effect)
 
 # Blending weights for momentum signals
-# Blending weights for momentum signals
 MOM_12M_WEIGHT = 0.40
 MOM_6M_WEIGHT = 0.35
 MOM_3M_WEIGHT = 0.25
